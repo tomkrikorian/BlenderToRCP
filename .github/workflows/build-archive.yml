@@ -1,0 +1,39 @@
+name: build-archive
+
+on:
+  workflow_dispatch:
+  release:
+    types: [published]
+
+permissions:
+  contents: write
+
+jobs:
+  build-archive:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          lfs: true
+
+      - name: Install build deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y rsync zip
+
+      - name: Build archive
+        run: bash scripts/build_archive.sh
+
+      - name: Upload archive
+        uses: actions/upload-artifact@v4
+        with:
+          name: BlenderToRCP
+          path: dist/BlenderToRCP.zip
+
+      - name: Upload release asset
+        if: github.event_name == 'release'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/BlenderToRCP.zip
+          overwrite_files: true

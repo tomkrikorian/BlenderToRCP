@@ -1,0 +1,3098 @@
+<?xml version="1.0"?>
+<!--
+Copyright © 2024 Apple Inc.
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated
+documentation files (the "Software"), to deal in the Software without restriction, including without limitation the
+rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit
+persons to whom the Software is furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all copies or substantial portions of the
+Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE
+WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
+COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR
+OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+-->
+<materialx version="1.38">
+
+    <!-- Half nodes
+        Basically wrap standard float nodes with half_to_float and float_to_half nodes
+    -->
+
+    <!--
+      Node: <clamp>
+      Clamp incoming value to a specified range of values.
+    -->
+    <nodegraph name="IM_clamp_half" nodedef="ND_clamp_half">
+        <convert name="convert_in" type="float">
+            <input name="in" type="half" interfacename="in"/>
+        </convert>
+        <convert name="convert_low" type="float">
+            <input name="in" type="half" interfacename="low"/>
+        </convert>
+        <convert name="convert_high" type="float">
+            <input name="in" type="half" interfacename="high"/>
+        </convert>
+        <clamp name="clamp" type="float">
+            <input name="in" type="float" nodename="convert_in"/>
+            <input name="low" type="float" nodename="convert_low"/>
+            <input name="high" type="float" nodename="convert_high"/>
+        </clamp>
+        <convert name="convert_out" type="half">
+            <input name="in" type="float" nodename="clamp"/>
+        </convert>
+        <output name="out" type="half" nodename="convert_out"/>
+    </nodegraph>
+    <nodegraph name="IM_clamp_half2" nodedef="ND_clamp_half2">
+        <convert name="convert_in" type="vector2">
+            <input name="in" type="half2" interfacename="in"/>
+        </convert>
+        <convert name="convert_low" type="vector2">
+            <input name="in" type="half2" interfacename="low"/>
+        </convert>
+        <convert name="convert_high" type="vector2">
+            <input name="in" type="half2" interfacename="high"/>
+        </convert>
+        <clamp name="clamp" type="vector2">
+            <input name="in" type="vector2" nodename="convert_in"/>
+            <input name="low" type="vector2" nodename="convert_low"/>
+            <input name="high" type="vector2" nodename="convert_high"/>
+        </clamp>
+        <convert name="convert_out" type="half2">
+            <input name="in" type="vector2" nodename="clamp"/>
+        </convert>
+        <output name="out" type="half2" nodename="convert_out"/>
+    </nodegraph>
+    <nodegraph name="IM_clamp_half3" nodedef="ND_clamp_half3">
+        <convert name="convert_in" type="vector3">
+            <input name="in" type="half3" interfacename="in"/>
+        </convert>
+        <convert name="convert_low" type="vector3">
+            <input name="in" type="half3" interfacename="low"/>
+        </convert>
+        <convert name="convert_high" type="vector3">
+            <input name="in" type="half3" interfacename="high"/>
+        </convert>
+        <clamp name="clamp" type="vector3">
+            <input name="in" type="vector3" nodename="convert_in"/>
+            <input name="low" type="vector3" nodename="convert_low"/>
+            <input name="high" type="vector3" nodename="convert_high"/>
+        </clamp>
+        <convert name="convert_out" type="half3">
+            <input name="in" type="vector3" nodename="clamp"/>
+        </convert>
+        <output name="out" type="half3" nodename="convert_out"/>
+    </nodegraph>
+    <nodegraph name="IM_clamp_half4" nodedef="ND_clamp_half4">
+        <convert name="convert_in" type="vector4">
+            <input name="in" type="half4" interfacename="in"/>
+        </convert>
+        <convert name="convert_low" type="vector4">
+            <input name="in" type="half4" interfacename="low"/>
+        </convert>
+        <convert name="convert_high" type="vector4">
+            <input name="in" type="half4" interfacename="high"/>
+        </convert>
+        <clamp name="clamp" type="vector4">
+            <input name="in" type="vector4" nodename="convert_in"/>
+            <input name="low" type="vector4" nodename="convert_low"/>
+            <input name="high" type="vector4" nodename="convert_high"/>
+        </clamp>
+        <convert name="convert_out" type="half4">
+            <input name="in" type="vector4" nodename="clamp"/>
+        </convert>
+        <output name="out" type="half4" nodename="convert_out"/>
+    </nodegraph>
+    <nodegraph name="IM_clamp_half2FA" nodedef="ND_clamp_half2FA">
+        <convert name="convert_in" type="vector2">
+            <input name="in" type="half2" interfacename="in"/>
+        </convert>
+        <clamp name="clamp" type="vector2">
+            <input name="in" type="vector2" nodename="convert_in"/>
+            <input name="low" type="float" interfacename="low"/>
+            <input name="high" type="float" interfacename="high"/>
+        </clamp>
+        <convert name="convert_out" type="half2">
+            <input name="in" type="vector2" nodename="clamp"/>
+        </convert>
+        <output name="out" type="half2" nodename="convert_out"/>
+    </nodegraph>
+    <nodegraph name="IM_clamp_half3FA" nodedef="ND_clamp_half3FA">
+        <convert name="convert_in" type="vector3">
+            <input name="in" type="half3" interfacename="in"/>
+        </convert>
+        <clamp name="clamp" type="vector3">
+            <input name="in" type="vector3" nodename="convert_in"/>
+            <input name="low" type="float" interfacename="low"/>
+            <input name="high" type="float" interfacename="high"/>
+        </clamp>
+        <convert name="convert_out" type="half3">
+            <input name="in" type="vector3" nodename="clamp"/>
+        </convert>
+        <output name="out" type="half3" nodename="convert_out"/>
+    </nodegraph>
+    <nodegraph name="IM_clamp_half4FA" nodedef="ND_clamp_half4FA">
+        <convert name="convert_in" type="vector4">
+            <input name="in" type="half4" interfacename="in"/>
+        </convert>
+        <clamp name="clamp" type="vector4">
+            <input name="in" type="vector4" nodename="convert_in"/>
+            <input name="low" type="float" interfacename="low"/>
+            <input name="high" type="float" interfacename="high"/>
+        </clamp>
+        <convert name="convert_out" type="half4">
+            <input name="in" type="vector4" nodename="clamp"/>
+        </convert>
+        <output name="out" type="half4" nodename="convert_out"/>
+    </nodegraph>
+
+    <!--
+      Node: <ramplr>
+      A left-to-right bilinear value ramp.
+    -->
+    <nodegraph name="IM_ramplr_half" nodedef="ND_ramplr_half">
+        <convert name="convert_valuel" type="float">
+            <input name="in" type="half" interfacename="valuel"/>
+        </convert>
+        <convert name="convert_valuer" type="float">
+            <input name="in" type="half" interfacename="valuer"/>
+        </convert>
+        <ramplr name="ramplr" type="float">
+            <input name="valuel" type="float" nodename="convert_valuel"/>
+            <input name="valuer" type="float" nodename="convert_valuer"/>
+            <input name="texcoord" type="vector2" interfacename="texcoord"/>
+        </ramplr>
+        <convert name="convert_out" type="half">
+            <input name="in" type="float" nodename="ramplr"/>
+        </convert>
+        <output name="out" type="half" nodename="convert_out"/>
+    </nodegraph>
+    <nodegraph name="IM_ramplr_half2" nodedef="ND_ramplr_half2">
+        <convert name="convert_valuel" type="vector2">
+            <input name="in" type="half2" interfacename="valuel"/>
+        </convert>
+        <convert name="convert_valuer" type="vector2">
+            <input name="in" type="half2" interfacename="valuer"/>
+        </convert>
+        <ramplr name="ramplr" type="vector2">
+            <input name="valuel" type="vector2" nodename="convert_valuel"/>
+            <input name="valuer" type="vector2" nodename="convert_valuer"/>
+            <input name="texcoord" type="vector2" interfacename="texcoord"/>
+        </ramplr>
+        <convert name="convert_out" type="half2">
+            <input name="in" type="vector2" nodename="ramplr"/>
+        </convert>
+        <output name="out" type="half2" nodename="convert_out"/>
+    </nodegraph>
+    <nodegraph name="IM_ramplr_half3" nodedef="ND_ramplr_half3">
+        <convert name="convert_valuel" type="vector3">
+            <input name="in" type="half3" interfacename="valuel"/>
+        </convert>
+        <convert name="convert_valuer" type="vector3">
+            <input name="in" type="half3" interfacename="valuer"/>
+        </convert>
+        <ramplr name="ramplr" type="vector3">
+            <input name="valuel" type="vector3" nodename="convert_valuel"/>
+            <input name="valuer" type="vector3" nodename="convert_valuer"/>
+            <input name="texcoord" type="vector2" interfacename="texcoord"/>
+        </ramplr>
+        <convert name="convert_out" type="half3">
+            <input name="in" type="vector3" nodename="ramplr"/>
+        </convert>
+        <output name="out" type="half3" nodename="convert_out"/>
+    </nodegraph>
+    <nodegraph name="IM_ramplr_half4" nodedef="ND_ramplr_half4">
+        <convert name="convert_valuel" type="vector4">
+            <input name="in" type="half4" interfacename="valuel"/>
+        </convert>
+        <convert name="convert_valuer" type="vector4">
+            <input name="in" type="half4" interfacename="valuer"/>
+        </convert>
+        <ramplr name="ramplr" type="vector4">
+            <input name="valuel" type="vector4" nodename="convert_valuel"/>
+            <input name="valuer" type="vector4" nodename="convert_valuer"/>
+            <input name="texcoord" type="vector2" interfacename="texcoord"/>
+        </ramplr>
+        <convert name="convert_out" type="half4">
+            <input name="in" type="vector4" nodename="ramplr"/>
+        </convert>
+        <output name="out" type="half4" nodename="convert_out"/>
+    </nodegraph>
+
+    <!--
+      Node: <ramptb>
+      A top-to-bottom bilinear value ramp.
+    -->
+    <nodegraph name="IM_ramptb_half" nodedef="ND_ramptb_half">
+        <convert name="convert_valuet" type="float">
+            <input name="in" type="half" interfacename="valuet"/>
+        </convert>
+        <convert name="convert_valueb" type="float">
+            <input name="in" type="half" interfacename="valueb"/>
+        </convert>
+        <ramptb name="ramptb" type="float">
+            <input name="valuet" type="float" nodename="convert_valuet"/>
+            <input name="valueb" type="float" nodename="convert_valueb"/>
+            <input name="texcoord" type="vector2" interfacename="texcoord"/>
+        </ramptb>
+        <convert name="convert_out" type="half">
+            <input name="in" type="float" nodename="ramptb"/>
+        </convert>
+        <output name="out" type="half" nodename="convert_out"/>
+    </nodegraph>
+    <nodegraph name="IM_ramptb_half2" nodedef="ND_ramptb_half2">
+        <convert name="convert_valuet" type="vector2">
+            <input name="in" type="half2" interfacename="valuet"/>
+        </convert>
+        <convert name="convert_valueb" type="vector2">
+            <input name="in" type="half2" interfacename="valueb"/>
+        </convert>
+        <ramptb name="ramptb" type="vector2">
+            <input name="valuet" type="vector2" nodename="convert_valuet"/>
+            <input name="valueb" type="vector2" nodename="convert_valueb"/>
+            <input name="texcoord" type="vector2" interfacename="texcoord"/>
+        </ramptb>
+        <convert name="convert_out" type="half2">
+            <input name="in" type="vector2" nodename="ramptb"/>
+        </convert>
+        <output name="out" type="half2" nodename="convert_out"/>
+    </nodegraph>
+    <nodegraph name="IM_ramptb_half3" nodedef="ND_ramptb_half3">
+        <convert name="convert_valuet" type="vector3">
+            <input name="in" type="half3" interfacename="valuet"/>
+        </convert>
+        <convert name="convert_valueb" type="vector3">
+            <input name="in" type="half3" interfacename="valueb"/>
+        </convert>
+        <ramptb name="ramptb" type="vector3">
+            <input name="valuet" type="vector3" nodename="convert_valuet"/>
+            <input name="valueb" type="vector3" nodename="convert_valueb"/>
+            <input name="texcoord" type="vector2" interfacename="texcoord"/>
+        </ramptb>
+        <convert name="convert_out" type="half3">
+            <input name="in" type="vector3" nodename="ramptb"/>
+        </convert>
+        <output name="out" type="half3" nodename="convert_out"/>
+    </nodegraph>
+    <nodegraph name="IM_ramptb_half4" nodedef="ND_ramptb_half4">
+        <convert name="convert_valuet" type="vector4">
+            <input name="in" type="half4" interfacename="valuet"/>
+        </convert>
+        <convert name="convert_valueb" type="vector4">
+            <input name="in" type="half4" interfacename="valueb"/>
+        </convert>
+        <ramptb name="ramptb" type="vector4">
+            <input name="valuet" type="vector4" nodename="convert_valuet"/>
+            <input name="valueb" type="vector4" nodename="convert_valueb"/>
+            <input name="texcoord" type="vector2" interfacename="texcoord"/>
+        </ramptb>
+        <convert name="convert_out" type="half4">
+            <input name="in" type="vector4" nodename="ramptb"/>
+        </convert>
+        <output name="out" type="half4" nodename="convert_out"/>
+    </nodegraph>
+
+    <!--
+      Node: <splitlr>
+      A left-right split matte, split at a specified u value.
+    -->
+    <nodegraph name="IM_splitlr_half" nodedef="ND_splitlr_half">
+        <convert name="convert_valuel" type="float">
+            <input name="in" type="half" interfacename="valuel"/>
+        </convert>
+        <convert name="convert_valuer" type="float">
+            <input name="in" type="half" interfacename="valuer"/>
+        </convert>
+        <splitlr name="splitlr" type="float">
+            <input name="valuel" type="float" nodename="convert_valuel"/>
+            <input name="valuer" type="float" nodename="convert_valuer"/>
+            <input name="center" type="float" interfacename="center"/>
+            <input name="texcoord" type="vector2" interfacename="texcoord"/>
+        </splitlr>
+        <convert name="convert_out" type="half">
+            <input name="in" type="float" nodename="splitlr"/>
+        </convert>
+        <output name="out" type="half" nodename="convert_out"/>
+    </nodegraph>
+
+    <!--
+      Node: <splittb>
+      A top-bottom split matte, split at a specified v value.
+    -->
+    <nodegraph name="IM_splitlr_half" nodedef="ND_splitlr_half">
+        <convert name="convert_valuet" type="float">
+            <input name="in" type="half" interfacename="valuet"/>
+        </convert>
+        <convert name="convert_valueb" type="float">
+            <input name="in" type="half" interfacename="valueb"/>
+        </convert>
+        <splittb name="splittb" type="float">
+            <input name="valuet" type="float" nodename="convert_valuet"/>
+            <input name="valueb" type="float" nodename="convert_valueb"/>
+            <input name="center" type="float" interfacename="center"/>
+            <input name="texcoord" type="vector2" interfacename="texcoord"/>
+        </splittb>
+        <convert name="convert_out" type="half">
+            <input name="in" type="float" nodename="splittb"/>
+        </convert>
+        <output name="out" type="half" nodename="convert_out"/>
+    </nodegraph>
+    <nodegraph name="IM_splittb_half2" nodedef="ND_splittb_half2">
+        <convert name="convert_valuet" type="vector2">
+            <input name="in" type="half2" interfacename="valuet"/>
+        </convert>
+        <convert name="convert_valueb" type="vector2">
+            <input name="in" type="half2" interfacename="valueb"/>
+        </convert>
+        <splittb name="splittb" type="vector2">
+            <input name="valuet" type="vector2" nodename="convert_valuet"/>
+            <input name="valueb" type="vector2" nodename="convert_valueb"/>
+            <input name="center" type="float" interfacename="center"/>
+            <input name="texcoord" type="vector2" interfacename="texcoord"/>
+        </splittb>
+        <convert name="convert_out" type="half2">
+            <input name="in" type="vector2" nodename="splittb"/>
+        </convert>
+        <output name="out" type="half2" nodename="convert_out"/>
+    </nodegraph>
+    <nodegraph name="IM_splittb_half3" nodedef="ND_splittb_half3">
+        <convert name="convert_valuet" type="vector3">
+            <input name="in" type="half3" interfacename="valuet"/>
+        </convert>
+        <convert name="convert_valueb" type="vector3">
+            <input name="in" type="half3" interfacename="valueb"/>
+        </convert>
+        <splittb name="splittb" type="vector3">
+            <input name="valuet" type="vector3" nodename="convert_valuet"/>
+            <input name="valueb" type="vector3" nodename="convert_valueb"/>
+            <input name="center" type="float" interfacename="center"/>
+            <input name="texcoord" type="vector2" interfacename="texcoord"/>
+        </splittb>
+        <convert name="convert_out" type="half3">
+            <input name="in" type="vector3" nodename="splittb"/>
+        </convert>
+        <output name="out" type="half3" nodename="convert_out"/>
+    </nodegraph>
+    <nodegraph name="IM_splittb_half4" nodedef="ND_splittb_half4">
+        <convert name="convert_valuet" type="vector4">
+            <input name="in" type="half4" interfacename="valuet"/>
+        </convert>
+        <convert name="convert_valueb" type="vector4">
+            <input name="in" type="half4" interfacename="valueb"/>
+        </convert>
+        <splittb name="splittb" type="vector4">
+            <input name="valuet" type="vector4" nodename="convert_valuet"/>
+            <input name="valueb" type="vector4" nodename="convert_valueb"/>
+            <input name="center" type="float" interfacename="center"/>
+            <input name="texcoord" type="vector2" interfacename="texcoord"/>
+        </splittb>
+        <convert name="convert_out" type="half4">
+            <input name="in" type="vector4" nodename="splittb"/>
+        </convert>
+        <output name="out" type="half4" nodename="convert_out"/>
+    </nodegraph>
+
+    <!--
+      Node: <add>
+      Add "in2" value/stream to the incoming half/color/vector/matrix.
+    -->
+    <nodegraph name="IM_add_half" nodedef="ND_add_half">
+        <convert name="convert_in1" type="float">
+            <input name="in" type="half" interfacename="in1"/>
+        </convert>
+        <convert name="convert_in2" type="float">
+            <input name="in" type="half" interfacename="in2"/>
+        </convert>
+        <add name="add" type="float">
+            <input name="in1" type="float" nodename="convert_in1"/>
+            <input name="in2" type="float" nodename="convert_in2"/>
+        </add>
+        <convert name="convert_out" type="half">
+            <input name="in" type="float" nodename="add"/>
+        </convert>
+        <output name="out" type="half" nodename="convert_out"/>
+    </nodegraph>
+
+    <!--
+      Node: <subtract>
+      Subtract "in2" value/stream from the incoming half/float/color/vector/matrix.
+    -->
+    <nodegraph name="IM_subtract_half" nodedef="ND_subtract_half">
+        <convert name="convert_in1" type="float">
+            <input name="in" type="half" interfacename="in1"/>
+        </convert>
+        <convert name="convert_in2" type="float">
+            <input name="in" type="half" interfacename="in2"/>
+        </convert>
+        <subtract name="subtract" type="float">
+            <input name="in1" type="float" nodename="convert_in1"/>
+            <input name="in2" type="float" nodename="convert_in2"/>
+        </subtract>
+        <convert name="convert_out" type="half">
+            <input name="in" type="float" nodename="subtract"/>
+        </convert>
+        <output name="out" type="half" nodename="convert_out"/>
+    </nodegraph>
+
+    <!--
+      Node: <multiply>
+      Multiply the incoming half/float/color/vector by the "in2" value/stream, or multiply
+        two matrices.
+    -->
+    <nodegraph name="IM_multiply_half" nodedef="ND_multiply_half">
+        <convert name="convert_in1" type="float">
+            <input name="in" type="half" interfacename="in1"/>
+        </convert>
+        <convert name="convert_in2" type="float">
+            <input name="in" type="half" interfacename="in2"/>
+        </convert>
+        <multiply name="multiply" type="float">
+            <input name="in1" type="float" nodename="convert_in1"/>
+            <input name="in2" type="float" nodename="convert_in2"/>
+        </multiply>
+        <convert name="convert_out" type="half">
+            <input name="in" type="float" nodename="multiply"/>
+        </convert>
+        <output name="out" type="half" nodename="convert_out"/>
+    </nodegraph>
+
+    <!--
+      Node: <divide>
+      Divide an incoming half/float/color/vector by the "in2" value/stream; dividing a channel
+        value by 0 results in floating-point "NaN".  Or, multiply one matrix by the
+        inverse of a second matrix.
+    -->
+    <nodegraph name="IM_divide_half" nodedef="ND_divide_half">
+        <convert name="convert_in1" type="float">
+            <input name="in" type="half" interfacename="in1"/>
+        </convert>
+        <convert name="convert_in2" type="float">
+            <input name="in" type="half" interfacename="in2"/>
+        </convert>
+        <divide name="divide" type="float">
+            <input name="in1" type="float" nodename="convert_in1"/>
+            <input name="in2" type="float" nodename="convert_in2"/>
+        </divide>
+        <convert name="convert_out" type="half">
+            <input name="in" type="float" nodename="divide"/>
+        </convert>
+        <output name="out" type="half" nodename="convert_out"/>
+    </nodegraph>
+    <nodegraph name="IM_divide_half2" nodedef="ND_divide_half2">
+        <convert name="convert_in1" type="vector2">
+            <input name="in" type="half2" interfacename="in1"/>
+        </convert>
+        <convert name="convert_in2" type="vector2">
+            <input name="in" type="half2" interfacename="in2"/>
+        </convert>
+        <divide name="divide" type="vector2">
+            <input name="in1" type="vector2" nodename="convert_in1"/>
+            <input name="in2" type="vector2" nodename="convert_in2"/>
+        </divide>
+        <convert name="convert_out" type="half2">
+            <input name="in" type="vector2" nodename="divide"/>
+        </convert>
+        <output name="out" type="half2" nodename="convert_out"/>
+    </nodegraph>
+    <nodegraph name="IM_divide_half3" nodedef="ND_divide_half3">
+        <convert name="convert_in1" type="vector3">
+            <input name="in" type="half3" interfacename="in1"/>
+        </convert>
+        <convert name="convert_in2" type="vector3">
+            <input name="in" type="half3" interfacename="in2"/>
+        </convert>
+        <divide name="divide" type="vector3">
+            <input name="in1" type="vector3" nodename="convert_in1"/>
+            <input name="in2" type="vector3" nodename="convert_in2"/>
+        </divide>
+        <convert name="convert_out" type="half3">
+            <input name="in" type="vector3" nodename="divide"/>
+        </convert>
+        <output name="out" type="half3" nodename="convert_out"/>
+    </nodegraph>
+    <nodegraph name="IM_divide_half4" nodedef="ND_divide_half4">
+        <convert name="convert_in1" type="vector4">
+            <input name="in" type="half4" interfacename="in1"/>
+        </convert>
+        <convert name="convert_in2" type="vector4">
+            <input name="in" type="half4" interfacename="in2"/>
+        </convert>
+        <divide name="divide" type="vector4">
+            <input name="in1" type="vector4" nodename="convert_in1"/>
+            <input name="in2" type="vector4" nodename="convert_in2"/>
+        </divide>
+        <convert name="convert_out" type="half4">
+            <input name="in" type="vector4" nodename="divide"/>
+        </convert>
+        <output name="out" type="half4" nodename="convert_out"/>
+    </nodegraph>
+
+    <!--
+      Node: <modulo>
+      The remaining fraction after dividing one half/float/color/vector by another and
+        subtracting the integer portion. The modula "in2" value cannot be 0.
+    -->
+    <nodegraph name="IM_modulo_half" nodedef="ND_modulo_half">
+        <convert name="convert_in1" type="float">
+            <input name="in" type="half" interfacename="in1"/>
+        </convert>
+        <convert name="convert_in2" type="float">
+            <input name="in" type="half" interfacename="in2"/>
+        </convert>
+        <modulo name="modulo" type="float">
+            <input name="in1" type="float" nodename="convert_in1"/>
+            <input name="in2" type="float" nodename="convert_in2"/>
+        </modulo>
+        <convert name="convert_out" type="half">
+            <input name="in" type="float" nodename="modulo"/>
+        </convert>
+        <output name="out" type="half" nodename="convert_out"/>
+    </nodegraph>
+
+    <!--
+      Node: <absval>
+      The per-channel absolute value of the incoming half/float/color/vector.
+    -->
+    <nodegraph name="IM_absval_half" nodedef="ND_absval_half">
+        <convert name="convert_in" type="float">
+            <input name="in" type="half" interfacename="in"/>
+        </convert>
+        <absval name="absval" type="float">
+            <input name="in" type="float" nodename="convert_in"/>
+        </absval>
+        <convert name="convert_out" type="half">
+            <input name="in" type="float" nodename="absval"/>
+        </convert>
+        <output name="out" type="half" nodename="convert_out"/>
+    </nodegraph>
+    <nodegraph name="IM_absval_half2" nodedef="ND_absval_half2">
+        <convert name="convert_in" type="vector2">
+            <input name="in" type="half2" interfacename="in"/>
+        </convert>
+        <absval name="absval" type="vector2">
+            <input name="in" type="vector2" nodename="convert_in"/>
+        </absval>
+        <convert name="convert_out" type="half2">
+            <input name="in" type="vector2" nodename="absval"/>
+        </convert>
+        <output name="out" type="half2" nodename="convert_out"/>
+    </nodegraph>
+    <nodegraph name="IM_absval_half3" nodedef="ND_absval_half3">
+        <convert name="convert_in" type="vector3">
+            <input name="in" type="half3" interfacename="in"/>
+        </convert>
+        <absval name="absval" type="vector3">
+            <input name="in" type="vector3" nodename="convert_in"/>
+        </absval>
+        <convert name="convert_out" type="half3">
+            <input name="in" type="vector3" nodename="absval"/>
+        </convert>
+        <output name="out" type="half3" nodename="convert_out"/>
+    </nodegraph>
+    <nodegraph name="IM_absval_half4" nodedef="ND_absval_half4">
+        <convert name="convert_in" type="vector4">
+            <input name="in" type="half4" interfacename="in"/>
+        </convert>
+        <absval name="absval" type="vector4">
+            <input name="in" type="vector4" nodename="convert_in"/>
+        </absval>
+        <convert name="convert_out" type="half4">
+            <input name="in" type="vector4" nodename="absval"/>
+        </convert>
+        <output name="out" type="half4" nodename="convert_out"/>
+    </nodegraph>
+    <!--
+      Node: <floor>
+      Find the nearest integer less than or equal to the parameter.
+    -->
+    <nodegraph name="IM_floor_half" nodedef="ND_floor_half">
+        <convert name="convert_in" type="float">
+            <input name="in" type="half" interfacename="in"/>
+        </convert>
+        <floor name="floor" type="float">
+            <input name="in" type="float" nodename="convert_in"/>
+        </floor>
+        <convert name="convert_out" type="half">
+            <input name="in" type="float" nodename="floor"/>
+        </convert>
+        <output name="out" type="half" nodename="convert_out"/>
+    </nodegraph>
+    <nodegraph name="IM_floor_half2" nodedef="ND_floor_half2">
+        <convert name="convert_in" type="vector2">
+            <input name="in" type="half2" interfacename="in"/>
+        </convert>
+        <floor name="floor" type="vector2">
+            <input name="in" type="vector2" nodename="convert_in"/>
+        </floor>
+        <convert name="convert_out" type="half2">
+            <input name="in" type="vector2" nodename="floor"/>
+        </convert>
+        <output name="out" type="half2" nodename="convert_out"/>
+    </nodegraph>
+    <nodegraph name="IM_floor_half3" nodedef="ND_floor_half3">
+        <convert name="convert_in" type="vector3">
+            <input name="in" type="half3" interfacename="in"/>
+        </convert>
+        <floor name="floor" type="vector3">
+            <input name="in" type="vector3" nodename="convert_in"/>
+        </floor>
+        <convert name="convert_out" type="half3">
+            <input name="in" type="vector3" nodename="floor"/>
+        </convert>
+        <output name="out" type="half3" nodename="convert_out"/>
+    </nodegraph>
+    <nodegraph name="IM_floor_half4" nodedef="ND_floor_half4">
+        <convert name="convert_in" type="vector4">
+            <input name="in" type="half4" interfacename="in"/>
+        </convert>
+        <floor name="floor" type="vector4">
+            <input name="in" type="vector4" nodename="convert_in"/>
+        </floor>
+        <convert name="convert_out" type="half4">
+            <input name="in" type="vector4" nodename="floor"/>
+        </convert>
+        <output name="out" type="half4" nodename="convert_out"/>
+    </nodegraph>
+
+    <!--
+      Node: <ceil>
+      Find the nearest integer greater than or equal to the parameter.
+    -->
+    <nodegraph name="IM_ceil_half" nodedef="ND_ceil_half">
+        <convert name="convert_in" type="float">
+            <input name="in" type="half" interfacename="in"/>
+        </convert>
+        <ceil name="ceil" type="float">
+            <input name="in" type="float" nodename="convert_in"/>
+        </ceil>
+        <convert name="convert_out" type="half">
+            <input name="in" type="float" nodename="ceil"/>
+        </convert>
+        <output name="out" type="half" nodename="convert_out"/>
+    </nodegraph>
+    <nodegraph name="IM_ceil_half2" nodedef="ND_ceil_half2">
+        <convert name="convert_in" type="vector2">
+            <input name="in" type="half2" interfacename="in"/>
+        </convert>
+        <ceil name="ceil" type="vector2">
+            <input name="in" type="vector2" nodename="convert_in"/>
+        </ceil>
+        <convert name="convert_out" type="half2">
+            <input name="in" type="vector2" nodename="ceil"/>
+        </convert>
+        <output name="out" type="half2" nodename="convert_out"/>
+    </nodegraph>
+    <nodegraph name="IM_ceil_half3" nodedef="ND_ceil_half3">
+        <convert name="convert_in" type="vector3">
+            <input name="in" type="half3" interfacename="in"/>
+        </convert>
+        <ceil name="ceil" type="vector3">
+            <input name="in" type="vector3" nodename="convert_in"/>
+        </ceil>
+        <convert name="convert_out" type="half3">
+            <input name="in" type="vector3" nodename="ceil"/>
+        </convert>
+        <output name="out" type="half3" nodename="convert_out"/>
+    </nodegraph>
+    <nodegraph name="IM_ceil_half4" nodedef="ND_ceil_half4">
+        <convert name="convert_in" type="vector4">
+            <input name="in" type="half4" interfacename="in"/>
+        </convert>
+        <ceil name="ceil" type="vector4">
+            <input name="in" type="vector4" nodename="convert_in"/>
+        </ceil>
+        <convert name="convert_out" type="half4">
+            <input name="in" type="vector4" nodename="ceil"/>
+        </convert>
+        <output name="out" type="half4" nodename="convert_out"/>
+    </nodegraph>
+
+    <!--
+      Node: <round>
+      Round incoming half/float/color/vector values.
+    -->
+    <nodegraph name="IM_round_half" nodedef="ND_round_half">
+        <convert name="convert_in" type="float">
+            <input name="in" type="half" interfacename="in"/>
+        </convert>
+        <round name="round" type="float">
+            <input name="in" type="float" nodename="convert_in"/>
+        </round>
+        <convert name="convert_out" type="half">
+            <input name="in" type="float" nodename="round"/>
+        </convert>
+        <output name="out" type="half" nodename="convert_out"/>
+    </nodegraph>
+    <nodegraph name="IM_round_half2" nodedef="ND_round_half2">
+        <convert name="convert_in" type="vector2">
+            <input name="in" type="half2" interfacename="in"/>
+        </convert>
+        <round name="round" type="vector2">
+            <input name="in" type="vector2" nodename="convert_in"/>
+        </round>
+        <convert name="convert_out" type="half2">
+            <input name="in" type="vector2" nodename="round"/>
+        </convert>
+        <output name="out" type="half2" nodename="convert_out"/>
+    </nodegraph>
+    <nodegraph name="IM_round_half3" nodedef="ND_round_half3">
+        <convert name="convert_in" type="vector3">
+            <input name="in" type="half3" interfacename="in"/>
+        </convert>
+        <round name="round" type="vector3">
+            <input name="in" type="vector3" nodename="convert_in"/>
+        </round>
+        <convert name="convert_out" type="half3">
+            <input name="in" type="vector3" nodename="round"/>
+        </convert>
+        <output name="out" type="half3" nodename="convert_out"/>
+    </nodegraph>
+    <nodegraph name="IM_round_half4" nodedef="ND_round_half4">
+        <convert name="convert_in" type="vector4">
+            <input name="in" type="half4" interfacename="in"/>
+        </convert>
+        <round name="round" type="vector4">
+            <input name="in" type="vector4" nodename="convert_in"/>
+        </round>
+        <convert name="convert_out" type="half4">
+            <input name="in" type="vector4" nodename="round"/>
+        </convert>
+        <output name="out" type="half4" nodename="convert_out"/>
+    </nodegraph>
+
+    <!--
+      Node: <power>
+      Raise incoming half/float/color/vector values to the "in2" power.
+    -->
+    <nodegraph name="IM_power_half" nodedef="ND_power_half">
+        <convert name="convert_in1" type="float">
+            <input name="in" type="half" interfacename="in1"/>
+        </convert>
+        <convert name="convert_in2" type="float">
+            <input name="in" type="half" interfacename="in2"/>
+        </convert>
+        <power name="power" type="float">
+            <input name="in1" type="float" nodename="convert_in1"/>
+            <input name="in2" type="float" nodename="convert_in2"/>
+        </power>
+        <convert name="convert_out" type="half">
+            <input name="in" type="float" nodename="power"/>
+        </convert>
+        <output name="out" type="half" nodename="convert_out"/>
+    </nodegraph>
+    <nodegraph name="IM_power_half2" nodedef="ND_power_half2">
+        <convert name="convert_in1" type="vector2">
+            <input name="in" type="half2" interfacename="in1"/>
+        </convert>
+        <convert name="convert_in2" type="vector2">
+            <input name="in" type="half2" interfacename="in2"/>
+        </convert>
+        <power name="power" type="vector2">
+            <input name="in1" type="vector2" nodename="convert_in1"/>
+            <input name="in2" type="vector2" nodename="convert_in2"/>
+        </power>
+        <convert name="convert_out" type="half2">
+            <input name="in" type="vector2" nodename="power"/>
+        </convert>
+        <output name="out" type="half2" nodename="convert_out"/>
+    </nodegraph>
+    <nodegraph name="IM_power_half3" nodedef="ND_power_half3">
+        <convert name="convert_in1" type="vector3">
+            <input name="in" type="half3" interfacename="in1"/>
+        </convert>
+        <convert name="convert_in2" type="vector3">
+            <input name="in" type="half3" interfacename="in2"/>
+        </convert>
+        <power name="power" type="vector3">
+            <input name="in1" type="vector3" nodename="convert_in1"/>
+            <input name="in2" type="vector3" nodename="convert_in2"/>
+        </power>
+        <convert name="convert_out" type="half3">
+            <input name="in" type="vector3" nodename="power"/>
+        </convert>
+        <output name="out" type="half3" nodename="convert_out"/>
+    </nodegraph>
+    <nodegraph name="IM_power_half4" nodedef="ND_power_half4">
+        <convert name="convert_in1" type="vector4">
+            <input name="in" type="half4" interfacename="in1"/>
+        </convert>
+        <convert name="convert_in2" type="vector4">
+            <input name="in" type="half4" interfacename="in2"/>
+        </convert>
+        <power name="power" type="vector4">
+            <input name="in1" type="vector4" nodename="convert_in1"/>
+            <input name="in2" type="vector4" nodename="convert_in2"/>
+        </power>
+        <convert name="convert_out" type="half4">
+            <input name="in" type="vector4" nodename="power"/>
+        </convert>
+        <output name="out" type="half4" nodename="convert_out"/>
+    </nodegraph>
+
+    <!--
+      Node: <safepower> Supplemental Node
+      Raise incoming half/float/color/vector values to the "in2" power.
+
+      // SG_IMPLEMENTATION ND_safepower_half
+      SGEXPORT half ND_safepower_half(half in1, half in2)
+      {
+        return metal::sign(in1) * metal::pow(metal::abs(in1), in2);
+      }
+    -->
+    <nodegraph name="IM_safepower_half" nodedef="ND_safepower_half">
+        <convert name="convert_in1" type="float">
+            <input name="in" type="half" interfacename="in1"/>
+        </convert>
+        <convert name="convert_in2" type="float">
+            <input name="in" type="half" interfacename="in2"/>
+        </convert>
+        <safepower name="safepower" type="float">
+            <input name="in1" type="float" nodename="convert_in1"/>
+            <input name="in2" type="float" nodename="convert_in2"/>
+        </safepower>
+        <convert name="convert_out" type="half">
+            <input name="in" type="float" nodename="safepower"/>
+        </convert>
+        <output name="out" type="half" nodename="convert_out"/>
+    </nodegraph>
+
+    <!--
+      Nodes: <sin>, <cos>, <tan>, <asin>, <acos>, <atan2>
+      Standard trigonometric functions; angles are given in radians.
+    -->
+    <nodegraph name="IM_sin_half" nodedef="ND_sin_half">
+        <convert name="convert_in" type="float">
+            <input name="in" type="half" interfacename="in"/>
+        </convert>
+        <sin name="sin" type="float">
+            <input name="in" type="float" nodename="convert_in"/>
+        </sin>
+        <convert name="convert_out" type="half">
+            <input name="in" type="float" nodename="sin"/>
+        </convert>
+        <output name="out" type="half" nodename="convert_out"/>
+    </nodegraph>
+    <nodegraph name="IM_cos_half" nodedef="ND_cos_half">
+        <convert name="convert_in" type="float">
+            <input name="in" type="half" interfacename="in"/>
+        </convert>
+        <cos name="cos" type="float">
+            <input name="in" type="float" nodename="convert_in"/>
+        </cos>
+        <convert name="convert_out" type="half">
+            <input name="in" type="float" nodename="cos"/>
+        </convert>
+        <output name="out" type="half" nodename="convert_out"/>
+    </nodegraph>
+    <nodegraph name="IM_tan_half" nodedef="ND_tan_half">
+        <convert name="convert_in" type="float">
+            <input name="in" type="half" interfacename="in"/>
+        </convert>
+        <tan name="tan" type="float">
+            <input name="in" type="float" nodename="convert_in"/>
+        </tan>
+        <convert name="convert_out" type="half">
+            <input name="in" type="float" nodename="tan"/>
+        </convert>
+        <output name="out" type="half" nodename="convert_out"/>
+    </nodegraph>
+    <nodegraph name="IM_asin_half" nodedef="ND_asin_half">
+        <convert name="convert_in" type="float">
+            <input name="in" type="half" interfacename="in"/>
+        </convert>
+        <asin name="asin" type="float">
+            <input name="in" type="float" nodename="convert_in"/>
+        </asin>
+        <convert name="convert_out" type="half">
+            <input name="in" type="float" nodename="asin"/>
+        </convert>
+        <output name="out" type="half" nodename="convert_out"/>
+    </nodegraph>
+    <nodegraph name="IM_acos_half" nodedef="ND_acos_half">
+        <convert name="convert_in" type="float">
+            <input name="in" type="half" interfacename="in"/>
+        </convert>
+        <acos name="acos" type="float">
+            <input name="in" type="float" nodename="convert_in"/>
+        </acos>
+        <convert name="convert_out" type="half">
+            <input name="in" type="float" nodename="acos"/>
+        </convert>
+        <output name="out" type="half" nodename="convert_out"/>
+    </nodegraph>
+    <nodegraph name="IM_atan2_half" nodedef="ND_atan2_half">
+        <convert name="convert_iny" type="float">
+            <input name="in" type="half" interfacename="iny"/>
+        </convert>
+        <convert name="convert_inx" type="float">
+            <input name="in" type="half" interfacename="inx"/>
+        </convert>
+        <atan2 name="atan2" type="float">
+            <input name="in2" type="float" nodename="convert_iny"/>
+            <input name="in1" type="float" nodename="convert_inx"/>
+        </atan2>
+        <convert name="convert_out" type="half">
+            <input name="in" type="float" nodename="atan2"/>
+        </convert>
+        <output name="out" type="half" nodename="convert_out"/>
+    </nodegraph>
+
+    <nodegraph name="IM_sin_half2" nodedef="ND_sin_half2">
+        <convert name="convert_in" type="vector2">
+            <input name="in" type="half2" interfacename="in"/>
+        </convert>
+        <sin name="sin" type="vector2">
+            <input name="in" type="vector2" nodename="convert_in"/>
+        </sin>
+        <convert name="convert_out" type="half2">
+            <input name="in" type="vector2" nodename="sin"/>
+        </convert>
+        <output name="out" type="half2" nodename="convert_out"/>
+    </nodegraph>
+    <nodegraph name="IM_cos_half2" nodedef="ND_cos_half2">
+        <convert name="convert_in" type="vector2">
+            <input name="in" type="half2" interfacename="in"/>
+        </convert>
+        <cos name="cos" type="vector2">
+            <input name="in" type="vector2" nodename="convert_in"/>
+        </cos>
+        <convert name="convert_out" type="half2">
+            <input name="in" type="vector2" nodename="cos"/>
+        </convert>
+        <output name="out" type="half2" nodename="convert_out"/>
+    </nodegraph>
+    <nodegraph name="IM_tan_half2" nodedef="ND_tan_half2">
+        <convert name="convert_in" type="vector2">
+            <input name="in" type="half2" interfacename="in"/>
+        </convert>
+        <tan name="tan" type="vector2">
+            <input name="in" type="vector2" nodename="convert_in"/>
+        </tan>
+        <convert name="convert_out" type="half2">
+            <input name="in" type="vector2" nodename="tan"/>
+        </convert>
+        <output name="out" type="half2" nodename="convert_out"/>
+    </nodegraph>
+    <nodegraph name="IM_asin_half2" nodedef="ND_asin_half2">
+        <convert name="convert_in" type="vector2">
+            <input name="in" type="half2" interfacename="in"/>
+        </convert>
+        <asin name="asin" type="vector2">
+            <input name="in" type="vector2" nodename="convert_in"/>
+        </asin>
+        <convert name="convert_out" type="half2">
+            <input name="in" type="vector2" nodename="asin"/>
+        </convert>
+        <output name="out" type="half2" nodename="convert_out"/>
+    </nodegraph>
+    <nodegraph name="IM_acos_half2" nodedef="ND_acos_half2">
+        <convert name="convert_in" type="vector2">
+            <input name="in" type="half2" interfacename="in"/>
+        </convert>
+        <acos name="acos" type="vector2">
+            <input name="in" type="vector2" nodename="convert_in"/>
+        </acos>
+        <convert name="convert_out" type="half2">
+            <input name="in" type="vector2" nodename="acos"/>
+        </convert>
+        <output name="out" type="half2" nodename="convert_out"/>
+    </nodegraph>
+    <nodegraph name="IM_atan2_half2" nodedef="ND_atan2_half2">
+        <convert name="convert_iny" type="vector2">
+            <input name="in" type="half2" interfacename="iny"/>
+        </convert>
+        <convert name="convert_inx" type="vector2">
+            <input name="in" type="half2" interfacename="inx"/>
+        </convert>
+        <atan2 name="atan2" type="vector2">
+            <input name="in2" type="vector2" nodename="convert_iny"/>
+            <input name="in1" type="vector2" nodename="convert_inx"/>
+        </atan2>
+        <convert name="convert_out" type="half2">
+            <input name="in" type="vector2" nodename="atan2"/>
+        </convert>
+        <output name="out" type="half2" nodename="convert_out"/>
+    </nodegraph>
+
+    <nodegraph name="IM_sin_half3" nodedef="ND_sin_half3">
+        <convert name="convert_in" type="vector3">
+            <input name="in" type="half3" interfacename="in"/>
+        </convert>
+        <sin name="sin" type="vector3">
+            <input name="in" type="vector3" nodename="convert_in"/>
+        </sin>
+        <convert name="convert_out" type="half3">
+            <input name="in" type="vector3" nodename="sin"/>
+        </convert>
+        <output name="out" type="half3" nodename="convert_out"/>
+    </nodegraph>
+    <nodegraph name="IM_cos_half3" nodedef="ND_cos_half3">
+        <convert name="convert_in" type="vector3">
+            <input name="in" type="half3" interfacename="in"/>
+        </convert>
+        <cos name="cos" type="vector3">
+            <input name="in" type="vector3" nodename="convert_in"/>
+        </cos>
+        <convert name="convert_out" type="half3">
+            <input name="in" type="vector3" nodename="cos"/>
+        </convert>
+        <output name="out" type="half3" nodename="convert_out"/>
+    </nodegraph>
+    <nodegraph name="IM_tan_half3" nodedef="ND_tan_half3">
+        <convert name="convert_in" type="vector3">
+            <input name="in" type="half3" interfacename="in"/>
+        </convert>
+        <tan name="tan" type="vector3">
+            <input name="in" type="vector3" nodename="convert_in"/>
+        </tan>
+        <convert name="convert_out" type="half3">
+            <input name="in" type="vector3" nodename="tan"/>
+        </convert>
+        <output name="out" type="half3" nodename="convert_out"/>
+    </nodegraph>
+    <nodegraph name="IM_asin_half3" nodedef="ND_asin_half3">
+        <convert name="convert_in" type="vector3">
+            <input name="in" type="half3" interfacename="in"/>
+        </convert>
+        <asin name="asin" type="vector3">
+            <input name="in" type="vector3" nodename="convert_in"/>
+        </asin>
+        <convert name="convert_out" type="half3">
+            <input name="in" type="vector3" nodename="asin"/>
+        </convert>
+        <output name="out" type="half3" nodename="convert_out"/>
+    </nodegraph>
+    <nodegraph name="IM_acos_half3" nodedef="ND_acos_half3">
+        <convert name="convert_in" type="vector3">
+            <input name="in" type="half3" interfacename="in"/>
+        </convert>
+        <acos name="acos" type="vector3">
+            <input name="in" type="vector3" nodename="convert_in"/>
+        </acos>
+        <convert name="convert_out" type="half3">
+            <input name="in" type="vector3" nodename="acos"/>
+        </convert>
+        <output name="out" type="half3" nodename="convert_out"/>
+    </nodegraph>
+    <nodegraph name="IM_atan2_half3" nodedef="ND_atan2_half3">
+        <convert name="convert_iny" type="vector3">
+            <input name="in" type="half3" interfacename="iny"/>
+        </convert>
+        <convert name="convert_inx" type="vector3">
+            <input name="in" type="half3" interfacename="inx"/>
+        </convert>
+        <atan2 name="atan2" type="vector3">
+            <input name="in2" type="vector3" nodename="convert_iny"/>
+            <input name="in1" type="vector3" nodename="convert_inx"/>
+        </atan2>
+        <convert name="convert_out" type="half3">
+            <input name="in" type="vector3" nodename="atan2"/>
+        </convert>
+        <output name="out" type="half3" nodename="convert_out"/>
+    </nodegraph>
+
+    <nodegraph name="IM_sin_half4" nodedef="ND_sin_half4">
+        <convert name="convert_in" type="vector4">
+            <input name="in" type="half4" interfacename="in"/>
+        </convert>
+        <sin name="sin" type="vector4">
+            <input name="in" type="vector4" nodename="convert_in"/>
+        </sin>
+        <convert name="convert_out" type="half4">
+            <input name="in" type="vector4" nodename="sin"/>
+        </convert>
+        <output name="out" type="half4" nodename="convert_out"/>
+    </nodegraph>
+    <nodegraph name="IM_cos_half4" nodedef="ND_cos_half4">
+        <convert name="convert_in" type="vector4">
+            <input name="in" type="half4" interfacename="in"/>
+        </convert>
+        <cos name="cos" type="vector4">
+            <input name="in" type="vector4" nodename="convert_in"/>
+        </cos>
+        <convert name="convert_out" type="half4">
+            <input name="in" type="vector4" nodename="cos"/>
+        </convert>
+        <output name="out" type="half4" nodename="convert_out"/>
+    </nodegraph>
+    <nodegraph name="IM_tan_half4" nodedef="ND_tan_half4">
+        <convert name="convert_in" type="vector4">
+            <input name="in" type="half4" interfacename="in"/>
+        </convert>
+        <tan name="tan" type="vector4">
+            <input name="in" type="vector4" nodename="convert_in"/>
+        </tan>
+        <convert name="convert_out" type="half4">
+            <input name="in" type="vector4" nodename="tan"/>
+        </convert>
+        <output name="out" type="half4" nodename="convert_out"/>
+    </nodegraph>
+    <nodegraph name="IM_asin_half4" nodedef="ND_asin_half4">
+        <convert name="convert_in" type="vector4">
+            <input name="in" type="half4" interfacename="in"/>
+        </convert>
+        <asin name="asin" type="vector4">
+            <input name="in" type="vector4" nodename="convert_in"/>
+        </asin>
+        <convert name="convert_out" type="half4">
+            <input name="in" type="vector4" nodename="asin"/>
+        </convert>
+        <output name="out" type="half4" nodename="convert_out"/>
+    </nodegraph>
+    <nodegraph name="IM_acos_half4" nodedef="ND_acos_half4">
+        <convert name="convert_in" type="vector4">
+            <input name="in" type="half4" interfacename="in"/>
+        </convert>
+        <acos name="acos" type="vector4">
+            <input name="in" type="vector4" nodename="convert_in"/>
+        </acos>
+        <convert name="convert_out" type="half4">
+            <input name="in" type="vector4" nodename="acos"/>
+        </convert>
+        <output name="out" type="half4" nodename="convert_out"/>
+    </nodegraph>
+    <nodegraph name="IM_atan2_half4" nodedef="ND_atan2_half4">
+        <convert name="convert_iny" type="vector4">
+            <input name="in" type="half4" interfacename="iny"/>
+        </convert>
+        <convert name="convert_inx" type="vector4">
+            <input name="in" type="half4" interfacename="inx"/>
+        </convert>
+        <atan2 name="atan2" type="vector4">
+            <input name="in2" type="vector4" nodename="convert_iny"/>
+            <input name="in1" type="vector4" nodename="convert_inx"/>
+        </atan2>
+        <convert name="convert_out" type="half4">
+            <input name="in" type="vector4" nodename="atan2"/>
+        </convert>
+        <output name="out" type="half4" nodename="convert_out"/>
+    </nodegraph>
+
+    <!--
+      Nodes: <sqrt>, <ln>, <exp>
+      Standard math functions.
+    -->
+    <nodegraph name="IM_sqrt_half" nodedef="ND_sqrt_half">
+        <convert name="convert_in" type="float">
+            <input name="in" type="half" interfacename="in"/>
+        </convert>
+        <sqrt name="sqrt" type="float">
+            <input name="in" type="float" nodename="convert_in"/>
+        </sqrt>
+        <convert name="convert_out" type="half">
+            <input name="in" type="float" nodename="sqrt"/>
+        </convert>
+        <output name="out" type="half" nodename="convert_out"/>
+    </nodegraph>
+    <nodegraph name="IM_ln_half" nodedef="ND_ln_half">
+        <convert name="convert_in" type="float">
+            <input name="in" type="half" interfacename="in"/>
+        </convert>
+        <ln name="ln" type="float">
+            <input name="in" type="float" nodename="convert_in"/>
+        </ln>
+        <convert name="convert_out" type="half">
+            <input name="in" type="float" nodename="ln"/>
+        </convert>
+        <output name="out" type="half" nodename="convert_out"/>
+    </nodegraph>
+    <nodegraph name="IM_exp_half" nodedef="ND_exp_half">
+        <convert name="convert_in" type="float">
+            <input name="in" type="half" interfacename="in"/>
+        </convert>
+        <exp name="exp" type="float">
+            <input name="in" type="float" nodename="convert_in"/>
+        </exp>
+        <convert name="convert_out" type="half">
+            <input name="in" type="float" nodename="exp"/>
+        </convert>
+        <output name="out" type="half" nodename="convert_out"/>
+    </nodegraph>
+
+    <nodegraph name="IM_sqrt_half2" nodedef="ND_sqrt_half2">
+        <convert name="convert_in" type="vector2">
+            <input name="in" type="half2" interfacename="in"/>
+        </convert>
+        <sqrt name="sqrt" type="vector2">
+            <input name="in" type="vector2" nodename="convert_in"/>
+        </sqrt>
+        <convert name="convert_out" type="half2">
+            <input name="in" type="vector2" nodename="sqrt"/>
+        </convert>
+        <output name="out" type="half2" nodename="convert_out"/>
+    </nodegraph>
+    <nodegraph name="IM_ln_half2" nodedef="ND_ln_half2">
+        <convert name="convert_in" type="vector2">
+            <input name="in" type="half2" interfacename="in"/>
+        </convert>
+        <ln name="ln" type="vector2">
+            <input name="in" type="vector2" nodename="convert_in"/>
+        </ln>
+        <convert name="convert_out" type="half2">
+            <input name="in" type="vector2" nodename="ln"/>
+        </convert>
+        <output name="out" type="half2" nodename="convert_out"/>
+    </nodegraph>
+    <nodegraph name="IM_exp_half2" nodedef="ND_exp_half2">
+        <convert name="convert_in" type="vector2">
+            <input name="in" type="half2" interfacename="in"/>
+        </convert>
+        <exp name="exp" type="vector2">
+            <input name="in" type="vector2" nodename="convert_in"/>
+        </exp>
+        <convert name="convert_out" type="half2">
+            <input name="in" type="vector2" nodename="exp"/>
+        </convert>
+        <output name="out" type="half2" nodename="convert_out"/>
+    </nodegraph>
+
+    <nodegraph name="IM_sqrt_half3" nodedef="ND_sqrt_half3">
+        <convert name="convert_in" type="vector3">
+            <input name="in" type="half3" interfacename="in"/>
+        </convert>
+        <sqrt name="sqrt" type="vector3">
+            <input name="in" type="vector3" nodename="convert_in"/>
+        </sqrt>
+        <convert name="convert_out" type="half3">
+            <input name="in" type="vector3" nodename="sqrt"/>
+        </convert>
+        <output name="out" type="half3" nodename="convert_out"/>
+    </nodegraph>
+    <nodegraph name="IM_ln_half3" nodedef="ND_ln_half3">
+        <convert name="convert_in" type="vector3">
+            <input name="in" type="half3" interfacename="in"/>
+        </convert>
+        <ln name="ln" type="vector3">
+            <input name="in" type="vector3" nodename="convert_in"/>
+        </ln>
+        <convert name="convert_out" type="half3">
+            <input name="in" type="vector3" nodename="ln"/>
+        </convert>
+        <output name="out" type="half3" nodename="convert_out"/>
+    </nodegraph>
+    <nodegraph name="IM_exp_half3" nodedef="ND_exp_half3">
+        <convert name="convert_in" type="vector3">
+            <input name="in" type="half3" interfacename="in"/>
+        </convert>
+        <exp name="exp" type="vector3">
+            <input name="in" type="vector3" nodename="convert_in"/>
+        </exp>
+        <convert name="convert_out" type="half3">
+            <input name="in" type="vector3" nodename="exp"/>
+        </convert>
+        <output name="out" type="half3" nodename="convert_out"/>
+    </nodegraph>
+
+    <nodegraph name="IM_sqrt_half4" nodedef="ND_sqrt_half4">
+        <convert name="convert_in" type="vector4">
+            <input name="in" type="half4" interfacename="in"/>
+        </convert>
+        <sqrt name="sqrt" type="vector4">
+            <input name="in" type="vector4" nodename="convert_in"/>
+        </sqrt>
+        <convert name="convert_out" type="half4">
+            <input name="in" type="vector4" nodename="sqrt"/>
+        </convert>
+        <output name="out" type="half4" nodename="convert_out"/>
+    </nodegraph>
+    <nodegraph name="IM_ln_half4" nodedef="ND_ln_half4">
+        <convert name="convert_in" type="vector4">
+            <input name="in" type="half4" interfacename="in"/>
+        </convert>
+        <ln name="ln" type="vector4">
+            <input name="in" type="vector4" nodename="convert_in"/>
+        </ln>
+        <convert name="convert_out" type="half4">
+            <input name="in" type="vector4" nodename="ln"/>
+        </convert>
+        <output name="out" type="half4" nodename="convert_out"/>
+    </nodegraph>
+    <nodegraph name="IM_exp_half4" nodedef="ND_exp_half4">
+        <convert name="convert_in" type="vector4">
+            <input name="in" type="half4" interfacename="in"/>
+        </convert>
+        <exp name="exp" type="vector4">
+            <input name="in" type="vector4" nodename="convert_in"/>
+        </exp>
+        <convert name="convert_out" type="half4">
+            <input name="in" type="vector4" nodename="exp"/>
+        </convert>
+        <output name="out" type="half4" nodename="convert_out"/>
+    </nodegraph>
+
+    <!--
+      Node: <sign>
+      Sign of eachinput channel: -1, 0 or +1
+    -->
+    <nodegraph name="IM_sign_half" nodedef="ND_sign_half">
+        <convert name="convert_in" type="float">
+            <input name="in" type="half" interfacename="in"/>
+        </convert>
+        <sign name="sign" type="float">
+            <input name="in" type="float" nodename="convert_in"/>
+        </sign>
+        <convert name="convert_out" type="half">
+            <input name="in" type="float" nodename="sign"/>
+        </convert>
+        <output name="out" type="half" nodename="convert_out"/>
+    </nodegraph>
+    <nodegraph name="IM_sign_half2" nodedef="ND_sign_half2">
+        <convert name="convert_in" type="vector2">
+            <input name="in" type="half2" interfacename="in"/>
+        </convert>
+        <sign name="sign" type="vector2">
+            <input name="in" type="vector2" nodename="convert_in"/>
+        </sign>
+        <convert name="convert_out" type="half2">
+            <input name="in" type="vector2" nodename="sign"/>
+        </convert>
+        <output name="out" type="half2" nodename="convert_out"/>
+    </nodegraph>
+    <nodegraph name="IM_sign_half3" nodedef="ND_sign_half3">
+        <convert name="convert_in" type="vector3">
+            <input name="in" type="half3" interfacename="in"/>
+        </convert>
+        <sign name="sign" type="vector3">
+            <input name="in" type="vector3" nodename="convert_in"/>
+        </sign>
+        <convert name="convert_out" type="half3">
+            <input name="in" type="vector3" nodename="sign"/>
+        </convert>
+        <output name="out" type="half3" nodename="convert_out"/>
+    </nodegraph>
+    <nodegraph name="Im_sign_half4" nodedef="ND_sign_half4">
+        <convert name="convert_in" type="vector4">
+            <input name="in" type="half4" interfacename="in"/>
+        </convert>
+        <sign name="sign" type="vector4">
+            <input name="in" type="vector4" nodename="convert_in"/>
+        </sign>
+        <convert name="convert_out" type="half4">
+            <input name="in" type="vector4" nodename="sign"/>
+        </convert>
+        <output name="out" type="half4" nodename="convert_out"/>
+    </nodegraph>
+
+    <!--
+      Node: <min>
+      Select the minimum among incoming values.
+    -->
+    <nodegraph name="IM_min_half" nodedef="ND_min_half">
+        <convert name="convert_in1" type="float">
+            <input name="in" type="half" interfacename="in1"/>
+        </convert>
+        <convert name="convert_in2" type="float">
+            <input name="in" type="half" interfacename="in2"/>
+        </convert>
+        <min name="min" type="float">
+            <input name="in1" type="float" nodename="convert_in1"/>
+            <input name="in2" type="float" nodename="convert_in2"/>
+        </min>
+        <convert name="convert_out" type="half">
+            <input name="in" type="float" nodename="min"/>
+        </convert>
+        <output name="out" type="half" nodename="convert_out"/>
+    </nodegraph>
+    <nodegraph name="IM_min_half2" nodedef="ND_min_half2">
+        <convert name="convert_in1" type="vector2">
+            <input name="in" type="half2" interfacename="in1"/>
+        </convert>
+        <convert name="convert_in2" type="vector2">
+            <input name="in" type="half2" interfacename="in2"/>
+        </convert>
+        <min name="min" type="vector2">
+            <input name="in1" type="vector2" nodename="convert_in1"/>
+            <input name="in2" type="vector2" nodename="convert_in2"/>
+        </min>
+        <convert name="convert_out" type="half2">
+            <input name="in" type="vector2" nodename="min"/>
+        </convert>
+        <output name="out" type="half2" nodename="convert_out"/>
+    </nodegraph>
+    <nodegraph name="IM_min_half3" nodedef="ND_min_half3">
+        <convert name="convert_in1" type="vector3">
+            <input name="in" type="half3" interfacename="in1"/>
+        </convert>
+        <convert name="convert_in2" type="vector3">
+            <input name="in" type="half3" interfacename="in2"/>
+        </convert>
+        <min name="min" type="vector3">
+            <input name="in1" type="vector3" nodename="convert_in1"/>
+            <input name="in2" type="vector3" nodename="convert_in2"/>
+        </min>
+        <convert name="convert_out" type="half3">
+            <input name="in" type="vector3" nodename="min"/>
+        </convert>
+        <output name="out" type="half3" nodename="convert_out"/>
+    </nodegraph>
+    <nodegraph name="IM_min_half4" nodedef="ND_min_half4">
+        <convert name="convert_in1" type="vector4">
+            <input name="in" type="half4" interfacename="in1"/>
+        </convert>
+        <convert name="convert_in2" type="vector4">
+            <input name="in" type="half4" interfacename="in2"/>
+        </convert>
+        <min name="min" type="vector4">
+            <input name="in1" type="vector4" nodename="convert_in1"/>
+            <input name="in2" type="vector4" nodename="convert_in2"/>
+        </min>
+        <convert name="convert_out" type="half4">
+            <input name="in" type="vector4" nodename="min"/>
+        </convert>
+        <output name="out" type="half4" nodename="convert_out"/>
+    </nodegraph>
+    <nodegraph name="IM_min_half2FA" nodedef="ND_min_half2FA">
+        <convert name="convert_in1" type="vector2">
+            <input name="in" type="half2" interfacename="in1"/>
+        </convert>
+        <min name="min" type="vector2">
+            <input name="in1" type="vector2" nodename="convert_in1"/>
+            <input name="in2" type="float" interfacename="in2"/>
+        </min>
+        <convert name="convert_out" type="half2">
+            <input name="in" type="vector2" nodename="min"/>
+        </convert>
+        <output name="out" type="half2" nodename="convert_out"/>
+    </nodegraph>
+    <nodegraph name="IM_min_half3FA" nodedef="ND_min_half3FA">
+        <convert name="convert_in1" type="vector3">
+            <input name="in" type="half3" interfacename="in1"/>
+        </convert>
+        <min name="min" type="vector3">
+            <input name="in1" type="vector3" nodename="convert_in1"/>
+            <input name="in2" type="float" interfacename="in2"/>
+        </min>
+        <convert name="convert_out" type="half3">
+            <input name="in" type="vector3" nodename="min"/>
+        </convert>
+        <output name="out" type="half3" nodename="convert_out"/>
+    </nodegraph>
+    <nodegraph name="IM_min_half4FA" nodedef="ND_min_half4FA">
+        <convert name="convert_in1" type="vector4">
+            <input name="in" type="half4" interfacename="in1"/>
+        </convert>
+        <min name="min" type="vector4">
+            <input name="in1" type="vector4" nodename="convert_in1"/>
+            <input name="in2" type="float" interfacename="in2"/>
+        </min>
+        <convert name="convert_out" type="half4">
+            <input name="in" type="vector4" nodename="min"/>
+        </convert>
+        <output name="out" type="half4" nodename="convert_out"/>
+    </nodegraph>
+
+    <!--
+      Node: <max>
+      Select the maximum among incoming values.
+    -->
+    <nodegraph name="IM_max_half" nodedef="ND_max_half">
+        <convert name="convert_in1" type="float">
+            <input name="in" type="half" interfacename="in1"/>
+        </convert>
+        <convert name="convert_in2" type="float">
+            <input name="in" type="half" interfacename="in2"/>
+        </convert>
+        <max name="max" type="float">
+            <input name="in1" type="float" nodename="convert_in1"/>
+            <input name="in2" type="float" nodename="convert_in2"/>
+        </max>
+        <convert name="convert_out" type="half">
+            <input name="in" type="float" nodename="max"/>
+        </convert>
+        <output name="out" type="half" nodename="convert_out"/>
+    </nodegraph>
+    <nodegraph name="IM_max_half2" nodedef="ND_max_half2">
+        <convert name="convert_in1" type="vector2">
+            <input name="in" type="half2" interfacename="in1"/>
+        </convert>
+        <convert name="convert_in2" type="vector2">
+            <input name="in" type="half2" interfacename="in2"/>
+        </convert>
+        <max name="max" type="vector2">
+            <input name="in1" type="vector2" nodename="convert_in1"/>
+            <input name="in2" type="vector2" nodename="convert_in2"/>
+        </max>
+        <convert name="convert_out" type="half2">
+            <input name="in" type="vector2" nodename="max"/>
+        </convert>
+        <output name="out" type="half2" nodename="convert_out"/>
+    </nodegraph>
+    <nodegraph name="IM_max_half3" nodedef="ND_max_half3">
+        <convert name="convert_in1" type="vector3">
+            <input name="in" type="half3" interfacename="in1"/>
+        </convert>
+        <convert name="convert_in2" type="vector3">
+            <input name="in" type="half3" interfacename="in2"/>
+        </convert>
+        <max name="max" type="vector3">
+            <input name="in1" type="vector3" nodename="convert_in1"/>
+            <input name="in2" type="vector3" nodename="convert_in2"/>
+        </max>
+        <convert name="convert_out" type="half3">
+            <input name="in" type="vector3" nodename="max"/>
+        </convert>
+        <output name="out" type="half3" nodename="convert_out"/>
+    </nodegraph>
+    <nodegraph name="IM_max_half4" nodedef="ND_max_half4">
+        <convert name="convert_in1" type="vector4">
+            <input name="in" type="half4" interfacename="in1"/>
+        </convert>
+        <convert name="convert_in2" type="vector4">
+            <input name="in" type="half4" interfacename="in2"/>
+        </convert>
+        <max name="max" type="vector4">
+            <input name="in1" type="vector4" nodename="convert_in1"/>
+            <input name="in2" type="vector4" nodename="convert_in2"/>
+        </max>
+        <convert name="convert_out" type="half4">
+            <input name="in" type="vector4" nodename="max"/>
+        </convert>
+        <output name="out" type="half4" nodename="convert_out"/>
+    </nodegraph>
+    <nodegraph name="IM_max_half2FA" nodedef="ND_max_half2FA">
+        <convert name="convert_in1" type="vector2">
+            <input name="in" type="half2" interfacename="in1"/>
+        </convert>
+        <max name="max" type="vector2">
+            <input name="in1" type="vector2" nodename="convert_in1"/>
+            <input name="in2" type="float" interfacename="in2"/>
+        </max>
+        <convert name="convert_out" type="half2">
+            <input name="in" type="vector2" nodename="max"/>
+        </convert>
+        <output name="out" type="half2" nodename="convert_out"/>
+    </nodegraph>
+    <nodegraph name="IM_max_half3FA" nodedef="ND_max_half3FA">
+        <convert name="convert_in1" type="vector3">
+            <input name="in" type="half3" interfacename="in1"/>
+        </convert>
+        <max name="max" type="vector3">
+            <input name="in1" type="vector3" nodename="convert_in1"/>
+            <input name="in2" type="float" interfacename="in2"/>
+        </max>
+        <convert name="convert_out" type="half3">
+            <input name="in" type="vector3" nodename="max"/>
+        </convert>
+        <output name="out" type="half3" nodename="convert_out"/>
+    </nodegraph>
+    <nodegraph name="IM_max_half4FA" nodedef="ND_max_half4FA">
+        <convert name="convert_in1" type="vector4">
+            <input name="in" type="half4" interfacename="in1"/>
+        </convert>
+        <max name="max" type="vector4">
+            <input name="in1" type="vector4" nodename="convert_in1"/>
+            <input name="in2" type="float" interfacename="in2"/>
+        </max>
+        <convert name="convert_out" type="half4">
+            <input name="in" type="vector4" nodename="max"/>
+        </convert>
+        <output name="out" type="half4" nodename="convert_out"/>
+    </nodegraph>
+
+    <!--
+      Node: <normalize>
+      Outputs the normalized vector from the incoming vector stream.
+    -->
+    <nodegraph name="IM_normalize_half2" nodedef="ND_normalize_half2">
+        <convert name="convert_in" type="vector2">
+            <input name="in" type="half2" interfacename="in"/>
+        </convert>
+        <normalize name="normalize" type="vector2">
+            <input name="in" type="vector2" nodename="convert_in"/>
+        </normalize>
+        <convert name="convert_out" type="half2">
+            <input name="in" type="vector2" nodename="normalize"/>
+        </convert>
+        <output name="out" type="half2" nodename="convert_out"/>
+    </nodegraph>
+    <nodegraph name="IM_normalize_half3" nodedef="ND_normalize_half3">
+        <convert name="convert_in" type="vector3">
+            <input name="in" type="half3" interfacename="in"/>
+        </convert>
+        <normalize name="normalize" type="vector3">
+            <input name="in" type="vector3" nodename="convert_in"/>
+        </normalize>
+        <convert name="convert_out" type="half3">
+            <input name="in" type="vector3" nodename="normalize"/>
+        </convert>
+        <output name="out" type="half3" nodename="convert_out"/>
+    </nodegraph>
+    <nodegraph name="IM_normalize_half4" nodedef="ND_normalize_half4">
+        <convert name="convert_in" type="vector4">
+            <input name="in" type="half4" interfacename="in"/>
+        </convert>
+        <normalize name="normalize" type="vector4">
+            <input name="in" type="vector4" nodename="convert_in"/>
+        </normalize>
+        <convert name="convert_out" type="half4">
+            <input name="in" type="vector4" nodename="normalize"/>
+        </convert>
+        <output name="out" type="half4" nodename="convert_out"/>
+    </nodegraph>
+
+    <!--
+      Node: <magnitude>
+      Outputs the float magnitude (vector length) of the incoming vector stream.
+    -->
+    <nodegraph name="IM_magnitude_half2" nodedef="ND_magnitude_half2">
+        <convert name="convert_in" type="vector2">
+            <input name="in" type="half2" interfacename="in"/>
+        </convert>
+        <magnitude name="magnitude" type="float">
+            <input name="in" type="vector2" nodename="convert_in"/>
+        </magnitude>
+        <output name="out" type="float" nodename="magnitude" />
+    </nodegraph>
+    <nodegraph name="IM_magnitude_half3" nodedef="ND_magnitude_half3">
+        <convert name="convert_in" type="vector3">
+            <input name="in" type="half3" interfacename="in"/>
+        </convert>
+        <magnitude name="magnitude" type="float">
+            <input name="in" type="vector3" nodename="convert_in"/>
+        </magnitude>
+        <output name="out" type="float" nodename="magnitude"/>
+    </nodegraph>
+    <nodegraph name="IM_magnitude_half4" nodedef="ND_magnitude_half4">
+        <convert name="convert_in" type="vector4">
+            <input name="in" type="half4" interfacename="in"/>
+        </convert>
+        <magnitude name="magnitude" type="float">
+            <input name="in" type="vector4" nodename="convert_in"/>
+        </magnitude>
+        <output name="out" type="float" nodename="magnitude"/>
+    </nodegraph>
+
+    <!--
+      Node: <dotproduct>
+      Perform a dot product of two 2-4 channel vectors
+    -->
+    <nodegraph name="IM_dotproduct_half2" nodedef="ND_dotproduct_half2">
+        <convert name="convert_in1" type="vector2">
+            <input name="in" type="half2" interfacename="in1"/>
+        </convert>
+        <convert name="convert_in2" type="vector2">
+            <input name="in" type="half2" interfacename="in2"/>
+        </convert>
+        <dotproduct name="dotproduct" type="float">
+            <input name="in1" type="vector2" nodename="convert_in1"/>
+            <input name="in2" type="vector2" nodename="convert_in2"/>
+        </dotproduct>
+        <output name="out" type="float" nodename="dotproduct"/>
+    </nodegraph>
+    <nodegraph name="IM_dotproduct_half3" nodedef="ND_dotproduct_half3">
+        <convert name="convert_in1" type="vector3">
+            <input name="in" type="half3" interfacename="in1"/>
+        </convert>
+        <convert name="convert_in2" type="vector3">
+            <input name="in" type="half3" interfacename="in2"/>
+        </convert>
+        <dotproduct name="dotproduct" type="float">
+            <input name="in1" type="vector3" nodename="convert_in1"/>
+            <input name="in2" type="vector3" nodename="convert_in2"/>
+        </dotproduct>
+        <output name="out" type="float" nodename="dotproduct"/>
+    </nodegraph>
+    <nodegraph name="IM_dotproduct_half4" nodedef="ND_dotproduct_half4">
+        <convert name="convert_in1" type="vector4">
+            <input name="in" type="half4" interfacename="in1"/>
+        </convert>
+        <convert name="convert_in2" type="vector4">
+            <input name="in" type="half4" interfacename="in2"/>
+        </convert>
+        <dotproduct name="dotproduct" type="float">
+            <input name="in1" type="vector4" nodename="convert_in1"/>
+            <input name="in2" type="vector4" nodename="convert_in2"/>
+        </dotproduct>
+        <output name="out" type="float" nodename="dotproduct"/>
+    </nodegraph>
+
+    <!--
+      Node: <crossproduct>
+      Perform a cross product of two vectors
+    -->
+    <nodegraph name="IM_crossproduct_half3" nodedef="ND_crossproduct_half3">
+        <convert name="convert_in1" type="vector3">
+            <input name="in" type="half3" interfacename="in1"/>
+        </convert>
+        <convert name="convert_in2" type="vector3">
+            <input name="in" type="half3" interfacename="in2"/>
+        </convert>
+        <crossproduct name="crossproduct" type="vector3">
+            <input name="in1" type="vector3" nodename="convert_in1"/>
+            <input name="in2" type="vector3" nodename="convert_in2"/>
+        </crossproduct>
+        <convert name="convert_out" type="half3">
+            <input name="in" type="vector3" nodename="crossproduct"/>
+        </convert>
+        <output name="out" type="half3" nodename="convert_out"/>
+    </nodegraph>
+
+    <!--
+      Node: <remap>
+      Remap a value from one range of half/float/color/vector values to another.
+    -->
+    <nodegraph name="IM_remap_half" nodedef="ND_remap_half">
+        <convert name="convert_in" type="float">
+            <input name="in" type="half" interfacename="in"/>
+        </convert>
+        <convert name="convert_inlow" type="float">
+            <input name="in" type="half" interfacename="inlow"/>
+        </convert>
+        <convert name="convert_inhigh" type="float">
+            <input name="in" type="half" interfacename="inhigh"/>
+        </convert>
+        <convert name="convert_outlow" type="float">
+            <input name="in" type="half" interfacename="outlow"/>
+        </convert>
+        <convert name="convert_outhigh" type="float">
+            <input name="in" type="half" interfacename="outhigh"/>
+        </convert>
+        <remap name="remap" type="float">
+            <input name="in" type="float" nodename="convert_in"/>
+            <input name="inlow" type="float" nodename="convert_inlow"/>
+            <input name="inhigh" type="float" nodename="convert_inhigh"/>
+            <input name="outlow" type="float" nodename="convert_outlow"/>
+            <input name="outhigh" type="float" nodename="convert_outhigh"/>
+        </remap>
+        <convert name="convert_out" type="half">
+            <input name="in" type="float" nodename="remap"/>
+        </convert>
+        <output name="out" type="half" nodename="convert_out"/>
+    </nodegraph>
+    <nodegraph name="IM_remap_half2" nodedef="ND_remap_half2">
+        <convert name="convert_in" type="vector2">
+            <input name="in" type="half2" interfacename="in"/>
+        </convert>
+        <convert name="convert_inlow" type="vector2">
+            <input name="in" type="half2" interfacename="inlow"/>
+        </convert>
+        <convert name="convert_inhigh" type="vector2">
+            <input name="in" type="half2" interfacename="inhigh"/>
+        </convert>
+        <convert name="convert_outlow" type="vector2">
+            <input name="in" type="half2" interfacename="outlow"/>
+        </convert>
+        <convert name="convert_outhigh" type="vector2">
+            <input name="in" type="half2" interfacename="outhigh"/>
+        </convert>
+        <remap name="remap" type="vector2">
+            <input name="in" type="vector2" nodename="convert_in"/>
+            <input name="inlow" type="vector2" nodename="convert_inlow"/>
+            <input name="inhigh" type="vector2" nodename="convert_inhigh"/>
+            <input name="outlow" type="vector2" nodename="convert_outlow"/>
+            <input name="outhigh" type="vector2" nodename="convert_outhigh"/>
+        </remap>
+        <convert name="convert_out" type="half2">
+            <input name="in" type="vector2" nodename="remap"/>
+        </convert>
+        <output name="out" type="half2" nodename="convert_out"/>
+    </nodegraph>
+    <nodegraph name="IM_remap_half3" nodedef="ND_remap_half3">
+        <convert name="convert_in" type="vector3">
+            <input name="in" type="half3" interfacename="in"/>
+        </convert>
+        <convert name="convert_inlow" type="vector3">
+            <input name="in" type="half3" interfacename="inlow"/>
+        </convert>
+        <convert name="convert_inhigh" type="vector3">
+            <input name="in" type="half3" interfacename="inhigh"/>
+        </convert>
+        <convert name="convert_outlow" type="vector3">
+            <input name="in" type="half3" interfacename="outlow"/>
+        </convert>
+        <convert name="convert_outhigh" type="vector3">
+            <input name="in" type="half3" interfacename="outhigh"/>
+        </convert>
+        <remap name="remap" type="vector3">
+            <input name="in" type="vector3" nodename="convert_in"/>
+            <input name="inlow" type="vector3" nodename="convert_inlow"/>
+            <input name="inhigh" type="vector3" nodename="convert_inhigh"/>
+            <input name="outlow" type="vector3" nodename="convert_outlow"/>
+            <input name="outhigh" type="vector3" nodename="convert_outhigh"/>
+        </remap>
+        <convert name="convert_out" type="half3">
+            <input name="in" type="vector3" nodename="remap"/>
+        </convert>
+        <output name="out" type="half3" nodename="convert_out"/>
+    </nodegraph>
+    <nodegraph name="IM_remap_half4" nodedef="ND_remap_half4">
+        <convert name="convert_in" type="vector4">
+            <input name="in" type="half4" interfacename="in"/>
+        </convert>
+        <convert name="convert_inlow" type="vector4">
+            <input name="in" type="half4" interfacename="inlow"/>
+        </convert>
+        <convert name="convert_inhigh" type="vector4">
+            <input name="in" type="half4" interfacename="inhigh"/>
+        </convert>
+        <convert name="convert_outlow" type="vector4">
+            <input name="in" type="half4" interfacename="outlow"/>
+        </convert>
+        <convert name="convert_outhigh" type="vector4">
+            <input name="in" type="half4" interfacename="outhigh"/>
+        </convert>
+        <remap name="remap" type="vector4">
+            <input name="in" type="vector4" nodename="convert_in"/>
+            <input name="inlow" type="vector4" nodename="convert_inlow"/>
+            <input name="inhigh" type="vector4" nodename="convert_inhigh"/>
+            <input name="outlow" type="vector4" nodename="convert_outlow"/>
+            <input name="outhigh" type="vector4" nodename="convert_outhigh"/>
+        </remap>
+        <convert name="convert_out" type="half4">
+            <input name="in" type="vector4" nodename="remap"/>
+        </convert>
+        <output name="out" type="half4" nodename="convert_out"/>
+    </nodegraph>
+    <nodegraph name="IM_remap_half2FA" nodedef="ND_remap_half2FA">
+        <convert name="convert_in" type="vector2">
+            <input name="in" type="half2" interfacename="in"/>
+        </convert>
+        <remap name="remap" type="vector2">
+            <input name="in" type="vector2" nodename="convert_in"/>
+            <input name="inlow" type="float" interfacename="inlow"/>
+            <input name="inhigh" type="float" interfacename="inhigh"/>
+            <input name="outlow" type="float" interfacename="outlow"/>
+            <input name="outhigh" type="float" interfacename="outhigh"/>
+        </remap>
+        <convert name="convert_out" type="half2">
+            <input name="in" type="vector2" nodename="remap"/>
+        </convert>
+        <output name="out" type="half2" nodename="convert_out"/>
+    </nodegraph>
+    <nodegraph name="IM_remap_half3FA" nodedef="ND_remap_half3FA">
+        <convert name="convert_in" type="vector3">
+            <input name="in" type="half3" interfacename="in"/>
+        </convert>
+        <remap name="remap" type="vector3">
+            <input name="in" type="vector3" nodename="convert_in"/>
+            <input name="inlow" type="float" interfacename="inlow"/>
+            <input name="inhigh" type="float" interfacename="inhigh"/>
+            <input name="outlow" type="float" interfacename="outlow"/>
+            <input name="outhigh" type="float" interfacename="outhigh"/>
+        </remap>
+        <convert name="convert_out" type="half3">
+            <input name="in" type="vector3" nodename="remap"/>
+        </convert>
+        <output name="out" type="half3" nodename="convert_out"/>
+    </nodegraph>
+    <nodegraph name="IM_remap_half4FA" nodedef="ND_remap_half4FA">
+        <convert name="convert_in" type="vector4">
+            <input name="in" type="half4" interfacename="in"/>
+        </convert>
+        <remap name="remap" type="vector4">
+            <input name="in" type="vector4" nodename="convert_in"/>
+            <input name="inlow" type="float" interfacename="inlow"/>
+            <input name="inhigh" type="float" interfacename="inhigh"/>
+            <input name="outlow" type="float" interfacename="outlow"/>
+            <input name="outhigh" type="float" interfacename="outhigh"/>
+        </remap>
+        <convert name="convert_out" type="half4">
+            <input name="in" type="vector4" nodename="remap"/>
+        </convert>
+        <output name="out" type="half4" nodename="convert_out"/>
+    </nodegraph>
+
+    <!--
+      Node: <smoothstep>
+      Outputs a smooth (hermite-interpolated) remapping of input values from low-high
+        to output 0-1.
+    -->
+    <nodegraph name="IM_smoothstep_half" nodedef="ND_smoothstep_half">
+        <convert name="convert_in" type="float">
+            <input name="in" type="half" interfacename="in"/>
+        </convert>
+        <convert name="convert_low" type="float">
+            <input name="in" type="half" interfacename="low"/>
+        </convert>
+        <convert name="convert_high" type="float">
+            <input name="in" type="half" interfacename="high"/>
+        </convert>
+        <smoothstep name="smoothstep" type="float">
+            <input name="in" type="float" nodename="convert_in"/>
+            <input name="low" type="float" nodename="convert_low"/>
+            <input name="high" type="float" nodename="convert_high"/>
+        </smoothstep>
+        <convert name="convert_out" type="half">
+            <input name="in" type="float" nodename="smoothstep"/>
+        </convert>
+        <output name="out" type="half" nodename="convert_out"/>
+    </nodegraph>
+    <nodegraph name="IM_smoothstep_half2" nodedef="ND_smoothstep_half2">
+        <convert name="convert_in" type="vector2">
+            <input name="in" type="half2" interfacename="in"/>
+        </convert>
+        <convert name="convert_low" type="vector2">
+            <input name="in" type="half2" interfacename="low"/>
+        </convert>
+        <convert name="convert_high" type="vector2">
+            <input name="in" type="half2" interfacename="high"/>
+        </convert>
+        <smoothstep name="smoothstep" type="vector2">
+            <input name="in" type="vector2" nodename="convert_in"/>
+            <input name="low" type="vector2" nodename="convert_low"/>
+            <input name="high" type="vector2" nodename="convert_high"/>
+        </smoothstep>
+        <convert name="convert_out" type="half2">
+            <input name="in" type="vector2" nodename="smoothstep"/>
+        </convert>
+        <output name="out" type="half2" nodename="convert_out"/>
+    </nodegraph>
+    <nodegraph name="IM_smoothstep_half3" nodedef="ND_smoothstep_half3">
+        <convert name="convert_in" type="vector3">
+            <input name="in" type="half3" interfacename="in"/>
+        </convert>
+        <convert name="convert_low" type="vector3">
+            <input name="in" type="half3" interfacename="low"/>
+        </convert>
+        <convert name="convert_high" type="vector3">
+            <input name="in" type="half3" interfacename="high"/>
+        </convert>
+        <smoothstep name="smoothstep" type="vector3">
+            <input name="in" type="vector3" nodename="convert_in"/>
+            <input name="low" type="vector3" nodename="convert_low"/>
+            <input name="high" type="vector3" nodename="convert_high"/>
+        </smoothstep>
+        <convert name="convert_out" type="half3">
+            <input name="in" type="vector3" nodename="smoothstep"/>
+        </convert>
+        <output name="out" type="half3" nodename="convert_out"/>
+    </nodegraph>
+    <nodegraph name="IM_smoothstep_half4" nodedef="ND_smoothstep_half4">
+        <convert name="convert_in" type="vector4">
+            <input name="in" type="half4" interfacename="in"/>
+        </convert>
+        <convert name="convert_low" type="vector4">
+            <input name="in" type="half4" interfacename="low"/>
+        </convert>
+        <convert name="convert_high" type="vector4">
+            <input name="in" type="half4" interfacename="high"/>
+        </convert>
+        <smoothstep name="smoothstep" type="vector4">
+            <input name="in" type="vector4" nodename="convert_in"/>
+            <input name="low" type="vector4" nodename="convert_low"/>
+            <input name="high" type="vector4" nodename="convert_high"/>
+        </smoothstep>
+        <convert name="convert_out" type="half4">
+            <input name="in" type="vector4" nodename="smoothstep"/>
+        </convert>
+        <output name="out" type="half4" nodename="convert_out"/>
+    </nodegraph>
+    <nodegraph name="IM_smoothstep_half2FA" nodedef="ND_smoothstep_half2FA">
+        <convert name="convert_in" type="vector2">
+            <input name="in" type="half2" interfacename="in"/>
+        </convert>
+        <smoothstep name="smoothstep" type="vector2">
+            <input name="in" type="vector2" nodename="convert_in"/>
+            <input name="low" type="float" interfacename="low"/>
+            <input name="high" type="float" interfacename="high"/>
+        </smoothstep>
+        <convert name="convert_out" type="half2">
+            <input name="in" type="vector2" nodename="smoothstep"/>
+        </convert>
+        <output name="out" type="half2" nodename="convert_out"/>
+    </nodegraph>
+    <nodegraph name="IM_smoothstep_half3FA" nodedef="ND_smoothstep_half3FA">
+        <convert name="convert_in" type="vector3">
+            <input name="in" type="half3" interfacename="in"/>
+        </convert>
+        <smoothstep name="smoothstep" type="vector3">
+            <input name="in" type="vector3" nodename="convert_in"/>
+            <input name="low" type="float" interfacename="low"/>
+            <input name="high" type="float" interfacename="high"/>
+        </smoothstep>
+        <convert name="convert_out" type="half3">
+            <input name="in" type="vector3" nodename="smoothstep"/>
+        </convert>
+        <output name="out" type="half3" nodename="convert_out"/>
+    </nodegraph>
+    <nodegraph name="IM_smoothstep_half4FA" nodedef="ND_smoothstep_half4FA">
+        <convert name="convert_in" type="vector4">
+            <input name="in" type="half4" interfacename="in"/>
+        </convert>
+        <smoothstep name="smoothstep" type="vector4">
+            <input name="in" type="vector4" nodename="convert_in"/>
+            <input name="low" type="float" interfacename="low"/>
+            <input name="high" type="float" interfacename="high"/>
+        </smoothstep>
+        <convert name="convert_out" type="half4">
+            <input name="in" type="vector4" nodename="smoothstep"/>
+        </convert>
+        <output name="out" type="half4" nodename="convert_out"/>
+    </nodegraph>
+
+    <!--
+      Node: <plus>
+      Add two 1-4 channel inputs, with optional mixing between the bg input and the result.
+    -->
+    <nodegraph name="IM_plus_half" nodedef="ND_plus_half">
+        <convert name="convert_fg" type="float">
+            <input name="in" type="half" interfacename="fg"/>
+        </convert>
+        <convert name="convert_bg" type="float">
+            <input name="in" type="half" interfacename="bg"/>
+        </convert>
+        <convert name="convert_mix" type="float">
+            <input name="in" type="half" interfacename="mix"/>
+        </convert>
+        <plus name="plus" type="float">
+            <input name="fg" type="float" nodename="convert_fg"/>
+            <input name="bg" type="float" nodename="convert_bg"/>
+            <input name="mix" type="float" nodename="convert_mix"/>
+        </plus>
+        <convert name="convert_out" type="half">
+            <input name="in" type="float" nodename="plus"/>
+        </convert>
+        <output name="out" type="half" nodename="convert_out"/>
+    </nodegraph>
+
+    <!--
+      Node: <minus>
+      Subtract two 1-4 channel inputs, with optional mixing between the bg input and the result.
+    -->
+    <nodegraph name="IM_minus_half" nodedef="ND_minus_half">
+        <convert name="convert_fg" type="float">
+            <input name="in" type="half" interfacename="fg"/>
+        </convert>
+        <convert name="convert_bg" type="float">
+            <input name="in" type="half" interfacename="bg"/>
+        </convert>
+        <convert name="convert_mix" type="float">
+            <input name="in" type="half" interfacename="mix"/>
+        </convert>
+        <minus name="minus" type="float">
+            <input name="fg" type="float" nodename="convert_fg"/>
+            <input name="bg" type="float" nodename="convert_bg"/>
+            <input name="mix" type="float" nodename="convert_mix"/>
+        </minus>
+        <convert name="convert_out" type="half">
+            <input name="in" type="float" nodename="minus"/>
+        </convert>
+        <output name="out" type="half" nodename="convert_out"/>
+    </nodegraph>
+
+    <!--
+      Node: <difference>
+      Absolute-value difference of two 1-4 channel inputs, with optional mixing between
+        the bg input and the result.
+    -->
+    <nodegraph name="IM_difference_half" nodedef="ND_difference_half">
+        <convert name="convert_fg" type="float">
+            <input name="in" type="half" interfacename="fg"/>
+        </convert>
+        <convert name="convert_bg" type="float">
+            <input name="in" type="half" interfacename="bg"/>
+        </convert>
+        <convert name="convert_mix" type="float">
+            <input name="in" type="half" interfacename="mix"/>
+        </convert>
+        <difference name="difference" type="float">
+            <input name="fg" type="float" nodename="convert_fg"/>
+            <input name="bg" type="float" nodename="convert_bg"/>
+            <input name="mix" type="float" nodename="convert_mix"/>
+        </difference>
+        <convert name="convert_out" type="half">
+            <input name="in" type="float" nodename="difference"/>
+        </convert>
+        <output name="out" type="half" nodename="convert_out"/>
+    </nodegraph>
+
+    <!--
+      Node: <burn>
+      Take two 1-4 channel inputs and apply the same operator to all channels: 1-(1-B)/F
+    -->
+    <nodegraph name="IM_burn_half" nodedef="ND_burn_half">
+        <convert name="convert_fg" type="float">
+            <input name="in" type="half" interfacename="fg"/>
+        </convert>
+        <convert name="convert_bg" type="float">
+            <input name="in" type="half" interfacename="bg"/>
+        </convert>
+        <convert name="convert_mix" type="float">
+            <input name="in" type="half" interfacename="mix"/>
+        </convert>
+        <burn name="burn" type="float">
+            <input name="fg" type="float" nodename="convert_fg"/>
+            <input name="bg" type="float" nodename="convert_bg"/>
+            <input name="mix" type="float" nodename="convert_mix"/>
+        </burn>
+        <convert name="convert_out" type="half">
+            <input name="in" type="float" nodename="burn"/>
+        </convert>
+        <output name="out" type="half" nodename="convert_out"/>
+    </nodegraph>
+
+    <!--
+      Node: <dodge>
+      Take two 1-4 channel inputs and apply the same operator to all channels: B/(1-F)
+    -->
+    <nodegraph name="IM_dodge_half" nodedef="ND_dodge_half">
+        <convert name="convert_fg" type="float">
+            <input name="in" type="half" interfacename="fg"/>
+        </convert>
+        <convert name="convert_bg" type="float">
+            <input name="in" type="half" interfacename="bg"/>
+        </convert>
+        <convert name="convert_mix" type="float">
+            <input name="in" type="half" interfacename="mix"/>
+        </convert>
+        <dodge name="dodge" type="float">
+            <input name="fg" type="float" nodename="convert_fg"/>
+            <input name="bg" type="float" nodename="convert_bg"/>
+            <input name="mix" type="float" nodename="convert_mix"/>
+        </dodge>
+        <convert name="convert_out" type="half">
+            <input name="in" type="float" nodename="dodge"/>
+        </convert>
+        <output name="out" type="half" nodename="convert_out"/>
+    </nodegraph>
+
+    <!--
+      Node: <screen>
+      Take two 1-4 channel inputs and apply the same operator to all channels: 1-(1-F)*(1-B)
+    -->
+    <nodegraph name="IM_screen_half" nodedef="ND_screen_half">
+        <convert name="convert_fg" type="float">
+            <input name="in" type="half" interfacename="fg"/>
+        </convert>
+        <convert name="convert_bg" type="float">
+            <input name="in" type="half" interfacename="bg"/>
+        </convert>
+        <convert name="convert_mix" type="float">
+            <input name="in" type="half" interfacename="mix"/>
+        </convert>
+        <screen name="screen" type="float">
+            <input name="fg" type="float" nodename="convert_fg"/>
+            <input name="bg" type="float" nodename="convert_bg"/>
+            <input name="mix" type="float" nodename="convert_mix"/>
+        </screen>
+        <convert name="convert_out" type="half">
+            <input name="in" type="float" nodename="screen"/>
+        </convert>
+        <output name="out" type="half" nodename="convert_out"/>
+    </nodegraph>
+
+    <!--
+      Node: <overlay>
+      Take two 1-4 channel inputs and apply the same operator to all channels:
+        2FB if F<0.5;
+        1-(1-F)(1-B) if F>=0.5
+    -->
+    <nodegraph name="IM_overlay_half" nodedef="ND_overlay_half">
+        <convert name="convert_fg" type="float">
+            <input name="in" type="half" interfacename="fg"/>
+        </convert>
+        <convert name="convert_bg" type="float">
+            <input name="in" type="half" interfacename="bg"/>
+        </convert>
+        <convert name="convert_mix" type="float">
+            <input name="in" type="half" interfacename="mix"/>
+        </convert>
+        <overlay name="overlay" type="float">
+            <input name="fg" type="float" nodename="convert_fg"/>
+            <input name="bg" type="float" nodename="convert_bg"/>
+            <input name="mix" type="float" nodename="convert_mix"/>
+        </overlay>
+        <convert name="convert_out" type="half">
+            <input name="in" type="float" nodename="overlay"/>
+        </convert>
+        <output name="out" type="half" nodename="convert_out"/>
+    </nodegraph>
+
+    <!--
+      Node: <inside>
+      Take one 1-4 channel input "in" plus a separate half "mask" input and apply the same
+        operator to all channels: in * mask
+    -->
+    <nodegraph name="IM_inside_half" nodedef="ND_inside_half">
+        <convert name="convert_in" type="float">
+            <input name="in" type="half" interfacename="in"/>
+        </convert>
+        <convert name="convert_mask" type="float">
+            <input name="in" type="half" interfacename="mask"/>
+        </convert>
+        <inside name="inside" type="float">
+            <input name="in" type="float" nodename="convert_in"/>
+            <input name="mask" type="float" nodename="convert_mask"/>
+        </inside>
+        <convert name="convert_out" type="half">
+            <input name="in" type="float" nodename="inside"/>
+        </convert>
+        <output name="out" type="half" nodename="convert_out"/>
+    </nodegraph>
+
+    <!--
+      Node: <outside>
+      Take one 1-4 channel input "in" plus a separate half "mask" input and apply the same
+        operator to all channels: in * (1-mask)
+    -->
+    <nodegraph name="IM_outside_half" nodedef="ND_outside_half">
+        <convert name="convert_in" type="float">
+            <input name="in" type="half" interfacename="in"/>
+        </convert>
+        <convert name="convert_mask" type="float">
+            <input name="in" type="half" interfacename="mask"/>
+        </convert>
+        <outside name="outside" type="float">
+            <input name="in" type="float" nodename="convert_in"/>
+            <input name="mask" type="float" nodename="convert_mask"/>
+        </outside>
+        <convert name="convert_out" type="half">
+            <input name="in" type="float" nodename="outside"/>
+        </convert>
+        <output name="out" type="half" nodename="convert_out"/>
+    </nodegraph>
+
+    <!--
+      Node: <mix>
+      Mix two inputs according to an input mix amount.
+    -->
+    <nodegraph name="IM_mix_half" nodedef="ND_mix_half">
+        <convert name="convert_fg" type="float">
+            <input name="in" type="half" interfacename="fg"/>
+        </convert>
+        <convert name="convert_bg" type="float">
+            <input name="in" type="half" interfacename="bg"/>
+        </convert>
+        <convert name="convert_mix" type="float">
+            <input name="in" type="half" interfacename="mix"/>
+        </convert>
+        <mix name="mix" type="float">
+            <input name="fg" type="float" nodename="convert_fg"/>
+            <input name="bg" type="float" nodename="convert_bg"/>
+            <input name="mix" type="float" nodename="convert_mix"/>
+        </mix>
+        <convert name="convert_out" type="half">
+            <input name="in" type="float" nodename="mix"/>
+        </convert>
+        <output name="out" type="half" nodename="convert_out"/>
+    </nodegraph>
+    <nodegraph name="IM_mix_half2" nodedef="ND_mix_half2">
+        <convert name="convert_fg" type="vector2">
+            <input name="in" type="half2" interfacename="fg"/>
+        </convert>
+        <convert name="convert_bg" type="vector2">
+            <input name="in" type="half2" interfacename="bg"/>
+        </convert>
+        <mix name="mix" type="vector2">
+            <input name="fg" type="vector2" nodename="convert_fg"/>
+            <input name="bg" type="vector2" nodename="convert_bg"/>
+            <input name="mix" type="float" interfacename="mix"/>
+        </mix>
+        <convert name="convert_out" type="half2">
+            <input name="in" type="vector2" nodename="mix"/>
+        </convert>
+        <output name="out" type="half2" nodename="convert_out"/>
+    </nodegraph>
+    <nodegraph name="IM_mix_half3" nodedef="ND_mix_half3">
+        <convert name="convert_fg" type="vector3">
+            <input name="in" type="half3" interfacename="fg"/>
+        </convert>
+        <convert name="convert_bg" type="vector3">
+            <input name="in" type="half3" interfacename="bg"/>
+        </convert>
+        <mix name="mix" type="vector3">
+            <input name="fg" type="vector3" nodename="convert_fg"/>
+            <input name="bg" type="vector3" nodename="convert_bg"/>
+            <input name="mix" type="float" interfacename="mix"/>
+        </mix>
+        <convert name="convert_out" type="half3">
+            <input name="in" type="vector3" nodename="mix"/>
+        </convert>
+        <output name="out" type="half3" nodename="convert_out"/>
+    </nodegraph>
+    <nodegraph name="IM_mix_half4" nodedef="ND_mix_half4">
+        <convert name="convert_fg" type="vector4">
+            <input name="in" type="half4" interfacename="fg"/>
+        </convert>
+        <convert name="convert_bg" type="vector4">
+            <input name="in" type="half4" interfacename="bg"/>
+        </convert>
+        <mix name="mix" type="vector4">
+            <input name="fg" type="vector4" nodename="convert_fg"/>
+            <input name="bg" type="vector4" nodename="convert_bg"/>
+            <input name="mix" type="float" interfacename="mix"/>
+        </mix>
+        <convert name="convert_out" type="half4">
+            <input name="in" type="vector4" nodename="mix"/>
+        </convert>
+        <output name="out" type="half4" nodename="convert_out"/>
+    </nodegraph>
+
+    <!--
+      Node: <ifgreater>
+      Output the value of in1 if value1>value2, or the value of in2 if value1<=value2.
+    -->
+    <nodegraph name="IM_ifgreater_half" nodedef="ND_ifgreater_half">
+        <convert name="convert_value1" type="float">
+            <input name="in" type="half" interfacename="value1"/>
+        </convert>
+        <convert name="convert_value2" type="float">
+            <input name="in" type="half" interfacename="value2"/>
+        </convert>
+        <convert name="convert_in1" type="float">
+            <input name="in" type="half" interfacename="in1"/>
+        </convert>
+        <convert name="convert_in2" type="float">
+            <input name="in" type="half" interfacename="in2"/>
+        </convert>
+        <ifgreater name="ifgreater" type="float">
+            <input name="value1" type="float" nodename="convert_value1"/>
+            <input name="value2" type="float" nodename="convert_value2"/>
+            <input name="in1" type="float" nodename="convert_in1"/>
+            <input name="in2" type="float" nodename="convert_in2"/>
+        </ifgreater>
+        <convert name="convert_out" type="half">
+            <input name="in" type="float" nodename="ifgreater"/>
+        </convert>
+        <output name="out" type="half" nodename="convert_out"/>
+    </nodegraph>
+    <nodegraph name="IM_ifgreater_half2" nodedef="ND_ifgreater_half2">
+        <convert name="convert_in1" type="vector2">
+            <input name="in" type="half2" interfacename="in1"/>
+        </convert>
+        <convert name="convert_in2" type="vector2">
+            <input name="in" type="half2" interfacename="in2"/>
+        </convert>
+        <ifgreater name="ifgreater" type="vector2">
+            <input name="value1" type="float" interfacename="value1"/>
+            <input name="value2" type="float" interfacename="value2"/>
+            <input name="in1" type="vector2" nodename="convert_in1"/>
+            <input name="in2" type="vector2" nodename="convert_in2"/>
+        </ifgreater>
+        <convert name="convert_out" type="half2">
+            <input name="in" type="vector2" nodename="ifgreater"/>
+        </convert>
+        <output name="out" type="half2" nodename="convert_out"/>
+    </nodegraph>
+    <nodegraph name="IM_ifgreater_half3" nodedef="ND_ifgreater_half3">
+        <convert name="convert_in1" type="vector3">
+            <input name="in" type="half3" interfacename="in1"/>
+        </convert>
+        <convert name="convert_in2" type="vector3">
+            <input name="in" type="half3" interfacename="in2"/>
+        </convert>
+        <ifgreater name="ifgreater" type="vector3">
+            <input name="value1" type="float" interfacename="value1"/>
+            <input name="value2" type="float" interfacename="value2"/>
+            <input name="in1" type="vector3" nodename="convert_in1"/>
+            <input name="in2" type="vector3" nodename="convert_in2"/>
+        </ifgreater>
+        <convert name="convert_out" type="half3">
+            <input name="in" type="vector3" nodename="ifgreater"/>
+        </convert>
+        <output name="out" type="half3" nodename="convert_out"/>
+    </nodegraph>
+    <nodegraph name="IM_ifgreater_half4" nodedef="ND_ifgreater_half4">
+        <convert name="convert_in1" type="vector4">
+            <input name="in" type="half4" interfacename="in1"/>
+        </convert>
+        <convert name="convert_in2" type="vector4">
+            <input name="in" type="half4" interfacename="in2"/>
+        </convert>
+        <ifgreater name="ifgreater" type="vector4">
+            <input name="value1" type="float" interfacename="value1"/>
+            <input name="value2" type="float" interfacename="value2"/>
+            <input name="in1" type="vector4" nodename="convert_in1"/>
+            <input name="in2" type="vector4" nodename="convert_in2"/>
+        </ifgreater>
+        <convert name="convert_out" type="half4">
+            <input name="in" type="vector4" nodename="ifgreater"/>
+        </convert>
+        <output name="out" type="half4" nodename="convert_out"/>
+    </nodegraph>
+    <nodegraph name="IM_ifgreater_halfI" nodedef="ND_ifgreater_halfI">
+        <convert name="convert_in1" type="float">
+            <input name="in" type="half" interfacename="in1"/>
+        </convert>
+        <convert name="convert_in2" type="float">
+            <input name="in" type="half" interfacename="in2"/>
+        </convert>
+        <ifgreater name="ifgreater" type="float">
+            <input name="value1" type="integer" interfacename="value1"/>
+            <input name="value2" type="integer" interfacename="value2"/>
+            <input name="in1" type="float" nodename="convert_in1"/>
+            <input name="in2" type="float" nodename="convert_in2"/>
+        </ifgreater>
+        <convert name="convert_out" type="half">
+            <input name="in" type="float" nodename="ifgreater"/>
+        </convert>
+        <output name="out" type="half" nodename="convert_out"/>
+    </nodegraph>
+    <nodegraph name="IM_ifgreater_half2I" nodedef="ND_ifgreater_half2I">
+        <convert name="convert_in1" type="vector2">
+            <input name="in" type="half2" interfacename="in1"/>
+        </convert>
+        <convert name="convert_in2" type="vector2">
+            <input name="in" type="half2" interfacename="in2"/>
+        </convert>
+        <ifgreater name="ifgreater" type="vector2">
+            <input name="value1" type="integer" interfacename="value1"/>
+            <input name="value2" type="integer" interfacename="value2"/>
+            <input name="in1" type="vector2" nodename="convert_in1"/>
+            <input name="in2" type="vector2" nodename="convert_in2"/>
+        </ifgreater>
+        <convert name="convert_out" type="half2">
+            <input name="in" type="vector2" nodename="ifgreater"/>
+        </convert>
+        <output name="out" type="half2" nodename="convert_out"/>
+    </nodegraph>
+    <nodegraph name="IM_ifgreater_half3I" nodedef="ND_ifgreater_half3I">
+        <convert name="convert_in1" type="vector3">
+            <input name="in" type="half3" interfacename="in1"/>
+        </convert>
+        <convert name="convert_in2" type="vector3">
+            <input name="in" type="half3" interfacename="in2"/>
+        </convert>
+        <ifgreater name="ifgreater" type="vector3">
+            <input name="value1" type="integer" interfacename="value1"/>
+            <input name="value2" type="integer" interfacename="value2"/>
+            <input name="in1" type="vector3" nodename="convert_in1"/>
+            <input name="in2" type="vector3" nodename="convert_in2"/>
+        </ifgreater>
+        <convert name="convert_out" type="half3">
+            <input name="in" type="vector3" nodename="ifgreater"/>
+        </convert>
+        <output name="out" type="half3" nodename="convert_out"/>
+    </nodegraph>
+    <nodegraph name="IM_ifgreater_half4I" nodedef="ND_ifgreater_half4I">
+        <convert name="convert_in1" type="vector4">
+            <input name="in" type="half4" interfacename="in1"/>
+        </convert>
+        <convert name="convert_in2" type="vector4">
+            <input name="in" type="half4" interfacename="in2"/>
+        </convert>
+        <ifgreater name="ifgreater" type="vector4">
+            <input name="value1" type="integer" interfacename="value1"/>
+            <input name="value2" type="integer" interfacename="value2"/>
+            <input name="in1" type="vector4" nodename="convert_in1"/>
+            <input name="in2" type="vector4" nodename="convert_in2"/>
+        </ifgreater>
+        <convert name="convert_out" type="half4">
+            <input name="in" type="vector4" nodename="ifgreater"/>
+        </convert>
+        <output name="out" type="half4" nodename="convert_out"/>
+    </nodegraph>
+
+    <!--
+      Node: <ifgreatereq>
+      Output the value of in1 if value1>=value2, or the value of in2 if value1<value2.
+    -->
+    <nodegraph name="IM_ifgreatereq_half" nodedef="ND_ifgreatereq_half">
+        <convert name="convert_value1" type="float">
+            <input name="in" type="half" interfacename="value1"/>
+        </convert>
+        <convert name="convert_value2" type="float">
+            <input name="in" type="half" interfacename="value2"/>
+        </convert>
+        <convert name="convert_in1" type="float">
+            <input name="in" type="half" interfacename="in1"/>
+        </convert>
+        <convert name="convert_in2" type="float">
+            <input name="in" type="half" interfacename="in2"/>
+        </convert>
+        <ifgreatereq name="ifgreatereq" type="float">
+            <input name="value1" type="float" nodename="convert_value1"/>
+            <input name="value2" type="float" nodename="convert_value2"/>
+            <input name="in1" type="float" nodename="convert_in1"/>
+            <input name="in2" type="float" nodename="convert_in2"/>
+        </ifgreatereq>
+        <convert name="convert_out" type="half">
+            <input name="in" type="float" nodename="ifgreatereq"/>
+        </convert>
+        <output name="out" type="half" nodename="convert_out"/>
+    </nodegraph>
+    <nodegraph name="IM_ifgreatereq_half2" nodedef="ND_ifgreatereq_half2">
+        <convert name="convert_in1" type="vector2">
+            <input name="in" type="half2" interfacename="in1"/>
+        </convert>
+        <convert name="convert_in2" type="vector2">
+            <input name="in" type="half2" interfacename="in2"/>
+        </convert>
+        <ifgreatereq name="ifgreatereq" type="vector2">
+            <input name="value1" type="float" interfacename="value1"/>
+            <input name="value2" type="float" interfacename="value2"/>
+            <input name="in1" type="vector2" nodename="convert_in1"/>
+            <input name="in2" type="vector2" nodename="convert_in2"/>
+        </ifgreatereq>
+        <convert name="convert_out" type="half2">
+            <input name="in" type="vector2" nodename="ifgreatereq"/>
+        </convert>
+        <output name="out" type="half2" nodename="convert_out"/>
+    </nodegraph>
+    <nodegraph name="IM_ifgreatereq_half3" nodedef="ND_ifgreatereq_half3">
+        <convert name="convert_in1" type="vector3">
+            <input name="in" type="half3" interfacename="in1"/>
+        </convert>
+        <convert name="convert_in2" type="vector3">
+            <input name="in" type="half3" interfacename="in2"/>
+        </convert>
+        <ifgreatereq name="ifgreatereq" type="vector3">
+            <input name="value1" type="float" interfacename="value1"/>
+            <input name="value2" type="float" interfacename="value2"/>
+            <input name="in1" type="vector3" nodename="convert_in1"/>
+            <input name="in2" type="vector3" nodename="convert_in2"/>
+        </ifgreatereq>
+        <convert name="convert_out" type="half3">
+            <input name="in" type="vector3" nodename="ifgreatereq"/>
+        </convert>
+        <output name="out" type="half3" nodename="convert_out"/>
+    </nodegraph>
+    <nodegraph name="IM_ifgreatereq_half4" nodedef="ND_ifgreatereq_half4">
+        <convert name="convert_in1" type="vector4">
+            <input name="in" type="half4" interfacename="in1"/>
+        </convert>
+        <convert name="convert_in2" type="vector4">
+            <input name="in" type="half4" interfacename="in2"/>
+        </convert>
+        <ifgreatereq name="ifgreatereq" type="vector4">
+            <input name="value1" type="float" interfacename="value1"/>
+            <input name="value2" type="float" interfacename="value2"/>
+            <input name="in1" type="vector4" nodename="convert_in1"/>
+            <input name="in2" type="vector4" nodename="convert_in2"/>
+        </ifgreatereq>
+        <convert name="convert_out" type="half4">
+            <input name="in" type="vector4" nodename="ifgreatereq"/>
+        </convert>
+        <output name="out" type="half4" nodename="convert_out"/>
+    </nodegraph>
+    <nodegraph name="IM_ifgreatereq_halfI" nodedef="ND_ifgreatereq_halfI">
+        <convert name="convert_in1" type="float">
+            <input name="in" type="half" interfacename="in1"/>
+        </convert>
+        <convert name="convert_in2" type="float">
+            <input name="in" type="half" interfacename="in2"/>
+        </convert>
+        <ifgreatereq name="ifgreatereq" type="float">
+            <input name="value1" type="integer" interfacename="value1"/>
+            <input name="value2" type="integer" interfacename="value2"/>
+            <input name="in1" type="float" nodename="convert_in1"/>
+            <input name="in2" type="float" nodename="convert_in2"/>
+        </ifgreatereq>
+        <convert name="convert_out" type="half">
+            <input name="in" type="float" nodename="ifgreatereq"/>
+        </convert>
+        <output name="out" type="half" nodename="convert_out"/>
+    </nodegraph>
+    <nodegraph name="IM_ifgreatereq_half2I" nodedef="ND_ifgreatereq_half2I">
+        <convert name="convert_in1" type="vector2">
+            <input name="in" type="half2" interfacename="in1"/>
+        </convert>
+        <convert name="convert_in2" type="vector2">
+            <input name="in" type="half2" interfacename="in2"/>
+        </convert>
+        <ifgreatereq name="ifgreatereq" type="vector2">
+            <input name="value1" type="integer" interfacename="value1"/>
+            <input name="value2" type="integer" interfacename="value2"/>
+            <input name="in1" type="vector2" nodename="convert_in1"/>
+            <input name="in2" type="vector2" nodename="convert_in2"/>
+        </ifgreatereq>
+        <convert name="convert_out" type="half2">
+            <input name="in" type="vector2" nodename="ifgreatereq"/>
+        </convert>
+        <output name="out" type="half2" nodename="convert_out"/>
+    </nodegraph>
+    <nodegraph name="IM_ifgreatereq_half3I" nodedef="ND_ifgreatereq_half3I">
+        <convert name="convert_in1" type="vector3">
+            <input name="in" type="half3" interfacename="in1"/>
+        </convert>
+        <convert name="convert_in2" type="vector3">
+            <input name="in" type="half3" interfacename="in2"/>
+        </convert>
+        <ifgreatereq name="ifgreatereq" type="vector3">
+            <input name="value1" type="integer" interfacename="value1"/>
+            <input name="value2" type="integer" interfacename="value2"/>
+            <input name="in1" type="vector3" nodename="convert_in1"/>
+            <input name="in2" type="vector3" nodename="convert_in2"/>
+        </ifgreatereq>
+        <convert name="convert_out" type="half3">
+            <input name="in" type="vector3" nodename="ifgreatereq"/>
+        </convert>
+        <output name="out" type="half3" nodename="convert_out"/>
+    </nodegraph>
+    <nodegraph name="IM_ifgreatereq_half4I" nodedef="ND_ifgreatereq_half4I">
+        <convert name="convert_in1" type="vector4">
+            <input name="in" type="half4" interfacename="in1"/>
+        </convert>
+        <convert name="convert_in2" type="vector4">
+            <input name="in" type="half4" interfacename="in2"/>
+        </convert>
+        <ifgreatereq name="ifgreatereq" type="vector4">
+            <input name="value1" type="integer" interfacename="value1"/>
+            <input name="value2" type="integer" interfacename="value2"/>
+            <input name="in1" type="vector4" nodename="convert_in1"/>
+            <input name="in2" type="vector4" nodename="convert_in2"/>
+        </ifgreatereq>
+        <convert name="convert_out" type="half4">
+            <input name="in" type="vector4" nodename="ifgreatereq"/>
+        </convert>
+        <output name="out" type="half4" nodename="convert_out"/>
+    </nodegraph>
+
+    <!--
+      Node: <ifequal>
+      Output the value of in1 if value1==value2, or the value of in2 if value1!=value2.
+    -->
+    <nodegraph name="IM_ifequal_half" nodedef="ND_ifequal_half">
+        <convert name="convert_value1" type="float">
+            <input name="in" type="half" interfacename="value1"/>
+        </convert>
+        <convert name="convert_value2" type="float">
+            <input name="in" type="half" interfacename="value2"/>
+        </convert>
+        <convert name="convert_in1" type="float">
+            <input name="in" type="half" interfacename="in1"/>
+        </convert>
+        <convert name="convert_in2" type="float">
+            <input name="in" type="half" interfacename="in2"/>
+        </convert>
+        <ifequal name="ifequal" type="float">
+            <input name="value1" type="float" nodename="convert_value1"/>
+            <input name="value2" type="float" nodename="convert_value2"/>
+            <input name="in1" type="float" nodename="convert_in1"/>
+            <input name="in2" type="float" nodename="convert_in2"/>
+        </ifequal>
+        <convert name="convert_out" type="half">
+            <input name="in" type="float" nodename="ifequal"/>
+        </convert>
+        <output name="out" type="half" nodename="convert_out"/>
+    </nodegraph>
+    <nodegraph name="IM_ifequal_half2" nodedef="ND_ifequal_half2">
+        <convert name="convert_in1" type="vector2">
+            <input name="in" type="half2" interfacename="in1"/>
+        </convert>
+        <convert name="convert_in2" type="vector2">
+            <input name="in" type="half2" interfacename="in2"/>
+        </convert>
+        <ifequal name="ifequal" type="vector2">
+            <input name="value1" type="float" interfacename="value1"/>
+            <input name="value2" type="float" interfacename="value2"/>
+            <input name="in1" type="vector2" nodename="convert_in1"/>
+            <input name="in2" type="vector2" nodename="convert_in2"/>
+        </ifequal>
+        <convert name="convert_out" type="half2">
+            <input name="in" type="vector2" nodename="ifequal"/>
+        </convert>
+        <output name="out" type="half2" nodename="convert_out"/>
+    </nodegraph>
+    <nodegraph name="IM_ifequal_half3" nodedef="ND_ifequal_half3">
+        <convert name="convert_in1" type="vector3">
+            <input name="in" type="half3" interfacename="in1"/>
+        </convert>
+        <convert name="convert_in2" type="vector3">
+            <input name="in" type="half3" interfacename="in2"/>
+        </convert>
+        <ifequal name="ifequal" type="vector3">
+            <input name="value1" type="float" interfacename="value1"/>
+            <input name="value2" type="float" interfacename="value2"/>
+            <input name="in1" type="vector3" nodename="convert_in1"/>
+            <input name="in2" type="vector3" nodename="convert_in2"/>
+        </ifequal>
+        <convert name="convert_out" type="half3">
+            <input name="in" type="vector3" nodename="ifequal"/>
+        </convert>
+        <output name="out" type="half3" nodename="convert_out"/>
+    </nodegraph>
+    <nodegraph name="IM_ifequal_half4" nodedef="ND_ifequal_half4">
+        <convert name="convert_in1" type="vector4">
+            <input name="in" type="half4" interfacename="in1"/>
+        </convert>
+        <convert name="convert_in2" type="vector4">
+            <input name="in" type="half4" interfacename="in2"/>
+        </convert>
+        <ifequal name="ifequal" type="vector4">
+            <input name="value1" type="float" interfacename="value1"/>
+            <input name="value2" type="float" interfacename="value2"/>
+            <input name="in1" type="vector4" nodename="convert_in1"/>
+            <input name="in2" type="vector4" nodename="convert_in2"/>
+        </ifequal>
+        <convert name="convert_out" type="half4">
+            <input name="in" type="vector4" nodename="ifequal"/>
+        </convert>
+        <output name="out" type="half4" nodename="convert_out"/>
+    </nodegraph>
+    <nodegraph name="IM_ifequal_halfI" nodedef="ND_ifequal_halfI">
+        <convert name="convert_in1" type="float">
+            <input name="in" type="half" interfacename="in1"/>
+        </convert>
+        <convert name="convert_in2" type="float">
+            <input name="in" type="half" interfacename="in2"/>
+        </convert>
+        <ifequal name="ifequal" type="float">
+            <input name="value1" type="integer" interfacename="value1"/>
+            <input name="value2" type="integer" interfacename="value2"/>
+            <input name="in1" type="float" nodename="convert_in1"/>
+            <input name="in2" type="float" nodename="convert_in2"/>
+        </ifequal>
+        <convert name="convert_out" type="half">
+            <input name="in" type="float" nodename="ifequal"/>
+        </convert>
+        <output name="out" type="half" nodename="convert_out"/>
+    </nodegraph>
+    <nodegraph name="IM_ifequal_half2I" nodedef="ND_ifequal_half2I">
+        <convert name="convert_in1" type="vector2">
+            <input name="in" type="half2" interfacename="in1"/>
+        </convert>
+        <convert name="convert_in2" type="vector2">
+            <input name="in" type="half2" interfacename="in2"/>
+        </convert>
+        <ifequal name="ifequal" type="vector2">
+            <input name="value1" type="integer" interfacename="value1"/>
+            <input name="value2" type="integer" interfacename="value2"/>
+            <input name="in1" type="vector2" nodename="convert_in1"/>
+            <input name="in2" type="vector2" nodename="convert_in2"/>
+        </ifequal>
+        <convert name="convert_out" type="half2">
+            <input name="in" type="vector2" nodename="ifequal"/>
+        </convert>
+        <output name="out" type="half2" nodename="convert_out"/>
+    </nodegraph>
+    <nodegraph name="IM_ifequal_half3I" nodedef="ND_ifequal_half3I">
+        <convert name="convert_in1" type="vector3">
+            <input name="in" type="half3" interfacename="in1"/>
+        </convert>
+        <convert name="convert_in2" type="vector3">
+            <input name="in" type="half3" interfacename="in2"/>
+        </convert>
+        <ifequal name="ifequal" type="vector3">
+            <input name="value1" type="integer" interfacename="value1"/>
+            <input name="value2" type="integer" interfacename="value2"/>
+            <input name="in1" type="vector3" nodename="convert_in1"/>
+            <input name="in2" type="vector3" nodename="convert_in2"/>
+        </ifequal>
+        <convert name="convert_out" type="half3">
+            <input name="in" type="vector3" nodename="ifequal"/>
+        </convert>
+        <output name="out" type="half3" nodename="convert_out"/>
+    </nodegraph>
+    <nodegraph name="IM_ifequal_half4I" nodedef="ND_ifequal_half4I">
+        <convert name="convert_in1" type="vector4">
+            <input name="in" type="half4" interfacename="in1"/>
+        </convert>
+        <convert name="convert_in2" type="vector4">
+            <input name="in" type="half4" interfacename="in2"/>
+        </convert>
+        <ifequal name="ifequal" type="vector4">
+            <input name="value1" type="integer" interfacename="value1"/>
+            <input name="value2" type="integer" interfacename="value2"/>
+            <input name="in1" type="vector4" nodename="convert_in1"/>
+            <input name="in2" type="vector4" nodename="convert_in2"/>
+        </ifequal>
+        <convert name="convert_out" type="half4">
+            <input name="in" type="vector4" nodename="ifequal"/>
+        </convert>
+        <output name="out" type="half4" nodename="convert_out"/>
+    </nodegraph>
+    <nodegraph name="IM_ifequal_halfB" nodedef="ND_ifequal_halfB">
+        <convert name="convert_in1" type="float">
+            <input name="in" type="half" interfacename="in1"/>
+        </convert>
+        <convert name="convert_in2" type="float">
+            <input name="in" type="half" interfacename="in2"/>
+        </convert>
+        <ifequal name="ifequal" type="float">
+            <input name="value1" type="boolean" interfacename="value1"/>
+            <input name="value2" type="boolean" interfacename="value2"/>
+            <input name="in1" type="float" nodename="convert_in1"/>
+            <input name="in2" type="float" nodename="convert_in2"/>
+        </ifequal>
+        <convert name="convert_out" type="half">
+            <input name="in" type="float" nodename="ifequal"/>
+        </convert>
+        <output name="out" type="half" nodename="convert_out"/>
+    </nodegraph>
+    <nodegraph name="IM_ifequal_half2B" nodedef="ND_ifequal_half2B">
+        <convert name="convert_in1" type="vector2">
+            <input name="in" type="half2" interfacename="in1"/>
+        </convert>
+        <convert name="convert_in2" type="vector2">
+            <input name="in" type="half2" interfacename="in2"/>
+        </convert>
+        <ifequal name="ifequal" type="vector2">
+            <input name="value1" type="boolean" interfacename="value1"/>
+            <input name="value2" type="boolean" interfacename="value2"/>
+            <input name="in1" type="vector2" nodename="convert_in1"/>
+            <input name="in2" type="vector2" nodename="convert_in2"/>
+        </ifequal>
+        <convert name="convert_out" type="half2">
+            <input name="in" type="vector2" nodename="ifequal"/>
+        </convert>
+        <output name="out" type="half2" nodename="convert_out"/>
+    </nodegraph>
+    <nodegraph name="IM_ifequal_half3B" nodedef="ND_ifequal_half3B">
+        <convert name="convert_in1" type="vector3">
+            <input name="in" type="half3" interfacename="in1"/>
+        </convert>
+        <convert name="convert_in2" type="vector3">
+            <input name="in" type="half3" interfacename="in2"/>
+        </convert>
+        <ifequal name="ifequal" type="vector3">
+            <input name="value1" type="boolean" interfacename="value1"/>
+            <input name="value2" type="boolean" interfacename="value2"/>
+            <input name="in1" type="vector3" nodename="convert_in1"/>
+            <input name="in2" type="vector3" nodename="convert_in2"/>
+        </ifequal>
+        <convert name="convert_out" type="half3">
+            <input name="in" type="vector3" nodename="ifequal"/>
+        </convert>
+        <output name="out" type="half3" nodename="convert_out"/>
+    </nodegraph>
+    <nodegraph name="IM_ifequal_half4B" nodedef="ND_ifequal_half4B">
+        <convert name="convert_in1" type="vector4">
+            <input name="in" type="half4" interfacename="in1"/>
+        </convert>
+        <convert name="convert_in2" type="vector4">
+            <input name="in" type="half4" interfacename="in2"/>
+        </convert>
+        <ifequal name="ifequal" type="vector4">
+            <input name="value1" type="boolean" interfacename="value1"/>
+            <input name="value2" type="boolean" interfacename="value2"/>
+            <input name="in1" type="vector4" nodename="convert_in1"/>
+            <input name="in2" type="vector4" nodename="convert_in2"/>
+        </ifequal>
+        <convert name="convert_out" type="half4">
+            <input name="in" type="vector4" nodename="ifequal"/>
+        </convert>
+        <output name="out" type="half4" nodename="convert_out"/>
+    </nodegraph>
+
+    <!--
+      Node: <switch>
+      Pass on the value of one of five input streams, according to the value of a selector parameter.
+      TODO - consolidate this with ND_switch_float ?  this only has 5 inputs - but shadergraph has 10 inputs.
+    -->
+    <nodegraph name="IM_switch_half" nodedef="ND_switch_half">
+        <convert name="convert_in1" type="float">
+            <input name="in" type="half" interfacename="in1"/>
+        </convert>
+        <convert name="convert_in2" type="float">
+            <input name="in" type="half" interfacename="in2"/>
+        </convert>
+        <convert name="convert_in3" type="float">
+            <input name="in" type="half" interfacename="in3"/>
+        </convert>
+        <convert name="convert_in4" type="float">
+            <input name="in" type="half" interfacename="in4"/>
+        </convert>
+        <convert name="convert_in5" type="float">
+            <input name="in" type="half" interfacename="in5"/>
+        </convert>
+        <convert name="convert_in6" type="float">
+            <input name="in" type="half" interfacename="in6"/>
+        </convert>
+        <convert name="convert_in7" type="float">
+            <input name="in" type="half" interfacename="in7"/>
+        </convert>
+        <convert name="convert_in8" type="float">
+            <input name="in" type="half" interfacename="in8"/>
+        </convert>
+        <convert name="convert_in9" type="float">
+            <input name="in" type="half" interfacename="in9"/>
+        </convert>
+        <convert name="convert_in10" type="float">
+            <input name="in" type="half" interfacename="in10"/>
+        </convert>
+        <switch name="switch1" type="float">
+            <input name="in1" type="float" nodename="convert_in1"/>
+            <input name="in2" type="float" nodename="convert_in2"/>
+            <input name="in3" type="float" nodename="convert_in3"/>
+            <input name="in4" type="float" nodename="convert_in4"/>
+            <input name="in5" type="float" nodename="convert_in5"/>
+            <input name="which" type="float" interfacename="which"/>
+        </switch>
+        <subtract name="which_sub_five" type="float">
+            <input name="in1" type="float" interfacename="which"/>
+            <input name="in2" type="float" value="5.0"/>
+        </subtract>
+        <switch name="switch2" type="float">
+            <input name="in1" type="float" nodename="convert_in6"/>
+            <input name="in2" type="float" nodename="convert_in7"/>
+            <input name="in3" type="float" nodename="convert_in8"/>
+            <input name="in4" type="float" nodename="convert_in9"/>
+            <input name="in5" type="float" nodename="convert_in10"/>
+            <input name="which" type="float" nodename="which_sub_five"/>
+        </switch>
+
+        <ifgreatereq name="result" type="float">
+            <input name="value1" type="float" interfacename="which"/>
+            <input name="value2" type="float" value="5.0"/>
+            <input name="in1" type="float" nodename="switch2"/>
+            <input name="in2" type="float" nodename="switch1"/>
+        </ifgreatereq>
+
+        <convert name="convert_out" type="half">
+            <input name="in" type="float" nodename="result"/>
+        </convert>
+        <output name="out" type="half" nodename="convert_out"/>
+    </nodegraph>
+    <nodegraph name="IM_switch_halfI" nodedef="ND_switch_halfI">
+        <convert name="convert_in1" type="float">
+            <input name="in" type="half" interfacename="in1"/>
+        </convert>
+        <convert name="convert_in2" type="float">
+            <input name="in" type="half" interfacename="in2"/>
+        </convert>
+        <convert name="convert_in3" type="float">
+            <input name="in" type="half" interfacename="in3"/>
+        </convert>
+        <convert name="convert_in4" type="float">
+            <input name="in" type="half" interfacename="in4"/>
+        </convert>
+        <convert name="convert_in5" type="float">
+            <input name="in" type="half" interfacename="in5"/>
+        </convert>
+        <convert name="convert_in6" type="float">
+            <input name="in" type="half" interfacename="in6"/>
+        </convert>
+        <convert name="convert_in7" type="float">
+            <input name="in" type="half" interfacename="in7"/>
+        </convert>
+        <convert name="convert_in8" type="float">
+            <input name="in" type="half" interfacename="in8"/>
+        </convert>
+        <convert name="convert_in9" type="float">
+            <input name="in" type="half" interfacename="in9"/>
+        </convert>
+        <convert name="convert_in10" type="float">
+            <input name="in" type="half" interfacename="in10"/>
+        </convert>
+        <switch name="switch1" type="float">
+            <input name="in1" type="float" nodename="convert_in1"/>
+            <input name="in2" type="float" nodename="convert_in2"/>
+            <input name="in3" type="float" nodename="convert_in3"/>
+            <input name="in4" type="float" nodename="convert_in4"/>
+            <input name="in5" type="float" nodename="convert_in5"/>
+            <input name="which" type="integer" interfacename="which"/>
+        </switch>
+        <subtract name="which_sub_five" type="integer">
+            <input name="in1" type="integer" interfacename="which"/>
+            <input name="in2" type="integer" value="5"/>
+        </subtract>
+        <switch name="switch2" type="float">
+            <input name="in1" type="float" nodename="convert_in6"/>
+            <input name="in2" type="float" nodename="convert_in7"/>
+            <input name="in3" type="float" nodename="convert_in8"/>
+            <input name="in4" type="float" nodename="convert_in9"/>
+            <input name="in5" type="float" nodename="convert_in10"/>
+            <input name="which" type="integer" nodename="which_sub_five"/>
+        </switch>
+
+        <ifgreatereq name="result" type="float">
+            <input name="value1" type="integer" interfacename="which"/>
+            <input name="value2" type="integer" value="5.0"/>
+            <input name="in1" type="float" nodename="switch2"/>
+            <input name="in2" type="float" nodename="switch1"/>
+        </ifgreatereq>
+
+        <convert name="convert_out" type="half">
+            <input name="in" type="float" nodename="result"/>
+        </convert>
+        <output name="out" type="half" nodename="convert_out"/>
+    </nodegraph>
+
+    <!--
+      Node: <swizzle>
+      Perform an arbitrary permutation of the channels of the input stream, returning a new
+      stream of the specified type. Individual channels may be replicated or omitted, and the output
+      stream may have a different number of channels than the input.
+
+      NOTE - swizzle implementation is NOT a nodegraph currently due to a bug in MaterialX reported here
+            https://github.com/AcademySoftwareFoundation/MaterialX/issues/1598
+            For now we're making it work with a direct implementation in the metal shader gen - we could
+            extend to other shader generators if we need.
+    -->
+
+
+    <!--
+      Node: <combine3>
+      Combine the channels from two streams into the same number of channels of a single
+      output stream of a specified compatible type.
+    -->
+    <nodegraph name="IM_combine3_half3" nodedef="ND_combine3_half3">
+        <convert name="convert_in1" type="float">
+            <input name="in" type="half" interfacename="in1"/>
+        </convert>
+        <convert name="convert_in2" type="float">
+            <input name="in" type="half" interfacename="in2"/>
+        </convert>
+        <convert name="convert_in3" type="float">
+            <input name="in" type="half" interfacename="in3"/>
+        </convert>
+        <combine3 name="combine3" type="vector3">
+            <input name="in1" type="float" nodename="convert_in1"/>
+            <input name="in2" type="float" nodename="convert_in2"/>
+            <input name="in3" type="float" nodename="convert_in3"/>
+        </combine3>
+        <convert name="convert_out" type="half3">
+            <input name="in" type="vector3" nodename="combine3"/>
+        </convert>
+        <output name="out" type="half3" nodename="convert_out"/>
+    </nodegraph>
+
+    <!--
+      Node: <dot>
+      No-op; passes its input to the output unchanged.
+    -->
+    <nodegraph name="IM_dot_half" nodedef="ND_dot_half">
+        <constant name="pass_thru" type="half">
+            <input name="value" type="half" interfacename="in"/>
+        </constant>
+        <output name="out" type="half" nodename="pass_thru" />
+    </nodegraph>
+
+    <!--
+      Node: <image>
+      Samples data from a single image, or from a layer within a multi-layer image.
+    -->
+    <nodegraph name="IM_image_half" nodedef="ND_image_half">
+        <convert name="convert_default" type="float">
+            <input name="in" type="half" interfacename="default"/>
+        </convert>
+        <image name="image" type="float">
+            <input name="file" type="filename" interfacename="file" />
+            <input name="layer" type="string" interfacename="layer" />
+            <input name="default" type="float" nodename="convert_default" />
+            <input name="texcoord" type="vector2" interfacename="texcoord" />
+            <input name="uaddressmode" type="string" interfacename="uaddressmode" />
+            <input name="vaddressmode" type="string" interfacename="vaddressmode" />
+            <input name="filtertype" type="string" interfacename="filtertype"/>
+            <input name="framerange" type="string" interfacename="framerange" />
+            <input name="frameoffset" type="integer" interfacename="frameoffset" />
+            <input name="frameendaction" type="string" interfacename="frameendaction"/>
+        </image>
+        <convert name="convert_out" type="half">
+            <input name="in" type="float" nodename="image"/>
+        </convert>
+        <output name="out" type="half" nodename="convert_out"/>
+    </nodegraph>
+
+    <!--
+      Node: <tiledimage> Supplemental Node
+      Samples data from a single image, with provisions for tiling and offsetting the image
+        across uv space.
+    -->
+    <nodegraph name="IM_tiledimage_half" nodedef="ND_tiledimage_half">
+        <convert name="convert_default" type="float">
+            <input name="in" type="half" interfacename="default"/>
+        </convert>
+        <tiledimage name="tiledimage" type="float">
+            <input name="file" type="filename" interfacename="file" />
+            <input name="default" type="float" nodename="convert_default" />
+            <input name="texcoord" type="vector2" interfacename="texcoord" />
+            <input name="uvtiling" type="vector2" interfacename="uvtiling" />
+            <input name="uvoffset" type="vector2" interfacename="uvoffset" />
+            <input name="realworldimagesize" type="vector2" interfacename="realworldimagesize"/>
+            <input name="realworldtilesize" type="vector2" interfacename="realworldtilesize" />
+            <input name="filtertype" type="string" interfacename="filtertype"/>
+            <input name="framerange" type="string" interfacename="framerange" />
+            <input name="frameoffset" type="integer" interfacename="frameoffset" />
+            <input name="frameendaction" type="string" interfacename="frameendaction"/>
+        </tiledimage>
+        <convert name="convert_out" type="half">
+            <input name="in" type="float" nodename="tiledimage"/>
+        </convert>
+        <output name="out" type="half" nodename="convert_out"/>
+    </nodegraph>
+
+</materialx>

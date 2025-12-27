@@ -1,0 +1,19 @@
+# Python bytecode / caches
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Blender backups
+*.blend1
+
+# Export diagnostics
+*.diagnostics.json
+
+# macOS Finder metadata
+.DS_Store
+
+# Build artifacts
+dist/
+
+# Background bake/export jobs
+.blendertorcp_jobs/

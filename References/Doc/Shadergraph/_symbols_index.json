@@ -1,0 +1,3294 @@
+{
+  "framework": "ShaderGraph",
+  "generated_at": "2026-01-31T17:19:43.675677Z",
+  "entries": [
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/2d-procedural.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/2d-procedural",
+      "kind": "shadergraph_node_group",
+      "unqualified_name": "2D-Procedural",
+      "qualified_name": "2D-Procedural",
+      "container_qualified_name": null,
+      "display_name": "2D-Procedural",
+      "swift_decl": "",
+      "aliases": []
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/2d-procedural/cellular-noise-2d.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/2d-procedural/cellular-noise-2d",
+      "kind": "shadergraph_node",
+      "unqualified_name": "Cellular Noise 2D",
+      "qualified_name": "2D-Procedural.Cellular Noise 2D",
+      "container_qualified_name": "2D-Procedural",
+      "display_name": "Cellular Noise 2D",
+      "swift_decl": "",
+      "aliases": []
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/2d-procedural/noise-2d.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/2d-procedural/noise-2d",
+      "kind": "shadergraph_node",
+      "unqualified_name": "Noise 2D",
+      "qualified_name": "2D-Procedural.Noise 2D",
+      "container_qualified_name": "2D-Procedural",
+      "display_name": "Noise 2D",
+      "swift_decl": "",
+      "aliases": []
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/2d-procedural/ramp-4-corners.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/2d-procedural/ramp-4-corners",
+      "kind": "shadergraph_node",
+      "unqualified_name": "Ramp 4 Corners",
+      "qualified_name": "2D-Procedural.Ramp 4 Corners",
+      "container_qualified_name": "2D-Procedural",
+      "display_name": "Ramp 4 Corners",
+      "swift_decl": "",
+      "aliases": []
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/2d-procedural/ramp-horizontal.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/2d-procedural/ramp-horizontal",
+      "kind": "shadergraph_node",
+      "unqualified_name": "Ramp Horizontal",
+      "qualified_name": "2D-Procedural.Ramp Horizontal",
+      "container_qualified_name": "2D-Procedural",
+      "display_name": "Ramp Horizontal",
+      "swift_decl": "",
+      "aliases": []
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/2d-procedural/ramp-vertical.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/2d-procedural/ramp-vertical",
+      "kind": "shadergraph_node",
+      "unqualified_name": "Ramp Vertical",
+      "qualified_name": "2D-Procedural.Ramp Vertical",
+      "container_qualified_name": "2D-Procedural",
+      "display_name": "Ramp Vertical",
+      "swift_decl": "",
+      "aliases": []
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/2d-procedural/split-horizontal.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/2d-procedural/split-horizontal",
+      "kind": "shadergraph_node",
+      "unqualified_name": "Split Horizontal",
+      "qualified_name": "2D-Procedural.Split Horizontal",
+      "container_qualified_name": "2D-Procedural",
+      "display_name": "Split Horizontal",
+      "swift_decl": "",
+      "aliases": []
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/2d-procedural/split-vertical.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/2d-procedural/split-vertical",
+      "kind": "shadergraph_node",
+      "unqualified_name": "Split Vertical",
+      "qualified_name": "2D-Procedural.Split Vertical",
+      "container_qualified_name": "2D-Procedural",
+      "display_name": "Split Vertical",
+      "swift_decl": "",
+      "aliases": []
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/2d-procedural/worley-noise-2d.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/2d-procedural/worley-noise-2d",
+      "kind": "shadergraph_node",
+      "unqualified_name": "Worley Noise 2D",
+      "qualified_name": "2D-Procedural.Worley Noise 2D",
+      "container_qualified_name": "2D-Procedural",
+      "display_name": "Worley Noise 2D",
+      "swift_decl": "",
+      "aliases": []
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/2d-texture.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/2d-texture",
+      "kind": "shadergraph_node_group",
+      "unqualified_name": "2D-Texture",
+      "qualified_name": "2D-Texture",
+      "container_qualified_name": null,
+      "display_name": "2D-Texture",
+      "swift_decl": "",
+      "aliases": []
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/2d-texture/image.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/2d-texture/image",
+      "kind": "shadergraph_node",
+      "unqualified_name": "Image",
+      "qualified_name": "2D-Texture.Image",
+      "container_qualified_name": "2D-Texture",
+      "display_name": "Image",
+      "swift_decl": "",
+      "aliases": []
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/2d-texture/tiled-image.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/2d-texture/tiled-image",
+      "kind": "shadergraph_node",
+      "unqualified_name": "Tiled Image",
+      "qualified_name": "2D-Texture.Tiled Image",
+      "container_qualified_name": "2D-Texture",
+      "display_name": "Tiled Image",
+      "swift_decl": "",
+      "aliases": []
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/2d-texture/transform-2d.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/2d-texture/transform-2d",
+      "kind": "shadergraph_node",
+      "unqualified_name": "Transform 2D",
+      "qualified_name": "2D-Texture.Transform 2D",
+      "container_qualified_name": "2D-Texture",
+      "display_name": "Transform 2D",
+      "swift_decl": "",
+      "aliases": []
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/2d-texture/uv-texture.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/2d-texture/uv-texture",
+      "kind": "shadergraph_node",
+      "unqualified_name": "UV Texture",
+      "qualified_name": "2D-Texture.UV Texture",
+      "container_qualified_name": "2D-Texture",
+      "display_name": "UV Texture",
+      "swift_decl": "",
+      "aliases": []
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/3d-procedural.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/3d-procedural",
+      "kind": "shadergraph_node_group",
+      "unqualified_name": "3D-Procedural",
+      "qualified_name": "3D-Procedural",
+      "container_qualified_name": null,
+      "display_name": "3D-Procedural",
+      "swift_decl": "",
+      "aliases": []
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/3d-procedural/cellular-noise-3d.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/3d-procedural/cellular-noise-3d",
+      "kind": "shadergraph_node",
+      "unqualified_name": "Cellular Noise 3D",
+      "qualified_name": "3D-Procedural.Cellular Noise 3D",
+      "container_qualified_name": "3D-Procedural",
+      "display_name": "Cellular Noise 3D",
+      "swift_decl": "",
+      "aliases": []
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/3d-procedural/fractal-noise-3d.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/3d-procedural/fractal-noise-3d",
+      "kind": "shadergraph_node",
+      "unqualified_name": "Fractal Noise 3D",
+      "qualified_name": "3D-Procedural.Fractal Noise 3D",
+      "container_qualified_name": "3D-Procedural",
+      "display_name": "Fractal Noise 3D",
+      "swift_decl": "",
+      "aliases": []
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/3d-procedural/noise-3d.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/3d-procedural/noise-3d",
+      "kind": "shadergraph_node",
+      "unqualified_name": "Noise 3D",
+      "qualified_name": "3D-Procedural.Noise 3D",
+      "container_qualified_name": "3D-Procedural",
+      "display_name": "Noise 3D",
+      "swift_decl": "",
+      "aliases": []
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/3d-procedural/worley-noise-3d.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/3d-procedural/worley-noise-3d",
+      "kind": "shadergraph_node",
+      "unqualified_name": "Worley Noise 3D",
+      "qualified_name": "3D-Procedural.Worley Noise 3D",
+      "container_qualified_name": "3D-Procedural",
+      "display_name": "Worley Noise 3D",
+      "swift_decl": "",
+      "aliases": []
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/3d-texture.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/3d-texture",
+      "kind": "shadergraph_node_group",
+      "unqualified_name": "3D-Texture",
+      "qualified_name": "3D-Texture",
+      "container_qualified_name": null,
+      "display_name": "3D-Texture",
+      "swift_decl": "",
+      "aliases": []
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/3d-texture/triplanar-projection.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/3d-texture/triplanar-projection",
+      "kind": "shadergraph_node",
+      "unqualified_name": "Triplanar Projection",
+      "qualified_name": "3D-Texture.Triplanar Projection",
+      "container_qualified_name": "3D-Texture",
+      "display_name": "Triplanar Projection",
+      "swift_decl": "",
+      "aliases": []
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/adjustment.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/adjustment",
+      "kind": "shadergraph_node_group",
+      "unqualified_name": "Adjustment",
+      "qualified_name": "Adjustment",
+      "container_qualified_name": null,
+      "display_name": "Adjustment",
+      "swift_decl": "",
+      "aliases": []
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/adjustment/contrast.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/adjustment/contrast",
+      "kind": "shadergraph_node",
+      "unqualified_name": "Contrast",
+      "qualified_name": "Adjustment.Contrast",
+      "container_qualified_name": "Adjustment",
+      "display_name": "Contrast",
+      "swift_decl": "",
+      "aliases": []
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/adjustment/hsv-adjust.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/adjustment/hsv-adjust",
+      "kind": "shadergraph_node",
+      "unqualified_name": "HSV Adjust",
+      "qualified_name": "Adjustment.HSV Adjust",
+      "container_qualified_name": "Adjustment",
+      "display_name": "HSV Adjust",
+      "swift_decl": "",
+      "aliases": []
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/adjustment/hsv-to-rgb.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/adjustment/hsv-to-rgb",
+      "kind": "shadergraph_node",
+      "unqualified_name": "HSV to RGB",
+      "qualified_name": "Adjustment.HSV to RGB",
+      "container_qualified_name": "Adjustment",
+      "display_name": "HSV to RGB",
+      "swift_decl": "",
+      "aliases": []
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/adjustment/luminance.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/adjustment/luminance",
+      "kind": "shadergraph_node",
+      "unqualified_name": "Luminance",
+      "qualified_name": "Adjustment.Luminance",
+      "container_qualified_name": "Adjustment",
+      "display_name": "Luminance",
+      "swift_decl": "",
+      "aliases": []
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/adjustment/range.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/adjustment/range",
+      "kind": "shadergraph_node",
+      "unqualified_name": "Range",
+      "qualified_name": "Adjustment.Range",
+      "container_qualified_name": "Adjustment",
+      "display_name": "Range",
+      "swift_decl": "",
+      "aliases": []
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/adjustment/remap.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/adjustment/remap",
+      "kind": "shadergraph_node",
+      "unqualified_name": "Remap",
+      "qualified_name": "Adjustment.Remap",
+      "container_qualified_name": "Adjustment",
+      "display_name": "Remap",
+      "swift_decl": "",
+      "aliases": []
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/adjustment/rgb-to-hsv.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/adjustment/rgb-to-hsv",
+      "kind": "shadergraph_node",
+      "unqualified_name": "RGB to HSV",
+      "qualified_name": "Adjustment.RGB to HSV",
+      "container_qualified_name": "Adjustment",
+      "display_name": "RGB to HSV",
+      "swift_decl": "",
+      "aliases": []
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/adjustment/saturate.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/adjustment/saturate",
+      "kind": "shadergraph_node",
+      "unqualified_name": "Saturate",
+      "qualified_name": "Adjustment.Saturate",
+      "container_qualified_name": "Adjustment",
+      "display_name": "Saturate",
+      "swift_decl": "",
+      "aliases": []
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/adjustment/smooth-step.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/adjustment/smooth-step",
+      "kind": "shadergraph_node",
+      "unqualified_name": "Smooth Step",
+      "qualified_name": "Adjustment.Smooth Step",
+      "container_qualified_name": "Adjustment",
+      "display_name": "Smooth Step",
+      "swift_decl": "",
+      "aliases": []
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/adjustment/step-_realitykit_.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/adjustment/step-(realitykit)",
+      "kind": "shadergraph_node",
+      "unqualified_name": "Step (RealityKit)",
+      "qualified_name": "Adjustment.Step (RealityKit)",
+      "container_qualified_name": "Adjustment",
+      "display_name": "Step (RealityKit)",
+      "swift_decl": "",
+      "aliases": [
+        "Step",
+        "Adjustment.Step"
+      ]
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/application.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/application",
+      "kind": "shadergraph_node_group",
+      "unqualified_name": "Application",
+      "qualified_name": "Application",
+      "container_qualified_name": null,
+      "display_name": "Application",
+      "swift_decl": "",
+      "aliases": []
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/application/time-_float_.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/application/time-(float)",
+      "kind": "shadergraph_node",
+      "unqualified_name": "Time (float)",
+      "qualified_name": "Application.Time (float)",
+      "container_qualified_name": "Application",
+      "display_name": "Time (float)",
+      "swift_decl": "",
+      "aliases": [
+        "Time",
+        "Application.Time"
+      ]
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/application/up-direction.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/application/up-direction",
+      "kind": "shadergraph_node",
+      "unqualified_name": "Up Direction",
+      "qualified_name": "Application.Up Direction",
+      "container_qualified_name": "Application",
+      "display_name": "Up Direction",
+      "swift_decl": "",
+      "aliases": []
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/compositing.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/compositing",
+      "kind": "shadergraph_node_group",
+      "unqualified_name": "Compositing",
+      "qualified_name": "Compositing",
+      "container_qualified_name": null,
+      "display_name": "Compositing",
+      "swift_decl": "",
+      "aliases": []
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/compositing/additive-mix.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/compositing/additive-mix",
+      "kind": "shadergraph_node",
+      "unqualified_name": "Additive Mix",
+      "qualified_name": "Compositing.Additive Mix",
+      "container_qualified_name": "Compositing",
+      "display_name": "Additive Mix",
+      "swift_decl": "",
+      "aliases": []
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/compositing/burn.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/compositing/burn",
+      "kind": "shadergraph_node",
+      "unqualified_name": "Burn",
+      "qualified_name": "Compositing.Burn",
+      "container_qualified_name": "Compositing",
+      "display_name": "Burn",
+      "swift_decl": "",
+      "aliases": []
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/compositing/difference.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/compositing/difference",
+      "kind": "shadergraph_node",
+      "unqualified_name": "Difference",
+      "qualified_name": "Compositing.Difference",
+      "container_qualified_name": "Compositing",
+      "display_name": "Difference",
+      "swift_decl": "",
+      "aliases": []
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/compositing/disjoint-over.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/compositing/disjoint-over",
+      "kind": "shadergraph_node",
+      "unqualified_name": "Disjoint Over",
+      "qualified_name": "Compositing.Disjoint Over",
+      "container_qualified_name": "Compositing",
+      "display_name": "Disjoint Over",
+      "swift_decl": "",
+      "aliases": []
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/compositing/dodge.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/compositing/dodge",
+      "kind": "shadergraph_node",
+      "unqualified_name": "Dodge",
+      "qualified_name": "Compositing.Dodge",
+      "container_qualified_name": "Compositing",
+      "display_name": "Dodge",
+      "swift_decl": "",
+      "aliases": []
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/compositing/in.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/compositing/in",
+      "kind": "shadergraph_node",
+      "unqualified_name": "In",
+      "qualified_name": "Compositing.In",
+      "container_qualified_name": "Compositing",
+      "display_name": "In",
+      "swift_decl": "",
+      "aliases": []
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/compositing/inside.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/compositing/inside",
+      "kind": "shadergraph_node",
+      "unqualified_name": "Inside",
+      "qualified_name": "Compositing.Inside",
+      "container_qualified_name": "Compositing",
+      "display_name": "Inside",
+      "swift_decl": "",
+      "aliases": []
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/compositing/mask.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/compositing/mask",
+      "kind": "shadergraph_node",
+      "unqualified_name": "Mask",
+      "qualified_name": "Compositing.Mask",
+      "container_qualified_name": "Compositing",
+      "display_name": "Mask",
+      "swift_decl": "",
+      "aliases": []
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/compositing/matte.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/compositing/matte",
+      "kind": "shadergraph_node",
+      "unqualified_name": "Matte",
+      "qualified_name": "Compositing.Matte",
+      "container_qualified_name": "Compositing",
+      "display_name": "Matte",
+      "swift_decl": "",
+      "aliases": []
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/compositing/mix.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/compositing/mix",
+      "kind": "shadergraph_node",
+      "unqualified_name": "Mix",
+      "qualified_name": "Compositing.Mix",
+      "container_qualified_name": "Compositing",
+      "display_name": "Mix",
+      "swift_decl": "",
+      "aliases": []
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/compositing/out.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/compositing/out",
+      "kind": "shadergraph_node",
+      "unqualified_name": "Out",
+      "qualified_name": "Compositing.Out",
+      "container_qualified_name": "Compositing",
+      "display_name": "Out",
+      "swift_decl": "",
+      "aliases": []
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/compositing/outside.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/compositing/outside",
+      "kind": "shadergraph_node",
+      "unqualified_name": "Outside",
+      "qualified_name": "Compositing.Outside",
+      "container_qualified_name": "Compositing",
+      "display_name": "Outside",
+      "swift_decl": "",
+      "aliases": []
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/compositing/over.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/compositing/over",
+      "kind": "shadergraph_node",
+      "unqualified_name": "Over",
+      "qualified_name": "Compositing.Over",
+      "container_qualified_name": "Compositing",
+      "display_name": "Over",
+      "swift_decl": "",
+      "aliases": []
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/compositing/overlay.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/compositing/overlay",
+      "kind": "shadergraph_node",
+      "unqualified_name": "Overlay",
+      "qualified_name": "Compositing.Overlay",
+      "container_qualified_name": "Compositing",
+      "display_name": "Overlay",
+      "swift_decl": "",
+      "aliases": []
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/compositing/premultiply.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/compositing/premultiply",
+      "kind": "shadergraph_node",
+      "unqualified_name": "Premultiply",
+      "qualified_name": "Compositing.Premultiply",
+      "container_qualified_name": "Compositing",
+      "display_name": "Premultiply",
+      "swift_decl": "",
+      "aliases": []
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/compositing/screen.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/compositing/screen",
+      "kind": "shadergraph_node",
+      "unqualified_name": "Screen",
+      "qualified_name": "Compositing.Screen",
+      "container_qualified_name": "Compositing",
+      "display_name": "Screen",
+      "swift_decl": "",
+      "aliases": []
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/compositing/subtractive-mix.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/compositing/subtractive-mix",
+      "kind": "shadergraph_node",
+      "unqualified_name": "Subtractive Mix",
+      "qualified_name": "Compositing.Subtractive Mix",
+      "container_qualified_name": "Compositing",
+      "display_name": "Subtractive Mix",
+      "swift_decl": "",
+      "aliases": []
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/compositing/unpremultiply.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/compositing/unpremultiply",
+      "kind": "shadergraph_node",
+      "unqualified_name": "Unpremultiply",
+      "qualified_name": "Compositing.Unpremultiply",
+      "container_qualified_name": "Compositing",
+      "display_name": "Unpremultiply",
+      "swift_decl": "",
+      "aliases": []
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/data.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/data",
+      "kind": "shadergraph_node_group",
+      "unqualified_name": "Data",
+      "qualified_name": "Data",
+      "container_qualified_name": null,
+      "display_name": "Data",
+      "swift_decl": "",
+      "aliases": []
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/data/combine-2.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/data/combine-2",
+      "kind": "shadergraph_node",
+      "unqualified_name": "Combine 2",
+      "qualified_name": "Data.Combine 2",
+      "container_qualified_name": "Data",
+      "display_name": "Combine 2",
+      "swift_decl": "",
+      "aliases": []
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/data/combine-3.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/data/combine-3",
+      "kind": "shadergraph_node",
+      "unqualified_name": "Combine 3",
+      "qualified_name": "Data.Combine 3",
+      "container_qualified_name": "Data",
+      "display_name": "Combine 3",
+      "swift_decl": "",
+      "aliases": []
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/data/combine-4.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/data/combine-4",
+      "kind": "shadergraph_node",
+      "unqualified_name": "Combine 4",
+      "qualified_name": "Data.Combine 4",
+      "container_qualified_name": "Data",
+      "display_name": "Combine 4",
+      "swift_decl": "",
+      "aliases": []
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/data/convert.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/data/convert",
+      "kind": "shadergraph_node",
+      "unqualified_name": "Convert",
+      "qualified_name": "Data.Convert",
+      "container_qualified_name": "Data",
+      "display_name": "Convert",
+      "swift_decl": "",
+      "aliases": []
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/data/extract.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/data/extract",
+      "kind": "shadergraph_node",
+      "unqualified_name": "Extract",
+      "qualified_name": "Data.Extract",
+      "container_qualified_name": "Data",
+      "display_name": "Extract",
+      "swift_decl": "",
+      "aliases": []
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/data/primvar-reader.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/data/primvar-reader",
+      "kind": "shadergraph_node",
+      "unqualified_name": "Primvar Reader",
+      "qualified_name": "Data.Primvar Reader",
+      "container_qualified_name": "Data",
+      "display_name": "Primvar Reader",
+      "swift_decl": "",
+      "aliases": []
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/data/separate-2.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/data/separate-2",
+      "kind": "shadergraph_node",
+      "unqualified_name": "Separate 2",
+      "qualified_name": "Data.Separate 2",
+      "container_qualified_name": "Data",
+      "display_name": "Separate 2",
+      "swift_decl": "",
+      "aliases": []
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/data/separate-3.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/data/separate-3",
+      "kind": "shadergraph_node",
+      "unqualified_name": "Separate 3",
+      "qualified_name": "Data.Separate 3",
+      "container_qualified_name": "Data",
+      "display_name": "Separate 3",
+      "swift_decl": "",
+      "aliases": []
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/data/separate-4.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/data/separate-4",
+      "kind": "shadergraph_node",
+      "unqualified_name": "Separate 4",
+      "qualified_name": "Data.Separate 4",
+      "container_qualified_name": "Data",
+      "display_name": "Separate 4",
+      "swift_decl": "",
+      "aliases": []
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/data/swizzle.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/data/swizzle",
+      "kind": "shadergraph_node",
+      "unqualified_name": "Swizzle",
+      "qualified_name": "Data.Swizzle",
+      "container_qualified_name": "Data",
+      "display_name": "Swizzle",
+      "swift_decl": "",
+      "aliases": []
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/geometric.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/geometric",
+      "kind": "shadergraph_node_group",
+      "unqualified_name": "Geometric",
+      "qualified_name": "Geometric",
+      "container_qualified_name": null,
+      "display_name": "Geometric",
+      "swift_decl": "",
+      "aliases": []
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/geometric/bitangent.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/geometric/bitangent",
+      "kind": "shadergraph_node",
+      "unqualified_name": "Bitangent",
+      "qualified_name": "Geometric.Bitangent",
+      "container_qualified_name": "Geometric",
+      "display_name": "Bitangent",
+      "swift_decl": "",
+      "aliases": []
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/geometric/geometric-property.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/geometric/geometric-property",
+      "kind": "shadergraph_node",
+      "unqualified_name": "Geometric Property",
+      "qualified_name": "Geometric.Geometric Property",
+      "container_qualified_name": "Geometric",
+      "display_name": "Geometric Property",
+      "swift_decl": "",
+      "aliases": []
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/geometric/geometry-color.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/geometric/geometry-color",
+      "kind": "shadergraph_node",
+      "unqualified_name": "Geometry Color",
+      "qualified_name": "Geometric.Geometry Color",
+      "container_qualified_name": "Geometric",
+      "display_name": "Geometry Color",
+      "swift_decl": "",
+      "aliases": []
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/geometric/normal.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/geometric/normal",
+      "kind": "shadergraph_node",
+      "unqualified_name": "Normal",
+      "qualified_name": "Geometric.Normal",
+      "container_qualified_name": "Geometric",
+      "display_name": "Normal",
+      "swift_decl": "",
+      "aliases": []
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/geometric/position.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/geometric/position",
+      "kind": "shadergraph_node",
+      "unqualified_name": "Position",
+      "qualified_name": "Geometric.Position",
+      "container_qualified_name": "Geometric",
+      "display_name": "Position",
+      "swift_decl": "",
+      "aliases": []
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/geometric/reflect-_realitykit_.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/geometric/reflect-(realitykit)",
+      "kind": "shadergraph_node",
+      "unqualified_name": "Reflect (RealityKit)",
+      "qualified_name": "Geometric.Reflect (RealityKit)",
+      "container_qualified_name": "Geometric",
+      "display_name": "Reflect (RealityKit)",
+      "swift_decl": "",
+      "aliases": [
+        "Reflect",
+        "Geometric.Reflect"
+      ]
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/geometric/refract-_realitykit_.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/geometric/refract-(realitykit)",
+      "kind": "shadergraph_node",
+      "unqualified_name": "Refract (RealityKit)",
+      "qualified_name": "Geometric.Refract (RealityKit)",
+      "container_qualified_name": "Geometric",
+      "display_name": "Refract (RealityKit)",
+      "swift_decl": "",
+      "aliases": [
+        "Refract",
+        "Geometric.Refract"
+      ]
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/geometric/tangent.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/geometric/tangent",
+      "kind": "shadergraph_node",
+      "unqualified_name": "Tangent",
+      "qualified_name": "Geometric.Tangent",
+      "container_qualified_name": "Geometric",
+      "display_name": "Tangent",
+      "swift_decl": "",
+      "aliases": []
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/geometric/texture-coordinates.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/geometric/texture-coordinates",
+      "kind": "shadergraph_node",
+      "unqualified_name": "Texture Coordinates",
+      "qualified_name": "Geometric.Texture Coordinates",
+      "container_qualified_name": "Geometric",
+      "display_name": "Texture Coordinates",
+      "swift_decl": "",
+      "aliases": []
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/logic.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/logic",
+      "kind": "shadergraph_node_group",
+      "unqualified_name": "Logic",
+      "qualified_name": "Logic",
+      "container_qualified_name": null,
+      "display_name": "Logic",
+      "swift_decl": "",
+      "aliases": []
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/logic/and-_realitykit_.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/logic/and-(realitykit)",
+      "kind": "shadergraph_node",
+      "unqualified_name": "And (RealityKit)",
+      "qualified_name": "Logic.And (RealityKit)",
+      "container_qualified_name": "Logic",
+      "display_name": "And (RealityKit)",
+      "swift_decl": "",
+      "aliases": [
+        "And",
+        "Logic.And"
+      ]
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/logic/if-equal.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/logic/if-equal",
+      "kind": "shadergraph_node",
+      "unqualified_name": "If Equal",
+      "qualified_name": "Logic.If Equal",
+      "container_qualified_name": "Logic",
+      "display_name": "If Equal",
+      "swift_decl": "",
+      "aliases": []
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/logic/if-greater.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/logic/if-greater",
+      "kind": "shadergraph_node",
+      "unqualified_name": "If Greater",
+      "qualified_name": "Logic.If Greater",
+      "container_qualified_name": "Logic",
+      "display_name": "If Greater",
+      "swift_decl": "",
+      "aliases": []
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/logic/if-greater-or-equal.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/logic/if-greater-or-equal",
+      "kind": "shadergraph_node",
+      "unqualified_name": "If Greater Or Equal",
+      "qualified_name": "Logic.If Greater Or Equal",
+      "container_qualified_name": "Logic",
+      "display_name": "If Greater Or Equal",
+      "swift_decl": "",
+      "aliases": []
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/logic/not-_realitykit_.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/logic/not-(realitykit)",
+      "kind": "shadergraph_node",
+      "unqualified_name": "Not (RealityKit)",
+      "qualified_name": "Logic.Not (RealityKit)",
+      "container_qualified_name": "Logic",
+      "display_name": "Not (RealityKit)",
+      "swift_decl": "",
+      "aliases": [
+        "Not",
+        "Logic.Not"
+      ]
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/logic/or-_realitykit_.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/logic/or-(realitykit)",
+      "kind": "shadergraph_node",
+      "unqualified_name": "Or (RealityKit)",
+      "qualified_name": "Logic.Or (RealityKit)",
+      "container_qualified_name": "Logic",
+      "display_name": "Or (RealityKit)",
+      "swift_decl": "",
+      "aliases": [
+        "Or",
+        "Logic.Or"
+      ]
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/logic/select-_realitykit_.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/logic/select-(realitykit)",
+      "kind": "shadergraph_node",
+      "unqualified_name": "Select (RealityKit)",
+      "qualified_name": "Logic.Select (RealityKit)",
+      "container_qualified_name": "Logic",
+      "display_name": "Select (RealityKit)",
+      "swift_decl": "",
+      "aliases": [
+        "Select",
+        "Logic.Select"
+      ]
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/logic/switch.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/logic/switch",
+      "kind": "shadergraph_node",
+      "unqualified_name": "Switch",
+      "qualified_name": "Logic.Switch",
+      "container_qualified_name": "Logic",
+      "display_name": "Switch",
+      "swift_decl": "",
+      "aliases": []
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/logic/xor-_realitykit_.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/logic/xor-(realitykit)",
+      "kind": "shadergraph_node",
+      "unqualified_name": "XOR (RealityKit)",
+      "qualified_name": "Logic.XOR (RealityKit)",
+      "container_qualified_name": "Logic",
+      "display_name": "XOR (RealityKit)",
+      "swift_decl": "",
+      "aliases": [
+        "XOR",
+        "Logic.XOR"
+      ]
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/material.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/material",
+      "kind": "shadergraph_node_group",
+      "unqualified_name": "Material",
+      "qualified_name": "Material",
+      "container_qualified_name": null,
+      "display_name": "Material",
+      "swift_decl": "",
+      "aliases": []
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/material/node-graph.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/material/node-graph",
+      "kind": "shadergraph_node",
+      "unqualified_name": "Node Graph",
+      "qualified_name": "Material.Node Graph",
+      "container_qualified_name": "Material",
+      "display_name": "Node Graph",
+      "swift_decl": "",
+      "aliases": []
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/math.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/math",
+      "kind": "shadergraph_node_group",
+      "unqualified_name": "Math",
+      "qualified_name": "Math",
+      "container_qualified_name": null,
+      "display_name": "Math",
+      "swift_decl": "",
+      "aliases": []
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/math/abs.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/math/abs",
+      "kind": "shadergraph_node",
+      "unqualified_name": "Abs",
+      "qualified_name": "Math.Abs",
+      "container_qualified_name": "Math",
+      "display_name": "Abs",
+      "swift_decl": "",
+      "aliases": []
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/math/acos.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/math/acos",
+      "kind": "shadergraph_node",
+      "unqualified_name": "Acos",
+      "qualified_name": "Math.Acos",
+      "container_qualified_name": "Math",
+      "display_name": "Acos",
+      "swift_decl": "",
+      "aliases": []
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/math/add.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/math/add",
+      "kind": "shadergraph_node",
+      "unqualified_name": "Add",
+      "qualified_name": "Math.Add",
+      "container_qualified_name": "Math",
+      "display_name": "Add",
+      "swift_decl": "",
+      "aliases": []
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/math/asin.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/math/asin",
+      "kind": "shadergraph_node",
+      "unqualified_name": "Asin",
+      "qualified_name": "Math.Asin",
+      "container_qualified_name": "Math",
+      "display_name": "Asin",
+      "swift_decl": "",
+      "aliases": []
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/math/atan.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/math/atan",
+      "kind": "shadergraph_node",
+      "unqualified_name": "Atan",
+      "qualified_name": "Math.Atan",
+      "container_qualified_name": "Math",
+      "display_name": "Atan",
+      "swift_decl": "",
+      "aliases": []
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/math/atan2.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/math/atan2",
+      "kind": "shadergraph_node",
+      "unqualified_name": "Atan2",
+      "qualified_name": "Math.Atan2",
+      "container_qualified_name": "Math",
+      "display_name": "Atan2",
+      "swift_decl": "",
+      "aliases": []
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/math/ceiling.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/math/ceiling",
+      "kind": "shadergraph_node",
+      "unqualified_name": "Ceiling",
+      "qualified_name": "Math.Ceiling",
+      "container_qualified_name": "Math",
+      "display_name": "Ceiling",
+      "swift_decl": "",
+      "aliases": []
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/math/clamp.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/math/clamp",
+      "kind": "shadergraph_node",
+      "unqualified_name": "Clamp",
+      "qualified_name": "Math.Clamp",
+      "container_qualified_name": "Math",
+      "display_name": "Clamp",
+      "swift_decl": "",
+      "aliases": []
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/math/copy-sign-_realitykit_.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/math/copy-sign-(realitykit)",
+      "kind": "shadergraph_node",
+      "unqualified_name": "Copy Sign (RealityKit)",
+      "qualified_name": "Math.Copy Sign (RealityKit)",
+      "container_qualified_name": "Math",
+      "display_name": "Copy Sign (RealityKit)",
+      "swift_decl": "",
+      "aliases": [
+        "Copy Sign",
+        "Math.Copy Sign"
+      ]
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/math/cos.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/math/cos",
+      "kind": "shadergraph_node",
+      "unqualified_name": "Cos",
+      "qualified_name": "Math.Cos",
+      "container_qualified_name": "Math",
+      "display_name": "Cos",
+      "swift_decl": "",
+      "aliases": []
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/math/cos-pi-_realitykit_.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/math/cos-pi-(realitykit)",
+      "kind": "shadergraph_node",
+      "unqualified_name": "Cos Pi (RealityKit)",
+      "qualified_name": "Math.Cos Pi (RealityKit)",
+      "container_qualified_name": "Math",
+      "display_name": "Cos Pi (RealityKit)",
+      "swift_decl": "",
+      "aliases": [
+        "Cos Pi",
+        "Math.Cos Pi"
+      ]
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/math/cross-product.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/math/cross-product",
+      "kind": "shadergraph_node",
+      "unqualified_name": "Cross Product",
+      "qualified_name": "Math.Cross Product",
+      "container_qualified_name": "Math",
+      "display_name": "Cross Product",
+      "swift_decl": "",
+      "aliases": []
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/math/determinant.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/math/determinant",
+      "kind": "shadergraph_node",
+      "unqualified_name": "Determinant",
+      "qualified_name": "Math.Determinant",
+      "container_qualified_name": "Math",
+      "display_name": "Determinant",
+      "swift_decl": "",
+      "aliases": []
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/math/distance-_realitykit_.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/math/distance-(realitykit)",
+      "kind": "shadergraph_node",
+      "unqualified_name": "Distance (RealityKit)",
+      "qualified_name": "Math.Distance (RealityKit)",
+      "container_qualified_name": "Math",
+      "display_name": "Distance (RealityKit)",
+      "swift_decl": "",
+      "aliases": [
+        "Distance",
+        "Math.Distance"
+      ]
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/math/distance-square-_realitykit_.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/math/distance-square-(realitykit)",
+      "kind": "shadergraph_node",
+      "unqualified_name": "Distance Square (RealityKit)",
+      "qualified_name": "Math.Distance Square (RealityKit)",
+      "container_qualified_name": "Math",
+      "display_name": "Distance Square (RealityKit)",
+      "swift_decl": "",
+      "aliases": [
+        "Distance Square",
+        "Math.Distance Square"
+      ]
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/math/divide.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/math/divide",
+      "kind": "shadergraph_node",
+      "unqualified_name": "Divide",
+      "qualified_name": "Math.Divide",
+      "container_qualified_name": "Math",
+      "display_name": "Divide",
+      "swift_decl": "",
+      "aliases": []
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/math/dot-product.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/math/dot-product",
+      "kind": "shadergraph_node",
+      "unqualified_name": "Dot Product",
+      "qualified_name": "Math.Dot Product",
+      "container_qualified_name": "Math",
+      "display_name": "Dot Product",
+      "swift_decl": "",
+      "aliases": []
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/math/exp.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/math/exp",
+      "kind": "shadergraph_node",
+      "unqualified_name": "Exp",
+      "qualified_name": "Math.Exp",
+      "container_qualified_name": "Math",
+      "display_name": "Exp",
+      "swift_decl": "",
+      "aliases": []
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/math/exponential-10-_realitykit_.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/math/exponential-10-(realitykit)",
+      "kind": "shadergraph_node",
+      "unqualified_name": "Exponential 10 (RealityKit)",
+      "qualified_name": "Math.Exponential 10 (RealityKit)",
+      "container_qualified_name": "Math",
+      "display_name": "Exponential 10 (RealityKit)",
+      "swift_decl": "",
+      "aliases": [
+        "Exponential 10",
+        "Math.Exponential 10"
+      ]
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/math/exponential-2-_realitykit_.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/math/exponential-2-(realitykit)",
+      "kind": "shadergraph_node",
+      "unqualified_name": "Exponential 2 (RealityKit)",
+      "qualified_name": "Math.Exponential 2 (RealityKit)",
+      "container_qualified_name": "Math",
+      "display_name": "Exponential 2 (RealityKit)",
+      "swift_decl": "",
+      "aliases": [
+        "Exponential 2",
+        "Math.Exponential 2"
+      ]
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/math/floor.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/math/floor",
+      "kind": "shadergraph_node",
+      "unqualified_name": "Floor",
+      "qualified_name": "Math.Floor",
+      "container_qualified_name": "Math",
+      "display_name": "Floor",
+      "swift_decl": "",
+      "aliases": []
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/math/fractional-_realitykit_.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/math/fractional-(realitykit)",
+      "kind": "shadergraph_node",
+      "unqualified_name": "Fractional (RealityKit)",
+      "qualified_name": "Math.Fractional (RealityKit)",
+      "container_qualified_name": "Math",
+      "display_name": "Fractional (RealityKit)",
+      "swift_decl": "",
+      "aliases": [
+        "Fractional",
+        "Math.Fractional"
+      ]
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/math/fused-multiply-add-_realitykit_.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/math/fused-multiply-add-(realitykit)",
+      "kind": "shadergraph_node",
+      "unqualified_name": "Fused Multiply-Add (RealityKit)",
+      "qualified_name": "Math.Fused Multiply-Add (RealityKit)",
+      "container_qualified_name": "Math",
+      "display_name": "Fused Multiply-Add (RealityKit)",
+      "swift_decl": "",
+      "aliases": [
+        "Fused Multiply-Add",
+        "Math.Fused Multiply-Add"
+      ]
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/math/hyperbolic-cos.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/math/hyperbolic-cos",
+      "kind": "shadergraph_node",
+      "unqualified_name": "Hyperbolic Cos",
+      "qualified_name": "Math.Hyperbolic Cos",
+      "container_qualified_name": "Math",
+      "display_name": "Hyperbolic Cos",
+      "swift_decl": "",
+      "aliases": []
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/math/hyperbolic-sin.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/math/hyperbolic-sin",
+      "kind": "shadergraph_node",
+      "unqualified_name": "Hyperbolic Sin",
+      "qualified_name": "Math.Hyperbolic Sin",
+      "container_qualified_name": "Math",
+      "display_name": "Hyperbolic Sin",
+      "swift_decl": "",
+      "aliases": []
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/math/hyperbolic-tan.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/math/hyperbolic-tan",
+      "kind": "shadergraph_node",
+      "unqualified_name": "Hyperbolic Tan",
+      "qualified_name": "Math.Hyperbolic Tan",
+      "container_qualified_name": "Math",
+      "display_name": "Hyperbolic Tan",
+      "swift_decl": "",
+      "aliases": []
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/math/inverse-hyperbolic-cos.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/math/inverse-hyperbolic-cos",
+      "kind": "shadergraph_node",
+      "unqualified_name": "Inverse Hyperbolic Cos",
+      "qualified_name": "Math.Inverse Hyperbolic Cos",
+      "container_qualified_name": "Math",
+      "display_name": "Inverse Hyperbolic Cos",
+      "swift_decl": "",
+      "aliases": []
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/math/inverse-hyperbolic-sin.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/math/inverse-hyperbolic-sin",
+      "kind": "shadergraph_node",
+      "unqualified_name": "Inverse Hyperbolic Sin",
+      "qualified_name": "Math.Inverse Hyperbolic Sin",
+      "container_qualified_name": "Math",
+      "display_name": "Inverse Hyperbolic Sin",
+      "swift_decl": "",
+      "aliases": []
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/math/inverse-hyperbolic-tan.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/math/inverse-hyperbolic-tan",
+      "kind": "shadergraph_node",
+      "unqualified_name": "Inverse Hyperbolic Tan",
+      "qualified_name": "Math.Inverse Hyperbolic Tan",
+      "container_qualified_name": "Math",
+      "display_name": "Inverse Hyperbolic Tan",
+      "swift_decl": "",
+      "aliases": []
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/math/invert-matrix.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/math/invert-matrix",
+      "kind": "shadergraph_node",
+      "unqualified_name": "Invert Matrix",
+      "qualified_name": "Math.Invert Matrix",
+      "container_qualified_name": "Math",
+      "display_name": "Invert Matrix",
+      "swift_decl": "",
+      "aliases": []
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/math/log-10.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/math/log-10",
+      "kind": "shadergraph_node",
+      "unqualified_name": "Log 10",
+      "qualified_name": "Math.Log 10",
+      "container_qualified_name": "Math",
+      "display_name": "Log 10",
+      "swift_decl": "",
+      "aliases": []
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/math/log-2.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/math/log-2",
+      "kind": "shadergraph_node",
+      "unqualified_name": "Log 2",
+      "qualified_name": "Math.Log 2",
+      "container_qualified_name": "Math",
+      "display_name": "Log 2",
+      "swift_decl": "",
+      "aliases": []
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/math/magnitude.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/math/magnitude",
+      "kind": "shadergraph_node",
+      "unqualified_name": "Magnitude",
+      "qualified_name": "Math.Magnitude",
+      "container_qualified_name": "Math",
+      "display_name": "Magnitude",
+      "swift_decl": "",
+      "aliases": []
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/math/magnitude-square-_realitykit_.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/math/magnitude-square-(realitykit)",
+      "kind": "shadergraph_node",
+      "unqualified_name": "Magnitude Square (RealityKit)",
+      "qualified_name": "Math.Magnitude Square (RealityKit)",
+      "container_qualified_name": "Math",
+      "display_name": "Magnitude Square (RealityKit)",
+      "swift_decl": "",
+      "aliases": [
+        "Magnitude Square",
+        "Math.Magnitude Square"
+      ]
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/math/max.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/math/max",
+      "kind": "shadergraph_node",
+      "unqualified_name": "Max",
+      "qualified_name": "Math.Max",
+      "container_qualified_name": "Math",
+      "display_name": "Max",
+      "swift_decl": "",
+      "aliases": []
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/math/max3-_realitykit_.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/math/max3-(realitykit)",
+      "kind": "shadergraph_node",
+      "unqualified_name": "Max3 (RealityKit)",
+      "qualified_name": "Math.Max3 (RealityKit)",
+      "container_qualified_name": "Math",
+      "display_name": "Max3 (RealityKit)",
+      "swift_decl": "",
+      "aliases": [
+        "Max3",
+        "Math.Max3"
+      ]
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/math/median3-_realitykit_.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/math/median3-(realitykit)",
+      "kind": "shadergraph_node",
+      "unqualified_name": "Median3 (RealityKit)",
+      "qualified_name": "Math.Median3 (RealityKit)",
+      "container_qualified_name": "Math",
+      "display_name": "Median3 (RealityKit)",
+      "swift_decl": "",
+      "aliases": [
+        "Median3",
+        "Math.Median3"
+      ]
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/math/min.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/math/min",
+      "kind": "shadergraph_node",
+      "unqualified_name": "Min",
+      "qualified_name": "Math.Min",
+      "container_qualified_name": "Math",
+      "display_name": "Min",
+      "swift_decl": "",
+      "aliases": []
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/math/min3-_realitykit_.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/math/min3-(realitykit)",
+      "kind": "shadergraph_node",
+      "unqualified_name": "Min3 (RealityKit)",
+      "qualified_name": "Math.Min3 (RealityKit)",
+      "container_qualified_name": "Math",
+      "display_name": "Min3 (RealityKit)",
+      "swift_decl": "",
+      "aliases": [
+        "Min3",
+        "Math.Min3"
+      ]
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/math/modulo.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/math/modulo",
+      "kind": "shadergraph_node",
+      "unqualified_name": "Modulo",
+      "qualified_name": "Math.Modulo",
+      "container_qualified_name": "Math",
+      "display_name": "Modulo",
+      "swift_decl": "",
+      "aliases": []
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/math/modulo-_realitykit_.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/math/modulo-(realitykit)",
+      "kind": "shadergraph_node",
+      "unqualified_name": "Modulo (RealityKit)",
+      "qualified_name": "Math.Modulo (RealityKit)",
+      "container_qualified_name": "Math",
+      "display_name": "Modulo (RealityKit)",
+      "swift_decl": "",
+      "aliases": [
+        "Modulo",
+        "Math.Modulo"
+      ]
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/math/multiply.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/math/multiply",
+      "kind": "shadergraph_node",
+      "unqualified_name": "Multiply",
+      "qualified_name": "Math.Multiply",
+      "container_qualified_name": "Math",
+      "display_name": "Multiply",
+      "swift_decl": "",
+      "aliases": []
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/math/natural-log.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/math/natural-log",
+      "kind": "shadergraph_node",
+      "unqualified_name": "Natural Log",
+      "qualified_name": "Math.Natural Log",
+      "container_qualified_name": "Math",
+      "display_name": "Natural Log",
+      "swift_decl": "",
+      "aliases": []
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/math/normal-map.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/math/normal-map",
+      "kind": "shadergraph_node",
+      "unqualified_name": "Normal Map",
+      "qualified_name": "Math.Normal Map",
+      "container_qualified_name": "Math",
+      "display_name": "Normal Map",
+      "swift_decl": "",
+      "aliases": []
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/math/normal-map-decode.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/math/normal-map-decode",
+      "kind": "shadergraph_node",
+      "unqualified_name": "Normal Map Decode",
+      "qualified_name": "Math.Normal Map Decode",
+      "container_qualified_name": "Math",
+      "display_name": "Normal Map Decode",
+      "swift_decl": "",
+      "aliases": []
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/math/normalize.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/math/normalize",
+      "kind": "shadergraph_node",
+      "unqualified_name": "Normalize",
+      "qualified_name": "Math.Normalize",
+      "container_qualified_name": "Math",
+      "display_name": "Normalize",
+      "swift_decl": "",
+      "aliases": []
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/math/one-minus-_realitykit_.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/math/one-minus-(realitykit)",
+      "kind": "shadergraph_node",
+      "unqualified_name": "One Minus (RealityKit)",
+      "qualified_name": "Math.One Minus (RealityKit)",
+      "container_qualified_name": "Math",
+      "display_name": "One Minus (RealityKit)",
+      "swift_decl": "",
+      "aliases": [
+        "One Minus",
+        "Math.One Minus"
+      ]
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/math/place-2d.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/math/place-2d",
+      "kind": "shadergraph_node",
+      "unqualified_name": "Place 2D",
+      "qualified_name": "Math.Place 2D",
+      "container_qualified_name": "Math",
+      "display_name": "Place 2D",
+      "swift_decl": "",
+      "aliases": []
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/math/power.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/math/power",
+      "kind": "shadergraph_node",
+      "unqualified_name": "Power",
+      "qualified_name": "Math.Power",
+      "container_qualified_name": "Math",
+      "display_name": "Power",
+      "swift_decl": "",
+      "aliases": []
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/math/reciprocal-square-root-_realitykit_.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/math/reciprocal-square-root-(realitykit)",
+      "kind": "shadergraph_node",
+      "unqualified_name": "Reciprocal Square Root (RealityKit)",
+      "qualified_name": "Math.Reciprocal Square Root (RealityKit)",
+      "container_qualified_name": "Math",
+      "display_name": "Reciprocal Square Root (RealityKit)",
+      "swift_decl": "",
+      "aliases": [
+        "Reciprocal Square Root",
+        "Math.Reciprocal Square Root"
+      ]
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/math/rotate-2d.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/math/rotate-2d",
+      "kind": "shadergraph_node",
+      "unqualified_name": "Rotate 2D",
+      "qualified_name": "Math.Rotate 2D",
+      "container_qualified_name": "Math",
+      "display_name": "Rotate 2D",
+      "swift_decl": "",
+      "aliases": []
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/math/rotate-3d.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/math/rotate-3d",
+      "kind": "shadergraph_node",
+      "unqualified_name": "Rotate 3D",
+      "qualified_name": "Math.Rotate 3D",
+      "container_qualified_name": "Math",
+      "display_name": "Rotate 3D",
+      "swift_decl": "",
+      "aliases": []
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/math/round.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/math/round",
+      "kind": "shadergraph_node",
+      "unqualified_name": "Round",
+      "qualified_name": "Math.Round",
+      "container_qualified_name": "Math",
+      "display_name": "Round",
+      "swift_decl": "",
+      "aliases": []
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/math/safe-power.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/math/safe-power",
+      "kind": "shadergraph_node",
+      "unqualified_name": "Safe Power",
+      "qualified_name": "Math.Safe Power",
+      "container_qualified_name": "Math",
+      "display_name": "Safe Power",
+      "swift_decl": "",
+      "aliases": []
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/math/sign.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/math/sign",
+      "kind": "shadergraph_node",
+      "unqualified_name": "Sign",
+      "qualified_name": "Math.Sign",
+      "container_qualified_name": "Math",
+      "display_name": "Sign",
+      "swift_decl": "",
+      "aliases": []
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/math/sin.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/math/sin",
+      "kind": "shadergraph_node",
+      "unqualified_name": "Sin",
+      "qualified_name": "Math.Sin",
+      "container_qualified_name": "Math",
+      "display_name": "Sin",
+      "swift_decl": "",
+      "aliases": []
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/math/sin-pi-_realitykit_.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/math/sin-pi-(realitykit)",
+      "kind": "shadergraph_node",
+      "unqualified_name": "Sin Pi (RealityKit)",
+      "qualified_name": "Math.Sin Pi (RealityKit)",
+      "container_qualified_name": "Math",
+      "display_name": "Sin Pi (RealityKit)",
+      "swift_decl": "",
+      "aliases": [
+        "Sin Pi",
+        "Math.Sin Pi"
+      ]
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/math/square-root.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/math/square-root",
+      "kind": "shadergraph_node",
+      "unqualified_name": "Square Root",
+      "qualified_name": "Math.Square Root",
+      "container_qualified_name": "Math",
+      "display_name": "Square Root",
+      "swift_decl": "",
+      "aliases": []
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/math/subtract.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/math/subtract",
+      "kind": "shadergraph_node",
+      "unqualified_name": "Subtract",
+      "qualified_name": "Math.Subtract",
+      "container_qualified_name": "Math",
+      "display_name": "Subtract",
+      "swift_decl": "",
+      "aliases": []
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/math/tan.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/math/tan",
+      "kind": "shadergraph_node",
+      "unqualified_name": "Tan",
+      "qualified_name": "Math.Tan",
+      "container_qualified_name": "Math",
+      "display_name": "Tan",
+      "swift_decl": "",
+      "aliases": []
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/math/tan-pi-_realitykit_.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/math/tan-pi-(realitykit)",
+      "kind": "shadergraph_node",
+      "unqualified_name": "Tan Pi (RealityKit)",
+      "qualified_name": "Math.Tan Pi (RealityKit)",
+      "container_qualified_name": "Math",
+      "display_name": "Tan Pi (RealityKit)",
+      "swift_decl": "",
+      "aliases": [
+        "Tan Pi",
+        "Math.Tan Pi"
+      ]
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/math/transform-matrix.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/math/transform-matrix",
+      "kind": "shadergraph_node",
+      "unqualified_name": "Transform Matrix",
+      "qualified_name": "Math.Transform Matrix",
+      "container_qualified_name": "Math",
+      "display_name": "Transform Matrix",
+      "swift_decl": "",
+      "aliases": []
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/math/transform-normal.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/math/transform-normal",
+      "kind": "shadergraph_node",
+      "unqualified_name": "Transform Normal",
+      "qualified_name": "Math.Transform Normal",
+      "container_qualified_name": "Math",
+      "display_name": "Transform Normal",
+      "swift_decl": "",
+      "aliases": []
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/math/transform-point.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/math/transform-point",
+      "kind": "shadergraph_node",
+      "unqualified_name": "Transform Point",
+      "qualified_name": "Math.Transform Point",
+      "container_qualified_name": "Math",
+      "display_name": "Transform Point",
+      "swift_decl": "",
+      "aliases": []
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/math/transform-vector.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/math/transform-vector",
+      "kind": "shadergraph_node",
+      "unqualified_name": "Transform Vector",
+      "qualified_name": "Math.Transform Vector",
+      "container_qualified_name": "Math",
+      "display_name": "Transform Vector",
+      "swift_decl": "",
+      "aliases": []
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/math/transpose.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/math/transpose",
+      "kind": "shadergraph_node",
+      "unqualified_name": "Transpose",
+      "qualified_name": "Math.Transpose",
+      "container_qualified_name": "Math",
+      "display_name": "Transpose",
+      "swift_decl": "",
+      "aliases": []
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/math/truncate-_realitykit_.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/math/truncate-(realitykit)",
+      "kind": "shadergraph_node",
+      "unqualified_name": "Truncate (RealityKit)",
+      "qualified_name": "Math.Truncate (RealityKit)",
+      "container_qualified_name": "Math",
+      "display_name": "Truncate (RealityKit)",
+      "swift_decl": "",
+      "aliases": [
+        "Truncate",
+        "Math.Truncate"
+      ]
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/organization.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/organization",
+      "kind": "shadergraph_node_group",
+      "unqualified_name": "Organization",
+      "qualified_name": "Organization",
+      "container_qualified_name": null,
+      "display_name": "Organization",
+      "swift_decl": "",
+      "aliases": []
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/organization/dot.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/organization/dot",
+      "kind": "shadergraph_node",
+      "unqualified_name": "Dot",
+      "qualified_name": "Organization.Dot",
+      "container_qualified_name": "Organization",
+      "display_name": "Dot",
+      "swift_decl": "",
+      "aliases": []
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/procedural.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/procedural",
+      "kind": "shadergraph_node_group",
+      "unqualified_name": "Procedural",
+      "qualified_name": "Procedural",
+      "container_qualified_name": null,
+      "display_name": "Procedural",
+      "swift_decl": "",
+      "aliases": []
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/procedural/boolean.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/procedural/boolean",
+      "kind": "shadergraph_node",
+      "unqualified_name": "Boolean",
+      "qualified_name": "Procedural.Boolean",
+      "container_qualified_name": "Procedural",
+      "display_name": "Boolean",
+      "swift_decl": "",
+      "aliases": []
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/procedural/color3-_float_.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/procedural/color3-(float)",
+      "kind": "shadergraph_node",
+      "unqualified_name": "Color3 (Float)",
+      "qualified_name": "Procedural.Color3 (Float)",
+      "container_qualified_name": "Procedural",
+      "display_name": "Color3 (Float)",
+      "swift_decl": "",
+      "aliases": [
+        "Color3",
+        "Procedural.Color3"
+      ]
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/procedural/color4-_float_.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/procedural/color4-(float)",
+      "kind": "shadergraph_node",
+      "unqualified_name": "Color4 (Float)",
+      "qualified_name": "Procedural.Color4 (Float)",
+      "container_qualified_name": "Procedural",
+      "display_name": "Color4 (Float)",
+      "swift_decl": "",
+      "aliases": [
+        "Color4",
+        "Procedural.Color4"
+      ]
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/procedural/float.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/procedural/float",
+      "kind": "shadergraph_node",
+      "unqualified_name": "Float",
+      "qualified_name": "Procedural.Float",
+      "container_qualified_name": "Procedural",
+      "display_name": "Float",
+      "swift_decl": "",
+      "aliases": []
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/procedural/half.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/procedural/half",
+      "kind": "shadergraph_node",
+      "unqualified_name": "Half",
+      "qualified_name": "Procedural.Half",
+      "container_qualified_name": "Procedural",
+      "display_name": "Half",
+      "swift_decl": "",
+      "aliases": []
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/procedural/image-file.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/procedural/image-file",
+      "kind": "shadergraph_node",
+      "unqualified_name": "Image File",
+      "qualified_name": "Procedural.Image File",
+      "container_qualified_name": "Procedural",
+      "display_name": "Image File",
+      "swift_decl": "",
+      "aliases": []
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/procedural/integer.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/procedural/integer",
+      "kind": "shadergraph_node",
+      "unqualified_name": "Integer",
+      "qualified_name": "Procedural.Integer",
+      "container_qualified_name": "Procedural",
+      "display_name": "Integer",
+      "swift_decl": "",
+      "aliases": []
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/procedural/integer2.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/procedural/integer2",
+      "kind": "shadergraph_node",
+      "unqualified_name": "Integer2",
+      "qualified_name": "Procedural.Integer2",
+      "container_qualified_name": "Procedural",
+      "display_name": "Integer2",
+      "swift_decl": "",
+      "aliases": []
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/procedural/integer3.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/procedural/integer3",
+      "kind": "shadergraph_node",
+      "unqualified_name": "Integer3",
+      "qualified_name": "Procedural.Integer3",
+      "container_qualified_name": "Procedural",
+      "display_name": "Integer3",
+      "swift_decl": "",
+      "aliases": []
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/procedural/integer4.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/procedural/integer4",
+      "kind": "shadergraph_node",
+      "unqualified_name": "Integer4",
+      "qualified_name": "Procedural.Integer4",
+      "container_qualified_name": "Procedural",
+      "display_name": "Integer4",
+      "swift_decl": "",
+      "aliases": []
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/procedural/matrix2x2-_float_.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/procedural/matrix2x2-(float)",
+      "kind": "shadergraph_node",
+      "unqualified_name": "Matrix2x2 (Float)",
+      "qualified_name": "Procedural.Matrix2x2 (Float)",
+      "container_qualified_name": "Procedural",
+      "display_name": "Matrix2x2 (Float)",
+      "swift_decl": "",
+      "aliases": [
+        "Matrix2x2",
+        "Procedural.Matrix2x2"
+      ]
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/procedural/matrix3x3-_float_.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/procedural/matrix3x3-(float)",
+      "kind": "shadergraph_node",
+      "unqualified_name": "Matrix3x3 (Float)",
+      "qualified_name": "Procedural.Matrix3x3 (Float)",
+      "container_qualified_name": "Procedural",
+      "display_name": "Matrix3x3 (Float)",
+      "swift_decl": "",
+      "aliases": [
+        "Matrix3x3",
+        "Procedural.Matrix3x3"
+      ]
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/procedural/matrix4x4-_float_.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/procedural/matrix4x4-(float)",
+      "kind": "shadergraph_node",
+      "unqualified_name": "Matrix4x4 (Float)",
+      "qualified_name": "Procedural.Matrix4x4 (Float)",
+      "container_qualified_name": "Procedural",
+      "display_name": "Matrix4x4 (Float)",
+      "swift_decl": "",
+      "aliases": [
+        "Matrix4x4",
+        "Procedural.Matrix4x4"
+      ]
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/procedural/string.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/procedural/string",
+      "kind": "shadergraph_node",
+      "unqualified_name": "String",
+      "qualified_name": "Procedural.String",
+      "container_qualified_name": "Procedural",
+      "display_name": "String",
+      "swift_decl": "",
+      "aliases": []
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/procedural/vector2-_float_.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/procedural/vector2-(float)",
+      "kind": "shadergraph_node",
+      "unqualified_name": "Vector2 (Float)",
+      "qualified_name": "Procedural.Vector2 (Float)",
+      "container_qualified_name": "Procedural",
+      "display_name": "Vector2 (Float)",
+      "swift_decl": "",
+      "aliases": [
+        "Vector2",
+        "Procedural.Vector2"
+      ]
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/procedural/vector2-_half_.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/procedural/vector2-(half)",
+      "kind": "shadergraph_node",
+      "unqualified_name": "Vector2 (Half)",
+      "qualified_name": "Procedural.Vector2 (Half)",
+      "container_qualified_name": "Procedural",
+      "display_name": "Vector2 (Half)",
+      "swift_decl": "",
+      "aliases": [
+        "Vector2",
+        "Procedural.Vector2"
+      ]
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/procedural/vector3-_float_.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/procedural/vector3-(float)",
+      "kind": "shadergraph_node",
+      "unqualified_name": "Vector3 (Float)",
+      "qualified_name": "Procedural.Vector3 (Float)",
+      "container_qualified_name": "Procedural",
+      "display_name": "Vector3 (Float)",
+      "swift_decl": "",
+      "aliases": [
+        "Vector3",
+        "Procedural.Vector3"
+      ]
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/procedural/vector3-_half_.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/procedural/vector3-(half)",
+      "kind": "shadergraph_node",
+      "unqualified_name": "Vector3 (Half)",
+      "qualified_name": "Procedural.Vector3 (Half)",
+      "container_qualified_name": "Procedural",
+      "display_name": "Vector3 (Half)",
+      "swift_decl": "",
+      "aliases": [
+        "Vector3",
+        "Procedural.Vector3"
+      ]
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/procedural/vector4-_float_.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/procedural/vector4-(float)",
+      "kind": "shadergraph_node",
+      "unqualified_name": "Vector4 (Float)",
+      "qualified_name": "Procedural.Vector4 (Float)",
+      "container_qualified_name": "Procedural",
+      "display_name": "Vector4 (Float)",
+      "swift_decl": "",
+      "aliases": [
+        "Vector4",
+        "Procedural.Vector4"
+      ]
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/procedural/vector4-_half_.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/procedural/vector4-(half)",
+      "kind": "shadergraph_node",
+      "unqualified_name": "Vector4 (Half)",
+      "qualified_name": "Procedural.Vector4 (Half)",
+      "container_qualified_name": "Procedural",
+      "display_name": "Vector4 (Half)",
+      "swift_decl": "",
+      "aliases": [
+        "Vector4",
+        "Procedural.Vector4"
+      ]
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/realitykit.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/realitykit",
+      "kind": "shadergraph_node_group",
+      "unqualified_name": "RealityKit",
+      "qualified_name": "RealityKit",
+      "container_qualified_name": null,
+      "display_name": "RealityKit",
+      "swift_decl": "",
+      "aliases": []
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/realitykit/absolute-derivatives-sum-_realitykit_.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/realitykit/absolute-derivatives-sum-(realitykit)",
+      "kind": "shadergraph_node",
+      "unqualified_name": "Absolute Derivatives Sum (RealityKit)",
+      "qualified_name": "RealityKit.Absolute Derivatives Sum (RealityKit)",
+      "container_qualified_name": "RealityKit",
+      "display_name": "Absolute Derivatives Sum (RealityKit)",
+      "swift_decl": "",
+      "aliases": [
+        "Absolute Derivatives Sum",
+        "RealityKit.Absolute Derivatives Sum"
+      ]
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/realitykit/blurred-background-_realitykit_.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/realitykit/blurred-background-(realitykit)",
+      "kind": "shadergraph_node",
+      "unqualified_name": "Blurred Background (RealityKit)",
+      "qualified_name": "RealityKit.Blurred Background (RealityKit)",
+      "container_qualified_name": "RealityKit",
+      "display_name": "Blurred Background (RealityKit)",
+      "swift_decl": "",
+      "aliases": [
+        "Blurred Background",
+        "RealityKit.Blurred Background"
+      ]
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/realitykit/camera-index-switch-_realitykit_.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/realitykit/camera-index-switch-(realitykit)",
+      "kind": "shadergraph_node",
+      "unqualified_name": "Camera Index Switch (RealityKit)",
+      "qualified_name": "RealityKit.Camera Index Switch (RealityKit)",
+      "container_qualified_name": "RealityKit",
+      "display_name": "Camera Index Switch (RealityKit)",
+      "swift_decl": "",
+      "aliases": [
+        "Camera Index Switch",
+        "RealityKit.Camera Index Switch"
+      ]
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/realitykit/camera-position-_realitykit_.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/realitykit/camera-position-(realitykit)",
+      "kind": "shadergraph_node",
+      "unqualified_name": "Camera Position (RealityKit)",
+      "qualified_name": "RealityKit.Camera Position (RealityKit)",
+      "container_qualified_name": "RealityKit",
+      "display_name": "Camera Position (RealityKit)",
+      "swift_decl": "",
+      "aliases": [
+        "Camera Position",
+        "RealityKit.Camera Position"
+      ]
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/realitykit/cube-image-_realitykit_.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/realitykit/cube-image-(realitykit)",
+      "kind": "shadergraph_node",
+      "unqualified_name": "Cube Image (RealityKit)",
+      "qualified_name": "RealityKit.Cube Image (RealityKit)",
+      "container_qualified_name": "RealityKit",
+      "display_name": "Cube Image (RealityKit)",
+      "swift_decl": "",
+      "aliases": [
+        "Cube Image",
+        "RealityKit.Cube Image"
+      ]
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/realitykit/cube-image-gradient-_realitykit_.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/realitykit/cube-image-gradient-(realitykit)",
+      "kind": "shadergraph_node",
+      "unqualified_name": "Cube Image Gradient (RealityKit)",
+      "qualified_name": "RealityKit.Cube Image Gradient (RealityKit)",
+      "container_qualified_name": "RealityKit",
+      "display_name": "Cube Image Gradient (RealityKit)",
+      "swift_decl": "",
+      "aliases": [
+        "Cube Image Gradient",
+        "RealityKit.Cube Image Gradient"
+      ]
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/realitykit/cube-image-lod-_realitykit_.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/realitykit/cube-image-lod-(realitykit)",
+      "kind": "shadergraph_node",
+      "unqualified_name": "Cube Image LOD (RealityKit)",
+      "qualified_name": "RealityKit.Cube Image LOD (RealityKit)",
+      "container_qualified_name": "RealityKit",
+      "display_name": "Cube Image LOD (RealityKit)",
+      "swift_decl": "",
+      "aliases": [
+        "Cube Image LOD",
+        "RealityKit.Cube Image LOD"
+      ]
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/realitykit/environment-radiance-_realitykit_.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/realitykit/environment-radiance-(realitykit)",
+      "kind": "shadergraph_node",
+      "unqualified_name": "Environment Radiance (RealityKit)",
+      "qualified_name": "RealityKit.Environment Radiance (RealityKit)",
+      "container_qualified_name": "RealityKit",
+      "display_name": "Environment Radiance (RealityKit)",
+      "swift_decl": "",
+      "aliases": [
+        "Environment Radiance",
+        "RealityKit.Environment Radiance"
+      ]
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/realitykit/fortran-difference-and-minimum-_realitykit_.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/realitykit/fortran-difference-and-minimum-(realitykit)",
+      "kind": "shadergraph_node",
+      "unqualified_name": "Fortran Difference and Minimum (RealityKit)",
+      "qualified_name": "RealityKit.Fortran Difference and Minimum (RealityKit)",
+      "container_qualified_name": "RealityKit",
+      "display_name": "Fortran Difference and Minimum (RealityKit)",
+      "swift_decl": "",
+      "aliases": [
+        "Fortran Difference and Minimum",
+        "RealityKit.Fortran Difference and Minimum"
+      ]
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/realitykit/geometry-modifier-_realitykit_.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/realitykit/geometry-modifier-(realitykit)",
+      "kind": "shadergraph_node",
+      "unqualified_name": "Geometry Modifier (RealityKit)",
+      "qualified_name": "RealityKit.Geometry Modifier (RealityKit)",
+      "container_qualified_name": "RealityKit",
+      "display_name": "Geometry Modifier (RealityKit)",
+      "swift_decl": "",
+      "aliases": [
+        "Geometry Modifier",
+        "RealityKit.Geometry Modifier"
+      ]
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/realitykit/geometry-modifier-model-to-view-_realitykit_.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/realitykit/geometry-modifier-model-to-view-(realitykit)",
+      "kind": "shadergraph_node",
+      "unqualified_name": "Geometry Modifier Model To View (RealityKit)",
+      "qualified_name": "RealityKit.Geometry Modifier Model To View (RealityKit)",
+      "container_qualified_name": "RealityKit",
+      "display_name": "Geometry Modifier Model To View (RealityKit)",
+      "swift_decl": "",
+      "aliases": [
+        "Geometry Modifier Model To View",
+        "RealityKit.Geometry Modifier Model To View"
+      ]
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/realitykit/geometry-modifier-model-to-world-_realitykit_.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/realitykit/geometry-modifier-model-to-world-(realitykit)",
+      "kind": "shadergraph_node",
+      "unqualified_name": "Geometry Modifier Model To World (RealityKit)",
+      "qualified_name": "RealityKit.Geometry Modifier Model To World (RealityKit)",
+      "container_qualified_name": "RealityKit",
+      "display_name": "Geometry Modifier Model To World (RealityKit)",
+      "swift_decl": "",
+      "aliases": [
+        "Geometry Modifier Model To World",
+        "RealityKit.Geometry Modifier Model To World"
+      ]
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/realitykit/geometry-modifier-normal-to-world-_realitykit_.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/realitykit/geometry-modifier-normal-to-world-(realitykit)",
+      "kind": "shadergraph_node",
+      "unqualified_name": "Geometry Modifier Normal To World (RealityKit)",
+      "qualified_name": "RealityKit.Geometry Modifier Normal To World (RealityKit)",
+      "container_qualified_name": "RealityKit",
+      "display_name": "Geometry Modifier Normal To World (RealityKit)",
+      "swift_decl": "",
+      "aliases": [
+        "Geometry Modifier Normal To World",
+        "RealityKit.Geometry Modifier Normal To World"
+      ]
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/realitykit/geometry-modifier-projection-to-view-_realitykit_.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/realitykit/geometry-modifier-projection-to-view-(realitykit)",
+      "kind": "shadergraph_node",
+      "unqualified_name": "Geometry Modifier Projection To View (RealityKit)",
+      "qualified_name": "RealityKit.Geometry Modifier Projection To View (RealityKit)",
+      "container_qualified_name": "RealityKit",
+      "display_name": "Geometry Modifier Projection To View (RealityKit)",
+      "swift_decl": "",
+      "aliases": [
+        "Geometry Modifier Projection To View",
+        "RealityKit.Geometry Modifier Projection To View"
+      ]
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/realitykit/geometry-modifier-vertex-id-_realitykit_.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/realitykit/geometry-modifier-vertex-id-(realitykit)",
+      "kind": "shadergraph_node",
+      "unqualified_name": "Geometry Modifier Vertex ID (RealityKit)",
+      "qualified_name": "RealityKit.Geometry Modifier Vertex ID (RealityKit)",
+      "container_qualified_name": "RealityKit",
+      "display_name": "Geometry Modifier Vertex ID (RealityKit)",
+      "swift_decl": "",
+      "aliases": [
+        "Geometry Modifier Vertex ID",
+        "RealityKit.Geometry Modifier Vertex ID"
+      ]
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/realitykit/geometry-modifier-view-to-projection-_realitykit_.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/realitykit/geometry-modifier-view-to-projection-(realitykit)",
+      "kind": "shadergraph_node",
+      "unqualified_name": "Geometry Modifier View To Projection (RealityKit)",
+      "qualified_name": "RealityKit.Geometry Modifier View To Projection (RealityKit)",
+      "container_qualified_name": "RealityKit",
+      "display_name": "Geometry Modifier View To Projection (RealityKit)",
+      "swift_decl": "",
+      "aliases": [
+        "Geometry Modifier View To Projection",
+        "RealityKit.Geometry Modifier View To Projection"
+      ]
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/realitykit/geometry-modifier-world-to-model-_realitykit_.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/realitykit/geometry-modifier-world-to-model-(realitykit)",
+      "kind": "shadergraph_node",
+      "unqualified_name": "Geometry Modifier World To Model (RealityKit)",
+      "qualified_name": "RealityKit.Geometry Modifier World To Model (RealityKit)",
+      "container_qualified_name": "RealityKit",
+      "display_name": "Geometry Modifier World To Model (RealityKit)",
+      "swift_decl": "",
+      "aliases": [
+        "Geometry Modifier World To Model",
+        "RealityKit.Geometry Modifier World To Model"
+      ]
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/realitykit/hover-state-_realitykit_.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/realitykit/hover-state-(realitykit)",
+      "kind": "shadergraph_node",
+      "unqualified_name": "Hover State (RealityKit)",
+      "qualified_name": "RealityKit.Hover State (RealityKit)",
+      "container_qualified_name": "RealityKit",
+      "display_name": "Hover State (RealityKit)",
+      "swift_decl": "",
+      "aliases": [
+        "Hover State",
+        "RealityKit.Hover State"
+      ]
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/realitykit/image-2d-_realitykit_.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/realitykit/image-2d-(realitykit)",
+      "kind": "shadergraph_node",
+      "unqualified_name": "Image 2D (RealityKit)",
+      "qualified_name": "RealityKit.Image 2D (RealityKit)",
+      "container_qualified_name": "RealityKit",
+      "display_name": "Image 2D (RealityKit)",
+      "swift_decl": "",
+      "aliases": [
+        "Image 2D",
+        "RealityKit.Image 2D"
+      ]
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/realitykit/image-2d-array-_realitykit_.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/realitykit/image-2d-array-(realitykit)",
+      "kind": "shadergraph_node",
+      "unqualified_name": "Image 2D Array (RealityKit)",
+      "qualified_name": "RealityKit.Image 2D Array (RealityKit)",
+      "container_qualified_name": "RealityKit",
+      "display_name": "Image 2D Array (RealityKit)",
+      "swift_decl": "",
+      "aliases": [
+        "Image 2D Array",
+        "RealityKit.Image 2D Array"
+      ]
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/realitykit/image-2d-array-gradient-_realitykit_.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/realitykit/image-2d-array-gradient-(realitykit)",
+      "kind": "shadergraph_node",
+      "unqualified_name": "Image 2D Array Gradient (RealityKit)",
+      "qualified_name": "RealityKit.Image 2D Array Gradient (RealityKit)",
+      "container_qualified_name": "RealityKit",
+      "display_name": "Image 2D Array Gradient (RealityKit)",
+      "swift_decl": "",
+      "aliases": [
+        "Image 2D Array Gradient",
+        "RealityKit.Image 2D Array Gradient"
+      ]
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/realitykit/image-2d-array-gradient-pixel-_realitykit_.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/realitykit/image-2d-array-gradient-pixel-(realitykit)",
+      "kind": "shadergraph_node",
+      "unqualified_name": "Image 2D Array Gradient Pixel (RealityKit)",
+      "qualified_name": "RealityKit.Image 2D Array Gradient Pixel (RealityKit)",
+      "container_qualified_name": "RealityKit",
+      "display_name": "Image 2D Array Gradient Pixel (RealityKit)",
+      "swift_decl": "",
+      "aliases": [
+        "Image 2D Array Gradient Pixel",
+        "RealityKit.Image 2D Array Gradient Pixel"
+      ]
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/realitykit/image-2d-array-lod-_realitykit_.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/realitykit/image-2d-array-lod-(realitykit)",
+      "kind": "shadergraph_node",
+      "unqualified_name": "Image 2D Array LOD (RealityKit)",
+      "qualified_name": "RealityKit.Image 2D Array LOD (RealityKit)",
+      "container_qualified_name": "RealityKit",
+      "display_name": "Image 2D Array LOD (RealityKit)",
+      "swift_decl": "",
+      "aliases": [
+        "Image 2D Array LOD",
+        "RealityKit.Image 2D Array LOD"
+      ]
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/realitykit/image-2d-array-lod-pixel-_realitykit_.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/realitykit/image-2d-array-lod-pixel-(realitykit)",
+      "kind": "shadergraph_node",
+      "unqualified_name": "Image 2D Array LOD Pixel (RealityKit)",
+      "qualified_name": "RealityKit.Image 2D Array LOD Pixel (RealityKit)",
+      "container_qualified_name": "RealityKit",
+      "display_name": "Image 2D Array LOD Pixel (RealityKit)",
+      "swift_decl": "",
+      "aliases": [
+        "Image 2D Array LOD Pixel",
+        "RealityKit.Image 2D Array LOD Pixel"
+      ]
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/realitykit/image-2d-array-pixel-_realitykit_.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/realitykit/image-2d-array-pixel-(realitykit)",
+      "kind": "shadergraph_node",
+      "unqualified_name": "Image 2D Array Pixel (RealityKit)",
+      "qualified_name": "RealityKit.Image 2D Array Pixel (RealityKit)",
+      "container_qualified_name": "RealityKit",
+      "display_name": "Image 2D Array Pixel (RealityKit)",
+      "swift_decl": "",
+      "aliases": [
+        "Image 2D Array Pixel",
+        "RealityKit.Image 2D Array Pixel"
+      ]
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/realitykit/image-2d-array-read-_realitykit_.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/realitykit/image-2d-array-read-(realitykit)",
+      "kind": "shadergraph_node",
+      "unqualified_name": "Image 2D Array Read (RealityKit)",
+      "qualified_name": "RealityKit.Image 2D Array Read (RealityKit)",
+      "container_qualified_name": "RealityKit",
+      "display_name": "Image 2D Array Read (RealityKit)",
+      "swift_decl": "",
+      "aliases": [
+        "Image 2D Array Read",
+        "RealityKit.Image 2D Array Read"
+      ]
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/realitykit/image-2d-gradient-_realitykit_.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/realitykit/image-2d-gradient-(realitykit)",
+      "kind": "shadergraph_node",
+      "unqualified_name": "Image 2D Gradient (RealityKit)",
+      "qualified_name": "RealityKit.Image 2D Gradient (RealityKit)",
+      "container_qualified_name": "RealityKit",
+      "display_name": "Image 2D Gradient (RealityKit)",
+      "swift_decl": "",
+      "aliases": [
+        "Image 2D Gradient",
+        "RealityKit.Image 2D Gradient"
+      ]
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/realitykit/image-2d-gradient-pixel-_realitykit_.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/realitykit/image-2d-gradient-pixel-(realitykit)",
+      "kind": "shadergraph_node",
+      "unqualified_name": "Image 2D Gradient Pixel (RealityKit)",
+      "qualified_name": "RealityKit.Image 2D Gradient Pixel (RealityKit)",
+      "container_qualified_name": "RealityKit",
+      "display_name": "Image 2D Gradient Pixel (RealityKit)",
+      "swift_decl": "",
+      "aliases": [
+        "Image 2D Gradient Pixel",
+        "RealityKit.Image 2D Gradient Pixel"
+      ]
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/realitykit/image-2d-lod-_realitykit_.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/realitykit/image-2d-lod-(realitykit)",
+      "kind": "shadergraph_node",
+      "unqualified_name": "Image 2D LOD (RealityKit)",
+      "qualified_name": "RealityKit.Image 2D LOD (RealityKit)",
+      "container_qualified_name": "RealityKit",
+      "display_name": "Image 2D LOD (RealityKit)",
+      "swift_decl": "",
+      "aliases": [
+        "Image 2D LOD",
+        "RealityKit.Image 2D LOD"
+      ]
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/realitykit/image-2d-lod-pixel-_realitykit_.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/realitykit/image-2d-lod-pixel-(realitykit)",
+      "kind": "shadergraph_node",
+      "unqualified_name": "Image 2D LOD Pixel (RealityKit)",
+      "qualified_name": "RealityKit.Image 2D LOD Pixel (RealityKit)",
+      "container_qualified_name": "RealityKit",
+      "display_name": "Image 2D LOD Pixel (RealityKit)",
+      "swift_decl": "",
+      "aliases": [
+        "Image 2D LOD Pixel",
+        "RealityKit.Image 2D LOD Pixel"
+      ]
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/realitykit/image-2d-pixel-_realitykit_.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/realitykit/image-2d-pixel-(realitykit)",
+      "kind": "shadergraph_node",
+      "unqualified_name": "Image 2D Pixel (RealityKit)",
+      "qualified_name": "RealityKit.Image 2D Pixel (RealityKit)",
+      "container_qualified_name": "RealityKit",
+      "display_name": "Image 2D Pixel (RealityKit)",
+      "swift_decl": "",
+      "aliases": [
+        "Image 2D Pixel",
+        "RealityKit.Image 2D Pixel"
+      ]
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/realitykit/image-2d-read-_realitykit_.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/realitykit/image-2d-read-(realitykit)",
+      "kind": "shadergraph_node",
+      "unqualified_name": "Image 2D Read (RealityKit)",
+      "qualified_name": "RealityKit.Image 2D Read (RealityKit)",
+      "container_qualified_name": "RealityKit",
+      "display_name": "Image 2D Read (RealityKit)",
+      "swift_decl": "",
+      "aliases": [
+        "Image 2D Read",
+        "RealityKit.Image 2D Read"
+      ]
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/realitykit/image-3d-_realitykit_.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/realitykit/image-3d-(realitykit)",
+      "kind": "shadergraph_node",
+      "unqualified_name": "Image 3D (RealityKit)",
+      "qualified_name": "RealityKit.Image 3D (RealityKit)",
+      "container_qualified_name": "RealityKit",
+      "display_name": "Image 3D (RealityKit)",
+      "swift_decl": "",
+      "aliases": [
+        "Image 3D",
+        "RealityKit.Image 3D"
+      ]
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/realitykit/image-3d-gradient-_realitykit_.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/realitykit/image-3d-gradient-(realitykit)",
+      "kind": "shadergraph_node",
+      "unqualified_name": "Image 3D Gradient (RealityKit)",
+      "qualified_name": "RealityKit.Image 3D Gradient (RealityKit)",
+      "container_qualified_name": "RealityKit",
+      "display_name": "Image 3D Gradient (RealityKit)",
+      "swift_decl": "",
+      "aliases": [
+        "Image 3D Gradient",
+        "RealityKit.Image 3D Gradient"
+      ]
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/realitykit/image-3d-gradient-pixel-_realitykit_.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/realitykit/image-3d-gradient-pixel-(realitykit)",
+      "kind": "shadergraph_node",
+      "unqualified_name": "Image 3D Gradient Pixel (RealityKit)",
+      "qualified_name": "RealityKit.Image 3D Gradient Pixel (RealityKit)",
+      "container_qualified_name": "RealityKit",
+      "display_name": "Image 3D Gradient Pixel (RealityKit)",
+      "swift_decl": "",
+      "aliases": [
+        "Image 3D Gradient Pixel",
+        "RealityKit.Image 3D Gradient Pixel"
+      ]
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/realitykit/image-3d-lod-_realitykit_.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/realitykit/image-3d-lod-(realitykit)",
+      "kind": "shadergraph_node",
+      "unqualified_name": "Image 3D LOD (RealityKit)",
+      "qualified_name": "RealityKit.Image 3D LOD (RealityKit)",
+      "container_qualified_name": "RealityKit",
+      "display_name": "Image 3D LOD (RealityKit)",
+      "swift_decl": "",
+      "aliases": [
+        "Image 3D LOD",
+        "RealityKit.Image 3D LOD"
+      ]
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/realitykit/image-3d-lod-pixel-_realitykit_.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/realitykit/image-3d-lod-pixel-(realitykit)",
+      "kind": "shadergraph_node",
+      "unqualified_name": "Image 3D LOD Pixel (RealityKit)",
+      "qualified_name": "RealityKit.Image 3D LOD Pixel (RealityKit)",
+      "container_qualified_name": "RealityKit",
+      "display_name": "Image 3D LOD Pixel (RealityKit)",
+      "swift_decl": "",
+      "aliases": [
+        "Image 3D LOD Pixel",
+        "RealityKit.Image 3D LOD Pixel"
+      ]
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/realitykit/image-3d-pixel-_realitykit_.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/realitykit/image-3d-pixel-(realitykit)",
+      "kind": "shadergraph_node",
+      "unqualified_name": "Image 3D Pixel (RealityKit)",
+      "qualified_name": "RealityKit.Image 3D Pixel (RealityKit)",
+      "container_qualified_name": "RealityKit",
+      "display_name": "Image 3D Pixel (RealityKit)",
+      "swift_decl": "",
+      "aliases": [
+        "Image 3D Pixel",
+        "RealityKit.Image 3D Pixel"
+      ]
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/realitykit/image-3d-read-_realitykit_.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/realitykit/image-3d-read-(realitykit)",
+      "kind": "shadergraph_node",
+      "unqualified_name": "Image 3D Read (RealityKit)",
+      "qualified_name": "RealityKit.Image 3D Read (RealityKit)",
+      "container_qualified_name": "RealityKit",
+      "display_name": "Image 3D Read (RealityKit)",
+      "swift_decl": "",
+      "aliases": [
+        "Image 3D Read",
+        "RealityKit.Image 3D Read"
+      ]
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/realitykit/is-finite-_realitykit_.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/realitykit/is-finite-(realitykit)",
+      "kind": "shadergraph_node",
+      "unqualified_name": "Is Finite (RealityKit)",
+      "qualified_name": "RealityKit.Is Finite (RealityKit)",
+      "container_qualified_name": "RealityKit",
+      "display_name": "Is Finite (RealityKit)",
+      "swift_decl": "",
+      "aliases": [
+        "Is Finite",
+        "RealityKit.Is Finite"
+      ]
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/realitykit/is-infinite-_realitykit_.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/realitykit/is-infinite-(realitykit)",
+      "kind": "shadergraph_node",
+      "unqualified_name": "Is Infinite (RealityKit)",
+      "qualified_name": "RealityKit.Is Infinite (RealityKit)",
+      "container_qualified_name": "RealityKit",
+      "display_name": "Is Infinite (RealityKit)",
+      "swift_decl": "",
+      "aliases": [
+        "Is Infinite",
+        "RealityKit.Is Infinite"
+      ]
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/realitykit/is-normal-_realitykit_.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/realitykit/is-normal-(realitykit)",
+      "kind": "shadergraph_node",
+      "unqualified_name": "Is Normal (RealityKit)",
+      "qualified_name": "RealityKit.Is Normal (RealityKit)",
+      "container_qualified_name": "RealityKit",
+      "display_name": "Is Normal (RealityKit)",
+      "swift_decl": "",
+      "aliases": [
+        "Is Normal",
+        "RealityKit.Is Normal"
+      ]
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/realitykit/is-not-a-number-_realitykit_.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/realitykit/is-not-a-number-(realitykit)",
+      "kind": "shadergraph_node",
+      "unqualified_name": "Is Not a Number (RealityKit)",
+      "qualified_name": "RealityKit.Is Not a Number (RealityKit)",
+      "container_qualified_name": "RealityKit",
+      "display_name": "Is Not a Number (RealityKit)",
+      "swift_decl": "",
+      "aliases": [
+        "Is Not a Number",
+        "RealityKit.Is Not a Number"
+      ]
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/realitykit/is-ordered-_realitykit_.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/realitykit/is-ordered-(realitykit)",
+      "kind": "shadergraph_node",
+      "unqualified_name": "Is Ordered (RealityKit)",
+      "qualified_name": "RealityKit.Is Ordered (RealityKit)",
+      "container_qualified_name": "RealityKit",
+      "display_name": "Is Ordered (RealityKit)",
+      "swift_decl": "",
+      "aliases": [
+        "Is Ordered",
+        "RealityKit.Is Ordered"
+      ]
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/realitykit/is-unordered-_realitykit_.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/realitykit/is-unordered-(realitykit)",
+      "kind": "shadergraph_node",
+      "unqualified_name": "Is Unordered (RealityKit)",
+      "qualified_name": "RealityKit.Is Unordered (RealityKit)",
+      "container_qualified_name": "RealityKit",
+      "display_name": "Is Unordered (RealityKit)",
+      "swift_decl": "",
+      "aliases": [
+        "Is Unordered",
+        "RealityKit.Is Unordered"
+      ]
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/realitykit/multiply-24-_realitykit_.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/realitykit/multiply-24-(realitykit)",
+      "kind": "shadergraph_node",
+      "unqualified_name": "Multiply 24 (RealityKit)",
+      "qualified_name": "RealityKit.Multiply 24 (RealityKit)",
+      "container_qualified_name": "RealityKit",
+      "display_name": "Multiply 24 (RealityKit)",
+      "swift_decl": "",
+      "aliases": [
+        "Multiply 24",
+        "RealityKit.Multiply 24"
+      ]
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/realitykit/multiply-add-24-_realitykit_.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/realitykit/multiply-add-24-(realitykit)",
+      "kind": "shadergraph_node",
+      "unqualified_name": "Multiply Add 24 (RealityKit)",
+      "qualified_name": "RealityKit.Multiply Add 24 (RealityKit)",
+      "container_qualified_name": "RealityKit",
+      "display_name": "Multiply Add 24 (RealityKit)",
+      "swift_decl": "",
+      "aliases": [
+        "Multiply Add 24",
+        "RealityKit.Multiply Add 24"
+      ]
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/realitykit/occlusion-surface-_realitykit_.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/realitykit/occlusion-surface-(realitykit)",
+      "kind": "shadergraph_node",
+      "unqualified_name": "Occlusion Surface (RealityKit)",
+      "qualified_name": "RealityKit.Occlusion Surface (RealityKit)",
+      "container_qualified_name": "RealityKit",
+      "display_name": "Occlusion Surface (RealityKit)",
+      "swift_decl": "",
+      "aliases": [
+        "Occlusion Surface",
+        "RealityKit.Occlusion Surface"
+      ]
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/realitykit/pbr-surface-_realitykit_.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/realitykit/pbr-surface-(realitykit)",
+      "kind": "shadergraph_node",
+      "unqualified_name": "PBR Surface (RealityKit)",
+      "qualified_name": "RealityKit.PBR Surface (RealityKit)",
+      "container_qualified_name": "RealityKit",
+      "display_name": "PBR Surface (RealityKit)",
+      "swift_decl": "",
+      "aliases": [
+        "PBR Surface",
+        "RealityKit.PBR Surface"
+      ]
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/realitykit/power-positive-_realitykit_.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/realitykit/power-positive-(realitykit)",
+      "kind": "shadergraph_node",
+      "unqualified_name": "Power Positive (RealityKit)",
+      "qualified_name": "RealityKit.Power Positive (RealityKit)",
+      "container_qualified_name": "RealityKit",
+      "display_name": "Power Positive (RealityKit)",
+      "swift_decl": "",
+      "aliases": [
+        "Power Positive",
+        "RealityKit.Power Positive"
+      ]
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/realitykit/reflection-diffuse-_realitykit_.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/realitykit/reflection-diffuse-(realitykit)",
+      "kind": "shadergraph_node",
+      "unqualified_name": "Reflection Diffuse (RealityKit)",
+      "qualified_name": "RealityKit.Reflection Diffuse (RealityKit)",
+      "container_qualified_name": "RealityKit",
+      "display_name": "Reflection Diffuse (RealityKit)",
+      "swift_decl": "",
+      "aliases": [
+        "Reflection Diffuse",
+        "RealityKit.Reflection Diffuse"
+      ]
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/realitykit/reflection-specular-_realitykit_.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/realitykit/reflection-specular-(realitykit)",
+      "kind": "shadergraph_node",
+      "unqualified_name": "Reflection Specular (RealityKit)",
+      "qualified_name": "RealityKit.Reflection Specular (RealityKit)",
+      "container_qualified_name": "RealityKit",
+      "display_name": "Reflection Specular (RealityKit)",
+      "swift_decl": "",
+      "aliases": [
+        "Reflection Specular",
+        "RealityKit.Reflection Specular"
+      ]
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/realitykit/round-integral-_realitykit_.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/realitykit/round-integral-(realitykit)",
+      "kind": "shadergraph_node",
+      "unqualified_name": "Round Integral (RealityKit)",
+      "qualified_name": "RealityKit.Round Integral (RealityKit)",
+      "container_qualified_name": "RealityKit",
+      "display_name": "Round Integral (RealityKit)",
+      "swift_decl": "",
+      "aliases": [
+        "Round Integral",
+        "RealityKit.Round Integral"
+      ]
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/realitykit/screen-space-x-partial-derivative-_realitykit_.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/realitykit/screen-space-x-partial-derivative-(realitykit)",
+      "kind": "shadergraph_node",
+      "unqualified_name": "Screen-Space X Partial Derivative (RealityKit)",
+      "qualified_name": "RealityKit.Screen-Space X Partial Derivative (RealityKit)",
+      "container_qualified_name": "RealityKit",
+      "display_name": "Screen-Space X Partial Derivative (RealityKit)",
+      "swift_decl": "",
+      "aliases": [
+        "Screen-Space X Partial Derivative",
+        "RealityKit.Screen-Space X Partial Derivative"
+      ]
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/realitykit/screen-space-y-partial-derivative-_realitykit_.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/realitykit/screen-space-y-partial-derivative-(realitykit)",
+      "kind": "shadergraph_node",
+      "unqualified_name": "Screen-Space Y Partial Derivative (RealityKit)",
+      "qualified_name": "RealityKit.Screen-Space Y Partial Derivative (RealityKit)",
+      "container_qualified_name": "RealityKit",
+      "display_name": "Screen-Space Y Partial Derivative (RealityKit)",
+      "swift_decl": "",
+      "aliases": [
+        "Screen-Space Y Partial Derivative",
+        "RealityKit.Screen-Space Y Partial Derivative"
+      ]
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/realitykit/shadow-receiving-occlusion-surface-_realitykit_.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/realitykit/shadow-receiving-occlusion-surface-(realitykit)",
+      "kind": "shadergraph_node",
+      "unqualified_name": "Shadow Receiving Occlusion Surface (RealityKit)",
+      "qualified_name": "RealityKit.Shadow Receiving Occlusion Surface (RealityKit)",
+      "container_qualified_name": "RealityKit",
+      "display_name": "Shadow Receiving Occlusion Surface (RealityKit)",
+      "swift_decl": "",
+      "aliases": [
+        "Shadow Receiving Occlusion Surface",
+        "RealityKit.Shadow Receiving Occlusion Surface"
+      ]
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/realitykit/sign-bit-_realitykit_.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/realitykit/sign-bit-(realitykit)",
+      "kind": "shadergraph_node",
+      "unqualified_name": "Sign Bit (RealityKit)",
+      "qualified_name": "RealityKit.Sign Bit (RealityKit)",
+      "container_qualified_name": "RealityKit",
+      "display_name": "Sign Bit (RealityKit)",
+      "swift_decl": "",
+      "aliases": [
+        "Sign Bit",
+        "RealityKit.Sign Bit"
+      ]
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/realitykit/surface-model-to-view-_realitykit_.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/realitykit/surface-model-to-view-(realitykit)",
+      "kind": "shadergraph_node",
+      "unqualified_name": "Surface Model To View (RealityKit)",
+      "qualified_name": "RealityKit.Surface Model To View (RealityKit)",
+      "container_qualified_name": "RealityKit",
+      "display_name": "Surface Model To View (RealityKit)",
+      "swift_decl": "",
+      "aliases": [
+        "Surface Model To View",
+        "RealityKit.Surface Model To View"
+      ]
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/realitykit/surface-model-to-world-_realitykit_.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/realitykit/surface-model-to-world-(realitykit)",
+      "kind": "shadergraph_node",
+      "unqualified_name": "Surface Model To World (RealityKit)",
+      "qualified_name": "RealityKit.Surface Model To World (RealityKit)",
+      "container_qualified_name": "RealityKit",
+      "display_name": "Surface Model To World (RealityKit)",
+      "swift_decl": "",
+      "aliases": [
+        "Surface Model To World",
+        "RealityKit.Surface Model To World"
+      ]
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/realitykit/surface-projection-to-view-_realitykit_.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/realitykit/surface-projection-to-view-(realitykit)",
+      "kind": "shadergraph_node",
+      "unqualified_name": "Surface Projection To View (RealityKit)",
+      "qualified_name": "RealityKit.Surface Projection To View (RealityKit)",
+      "container_qualified_name": "RealityKit",
+      "display_name": "Surface Projection To View (RealityKit)",
+      "swift_decl": "",
+      "aliases": [
+        "Surface Projection To View",
+        "RealityKit.Surface Projection To View"
+      ]
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/realitykit/surface-screen-position-_realitykit_.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/realitykit/surface-screen-position-(realitykit)",
+      "kind": "shadergraph_node",
+      "unqualified_name": "Surface Screen Position (RealityKit)",
+      "qualified_name": "RealityKit.Surface Screen Position (RealityKit)",
+      "container_qualified_name": "RealityKit",
+      "display_name": "Surface Screen Position (RealityKit)",
+      "swift_decl": "",
+      "aliases": [
+        "Surface Screen Position",
+        "RealityKit.Surface Screen Position"
+      ]
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/realitykit/surface-view-direction-_realitykit_.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/realitykit/surface-view-direction-(realitykit)",
+      "kind": "shadergraph_node",
+      "unqualified_name": "Surface View Direction (RealityKit)",
+      "qualified_name": "RealityKit.Surface View Direction (RealityKit)",
+      "container_qualified_name": "RealityKit",
+      "display_name": "Surface View Direction (RealityKit)",
+      "swift_decl": "",
+      "aliases": [
+        "Surface View Direction",
+        "RealityKit.Surface View Direction"
+      ]
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/realitykit/surface-view-to-projection-_realitykit_.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/realitykit/surface-view-to-projection-(realitykit)",
+      "kind": "shadergraph_node",
+      "unqualified_name": "Surface View To Projection (RealityKit)",
+      "qualified_name": "RealityKit.Surface View To Projection (RealityKit)",
+      "container_qualified_name": "RealityKit",
+      "display_name": "Surface View To Projection (RealityKit)",
+      "swift_decl": "",
+      "aliases": [
+        "Surface View To Projection",
+        "RealityKit.Surface View To Projection"
+      ]
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/realitykit/surface-world-to-view-_realitykit_.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/realitykit/surface-world-to-view-(realitykit)",
+      "kind": "shadergraph_node",
+      "unqualified_name": "Surface World To View (RealityKit)",
+      "qualified_name": "RealityKit.Surface World To View (RealityKit)",
+      "container_qualified_name": "RealityKit",
+      "display_name": "Surface World To View (RealityKit)",
+      "swift_decl": "",
+      "aliases": [
+        "Surface World To View",
+        "RealityKit.Surface World To View"
+      ]
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/realitykit/unlit-surface-_realitykit_.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/realitykit/unlit-surface-(realitykit)",
+      "kind": "shadergraph_node",
+      "unqualified_name": "Unlit Surface (RealityKit)",
+      "qualified_name": "RealityKit.Unlit Surface (RealityKit)",
+      "container_qualified_name": "RealityKit",
+      "display_name": "Unlit Surface (RealityKit)",
+      "swift_decl": "",
+      "aliases": [
+        "Unlit Surface",
+        "RealityKit.Unlit Surface"
+      ]
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/realitykit/view-direction-_realitykit_.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/realitykit/view-direction-(realitykit)",
+      "kind": "shadergraph_node",
+      "unqualified_name": "View Direction (RealityKit)",
+      "qualified_name": "RealityKit.View Direction (RealityKit)",
+      "container_qualified_name": "RealityKit",
+      "display_name": "View Direction (RealityKit)",
+      "swift_decl": "",
+      "aliases": [
+        "View Direction",
+        "RealityKit.View Direction"
+      ]
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/index.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph",
+      "kind": "framework",
+      "unqualified_name": "ShaderGraph",
+      "qualified_name": "ShaderGraph",
+      "container_qualified_name": null,
+      "display_name": "ShaderGraph",
+      "swift_decl": "",
+      "aliases": []
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/surface.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/surface",
+      "kind": "shadergraph_node_group",
+      "unqualified_name": "Surface",
+      "qualified_name": "Surface",
+      "container_qualified_name": null,
+      "display_name": "Surface",
+      "swift_decl": "",
+      "aliases": []
+    },
+    {
+      "framework": "ShaderGraph",
+      "doc_relpath": "ShaderGraph/surface/preview-surface.md",
+      "source_url": "https://developer.apple.com/documentation/shadergraph/surface/preview-surface",
+      "kind": "shadergraph_node",
+      "unqualified_name": "Preview Surface",
+      "qualified_name": "Surface.Preview Surface",
+      "container_qualified_name": "Surface",
+      "display_name": "Preview Surface",
+      "swift_decl": "",
+      "aliases": []
+    }
+  ]
+}

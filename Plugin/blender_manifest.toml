@@ -1,0 +1,20 @@
+# Blender Extension Manifest
+# See https://developer.blender.org/docs/handbook/extensions/ for more information
+
+schema_version = "1.0.0"
+id = "blender_to_rcp"
+name = "BlenderToRCP"
+module = "__init__"
+version = "1.0.0"
+tagline = "Export Blender scenes to Reality Composer Pro format"
+maintainer = "Your Name <your.email@example.com>"
+type = "add-on"
+support = "COMMUNITY"
+blender_version_min = "5.0.0"
+license = ["SPDX:GPL-3.0-or-later"]
+
+# Add-on description
+description = """
+A Blender add-on to export scenes to Reality Composer Pro format.
+Uses MaterialX-based material graphs compatible with RealityKit ShaderGraph.
+"""
