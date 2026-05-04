@@ -35,7 +35,7 @@ if bpy is not None and _needs_reload:
 bl_info = {
     "name": "BlenderToRCP",
     "author": "Your Name",
-    "version": (1, 0, 0),
+    "version": (1, 1, 0),
     "blender": (5, 0, 0),
     "location": "View3D > UI",
     "description": "Export Blender scenes to Reality Composer Pro format",
