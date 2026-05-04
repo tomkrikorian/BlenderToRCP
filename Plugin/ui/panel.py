@@ -954,7 +954,10 @@ def _read_background_job_status(settings):
         pid = _safe_int(getattr(settings, "background_job_pid", 0)) or 0
         status_pid = _safe_int(data.get("pid"))
         if pid <= 0 or status_pid is None or status_pid != pid or not _pid_is_running(pid):
-            return {"state": "error", "message": _STALE_BACKGROUND_STATUS_MESSAGE}
+            stale = dict(data)
+            stale["state"] = "error"
+            stale["message"] = _STALE_BACKGROUND_STATUS_MESSAGE
+            return stale
     return data
 
 

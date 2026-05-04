@@ -19,12 +19,43 @@ import json
 import sys
 import traceback
 from pathlib import Path
+import importlib.util
 
-# Ensure the repo root is on sys.path so ``from Plugin.…`` imports work
-# when invoked via ``--python /absolute/path/to/runner.py``.
-_REPO_ROOT = Path(__file__).resolve().parents[2]
-if str(_REPO_ROOT) not in sys.path:
-    sys.path.insert(0, str(_REPO_ROOT))
+_PLUGIN_ROOT = Path(__file__).resolve().parents[1]
+
+
+def _bootstrap_plugin_package() -> None:
+    """Make absolute ``Plugin.*`` imports work from copied extension folders."""
+    parent = _PLUGIN_ROOT.parent
+    if str(parent) not in sys.path:
+        sys.path.insert(0, str(parent))
+    if (parent / "Plugin" / "__init__.py").exists():
+        return
+    if "Plugin" in sys.modules:
+        return
+
+    init_path = _PLUGIN_ROOT / "__init__.py"
+    if not init_path.exists():
+        return
+    init_resolved = init_path.resolve()
+    for module in list(sys.modules.values()):
+        if Path(getattr(module, "__file__", "") or "") == init_resolved:
+            sys.modules["Plugin"] = module
+            return
+
+    spec = importlib.util.spec_from_file_location(
+        "Plugin",
+        init_path,
+        submodule_search_locations=[str(_PLUGIN_ROOT)],
+    )
+    if spec is None or spec.loader is None:
+        return
+    module = importlib.util.module_from_spec(spec)
+    sys.modules["Plugin"] = module
+    spec.loader.exec_module(module)
+
+
+_bootstrap_plugin_package()
 
 from Plugin.api.addon_loader import ensure_addon_loaded as _load_blendertorcp_addon
 from Plugin.api.errors import CommandError

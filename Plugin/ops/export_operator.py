@@ -404,10 +404,28 @@ class BLENDERTORCP_OT_create_support_bundle(Operator):
 def _resolve_diagnostics_path(context) -> str | None:
     settings = context.scene.blender_to_rcp_export_settings
     candidates = []
+    job_candidates = []
+    job_dir = getattr(settings, "background_job_dir", "")
+    if job_dir:
+        status_path = Path(job_dir) / "status.json"
+        try:
+            status = json.loads(status_path.read_text()) if status_path.exists() else {}
+        except Exception:
+            status = {}
+        if status.get("diagnostics_path"):
+            job_candidates.append(status["diagnostics_path"])
+    if getattr(settings, "filepath", ""):
+        current_diag = str(Path(settings.filepath).with_suffix('.diagnostics.json'))
+        candidates.append(current_diag)
+        if job_dir:
+            job_candidates.append(current_diag)
+    if job_candidates:
+        for candidate in job_candidates:
+            if candidate and Path(candidate).exists():
+                return candidate
+        return job_candidates[0]
     if getattr(settings, "last_diagnostics_path", ""):
         candidates.append(settings.last_diagnostics_path)
-    if getattr(settings, "filepath", ""):
-        candidates.append(str(Path(settings.filepath).with_suffix('.diagnostics.json')))
 
     for candidate in candidates:
         if candidate and Path(candidate).exists():

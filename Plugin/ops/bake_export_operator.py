@@ -294,7 +294,9 @@ class BLENDERTORCP_OT_watch_bake_export_job(Operator):
                 state="error",
                 progress=1.0,
                 message="Background job exited unexpectedly.",
+                log_path=status.get("log_path"),
                 export_path=status.get("export_path") or getattr(settings, "filepath", ""),
+                diagnostics_path=status.get("diagnostics_path"),
             )
             settings.background_job_pid = 0
             _tag_export_ui_redraw()
@@ -311,7 +313,9 @@ class BLENDERTORCP_OT_watch_bake_export_job(Operator):
                     state="error",
                     progress=1.0,
                     message=f"Timed out after {timeout_seconds}s in one step; background job canceled.",
+                    log_path=status.get("log_path"),
                     export_path=status.get("export_path") or getattr(settings, "filepath", ""),
+                    diagnostics_path=status.get("diagnostics_path"),
                 )
                 settings.background_job_pid = 0
                 _tag_export_ui_redraw()

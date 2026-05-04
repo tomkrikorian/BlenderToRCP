@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import json
+import shutil
+import subprocess
 import sys
 from pathlib import Path
 
@@ -16,6 +19,25 @@ from Plugin.cli.__main__ import build_parser  # noqa: E402
 @pytest.fixture
 def parser():
     return build_parser()
+
+
+def test_cli_entrypoint_works_when_extension_folder_is_named_blendertorcp(tmp_path: Path):
+    installed = tmp_path / "BlenderToRCP"
+    shutil.copytree(
+        Path(__file__).resolve().parents[2] / "Plugin",
+        installed,
+        ignore=shutil.ignore_patterns("__pycache__", "*.pyc"),
+    )
+
+    proc = subprocess.run(
+        [sys.executable, str(installed), "--json", "version"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert proc.returncode == 0, proc.stderr
+    assert json.loads(proc.stdout)["plugin"] == "1.1.0"
 
 
 # ---------------------------------------------------------------------------

@@ -59,7 +59,7 @@ def collect_environment(context=None) -> dict:
         pass
 
     try:
-        from Plugin import bl_info
+        from .. import bl_info
 
         info["addon"] = {
             "name": bl_info.get("name", "BlenderToRCP"),
@@ -70,8 +70,8 @@ def collect_environment(context=None) -> dict:
         info["addon"] = {"name": "BlenderToRCP", "version": "unknown"}
 
     try:
-        from Plugin.core import paths
-        from Plugin.manifest import materialx_nodes
+        from ..core import paths
+        from ..manifest import materialx_nodes
 
         manifest_path = materialx_nodes.get_manifest_path()
         info["resources"] = {
@@ -88,7 +88,7 @@ def collect_environment(context=None) -> dict:
 
     try:
         import bpy
-        from Plugin import prefs as addon_prefs
+        from .. import prefs as addon_prefs
 
         prefs = addon_prefs.get_preferences(context or bpy.context)
         if prefs is not None:
@@ -145,7 +145,7 @@ def collect_validation_snapshot(context=None) -> dict:
     """Collect material validation data without failing bundle creation."""
     try:
         import bpy
-        from Plugin.nodes import validate as rk_validate
+        from ..nodes import validate as rk_validate
 
         context = context or bpy.context
         materials = rk_validate.collect_scene_materials(context)
@@ -319,7 +319,7 @@ def _add_sidecar_directory(
 
 def _serialize_settings(settings) -> dict:
     try:
-        from Plugin.api.commands._settings_common import INTERNAL_KEYS
+        from ..api.commands._settings_common import INTERNAL_KEYS
     except Exception:
         INTERNAL_KEYS = {"rna_type", "name"}
 

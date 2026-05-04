@@ -14,14 +14,43 @@ import traceback
 from pathlib import Path
 import time
 import threading
+import importlib.util
 
 import bpy
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
-if str(REPO_ROOT) not in sys.path:
-    sys.path.insert(0, str(REPO_ROOT))
+PLUGIN_ROOT = Path(__file__).resolve().parent
 
-from Plugin.api.addon_loader import ensure_addon_loaded as _load_blendertorcp_addon
+
+def _bootstrap_plugin_package() -> None:
+    """Make absolute ``Plugin.*`` imports work from copied extension folders."""
+    parent = PLUGIN_ROOT.parent
+    if str(parent) not in sys.path:
+        sys.path.insert(0, str(parent))
+    if (parent / "Plugin" / "__init__.py").exists():
+        return
+    if "Plugin" in sys.modules:
+        return
+
+    init_path = PLUGIN_ROOT / "__init__.py"
+    if not init_path.exists():
+        return
+    init_resolved = init_path.resolve()
+    for module in list(sys.modules.values()):
+        if Path(getattr(module, "__file__", "") or "") == init_resolved:
+            sys.modules["Plugin"] = module
+            return
+
+    spec = importlib.util.spec_from_file_location(
+        "Plugin",
+        init_path,
+        submodule_search_locations=[str(PLUGIN_ROOT)],
+    )
+    if spec is None or spec.loader is None:
+        return
+    module = importlib.util.module_from_spec(spec)
+    sys.modules["Plugin"] = module
+    spec.loader.exec_module(module)
+
 
 _APPLY_SETTINGS_SKIP_KEYS = {
     "rna_type",
@@ -36,6 +65,8 @@ _APPLY_SETTINGS_SKIP_KEYS = {
 
 
 def _ensure_addon_loaded() -> None:
+    from Plugin.api.addon_loader import ensure_addon_loaded as _load_blendertorcp_addon
+
     _load_blendertorcp_addon()
 
 
@@ -210,7 +241,22 @@ def main() -> int:
         diagnostics_path=diagnostics_path,
     )
 
-    _ensure_addon_loaded()
+    try:
+        _bootstrap_plugin_package()
+        _ensure_addon_loaded()
+    except Exception as exc:
+        _update_status(
+            status_path,
+            "error",
+            1.0,
+            f"Unable to load BlenderToRCP add-on: {exc}",
+            str(log_path),
+            payload.get("export_path"),
+            diagnostics_path=diagnostics_path,
+        )
+        print("Addon load error:", exc)
+        traceback.print_exc()
+        return 1
     if not hasattr(bpy.types.Scene, "blender_to_rcp_export_settings"):
         _update_status(
             status_path,
