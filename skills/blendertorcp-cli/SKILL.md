@@ -134,6 +134,16 @@ blendertorcp preferences set default_export_format=USDZ enable_diagnostics=true
 blendertorcp version
 ```
 
+### Support bundle
+
+```bash
+blendertorcp support-bundle scene.blend \
+  -o output.usdz \
+  --diagnostics output.diagnostics.json
+```
+
+Use this after failed exports or background bake/export jobs. Bundles are redacted by default and do not include the source `.blend` or exported assets unless `--include-blend` or `--include-output` is passed.
+
 ## Global flags
 
 | Flag | Default | Description |
@@ -149,6 +159,14 @@ All commands return JSON to stdout. Parse with `jq` or read directly:
 
 ```bash
 blendertorcp info scene.blend | jq '.object_count'
+```
+
+For support captures, run with `--verbose` and save stdout/stderr separately:
+
+```bash
+blendertorcp --verbose export scene.blend -o output.usdz \
+  > blendertorcp-result.json \
+  2> blendertorcp-stderr.log
 ```
 
 Chain commands conditionally:

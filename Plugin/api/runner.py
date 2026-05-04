@@ -27,6 +27,7 @@ if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
 from Plugin.api.addon_loader import ensure_addon_loaded as _load_blendertorcp_addon
+from Plugin.api.errors import CommandError
 
 OUTPUT_MARKER = "---BLENDERTORCP_JSON---"
 
@@ -39,6 +40,31 @@ def _ensure_addon_loaded() -> None:
 def _output(data: dict) -> None:
     """Print JSON result wrapped in markers so the bridge can parse it."""
     print(f"{OUTPUT_MARKER}{json.dumps(data)}{OUTPUT_MARKER}", flush=True)
+
+
+def _error_response(command: str | None, exc: Exception, tb: str | None = None) -> dict:
+    if isinstance(exc, CommandError):
+        error = exc.to_response_error()
+        artifacts = exc.artifacts
+        context = exc.context
+    else:
+        error = {
+            "code": exc.__class__.__name__.upper(),
+            "type": exc.__class__.__name__,
+            "message": str(exc),
+        }
+        artifacts = {}
+        context = {}
+    if tb:
+        error["traceback"] = tb
+    return {
+        "ok": False,
+        "schema_version": "1.0",
+        "command": command,
+        "error": error,
+        "context": context,
+        "artifacts": artifacts,
+    }
 
 
 def main() -> int:
@@ -71,8 +97,9 @@ def main() -> int:
     try:
         from Plugin.api.commands import REGISTRY
     except Exception as exc:
-        _output({"ok": False, "error": f"Failed to import command registry: {exc}"})
-        traceback.print_exc()
+        tb = traceback.format_exc()
+        _output(_error_response(command, RuntimeError(f"Failed to import command registry: {exc}"), tb))
+        print(tb, file=sys.stderr)
         return 1
 
     handler = REGISTRY.get(command)
@@ -89,8 +116,9 @@ def main() -> int:
         _output({"ok": True, "result": result})
         return 0
     except Exception as exc:
-        _output({"ok": False, "error": str(exc)})
-        traceback.print_exc()
+        tb = traceback.format_exc()
+        _output(_error_response(command, exc, tb))
+        print(tb, file=sys.stderr)
         return 1
 
 

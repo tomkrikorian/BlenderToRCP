@@ -75,10 +75,19 @@ python3 /path/to/repo/Plugin --blender /path/to/blender settings list
 | Error | Exit Code | Cause | Fix |
 |-------|-----------|-------|-----|
 | `Blender not found` | 2 | Wrong binary path | Correct `BLENDERTORCP_BLENDER` or use `--blender <path>` |
-| `No output from Blender` | 1 | Blender crashed on startup | Re-run with `--verbose` and inspect stderr |
+| `No output from Blender` | 1 | Blender crashed on startup | Re-run with `--verbose`, save stderr, then create a support bundle if a scene is involved |
 | `Failed to import command registry` | 3 | Plugin path is wrong, addon not enabled, or files are missing | Enable BlenderToRCP in Blender preferences and re-check the install path |
 | `BlenderToRCP addon preferences not available.` | 1 | Add-on is not enabled, or the path points at the wrong directory | Enable the add-on, then re-run `preferences get` against the resolved extension root |
 | `'Scene' object has no attribute 'blender_to_rcp_export_settings'` | 1 | Add-on did not register its scene properties | Enable the add-on, then re-run `settings list` or `settings get` |
+
+For support captures:
+
+```bash
+blendertorcp --verbose export scene.blend -o output.usdz \
+  > blendertorcp-result.json \
+  2> blendertorcp-stderr.log
+blendertorcp support-bundle scene.blend -o output.usdz --diagnostics output.diagnostics.json
+```
 
 ### 4. Configure the shell
 

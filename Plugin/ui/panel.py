@@ -3,14 +3,24 @@ Main UI panel for BlenderToRCP export
 """
 
 import bpy
+import errno
 import json
+import os
 from pathlib import Path
 
 from .. import prefs as addon_prefs
+from bpy.app.handlers import persistent
 from bpy.props import StringProperty, BoolProperty, EnumProperty, FloatProperty, IntProperty
 from bpy.types import Panel, PropertyGroup
 
 _PERSIST_APPLY_SCHEDULED = set()
+_MISSING_BACKGROUND_STATUS_MESSAGE = (
+    "Background job status file is missing. Clear stale job state, then run Bake & Export again."
+)
+_STALE_BACKGROUND_STATUS_MESSAGE = (
+    "Background job is no longer attached to this Blender session. Clear stale job state."
+)
+_ACTIVE_BACKGROUND_JOB_STATES = {"queued", "running"}
 
 def _persist_settings(context, settings) -> None:
     """Persist settings to add-on preferences."""
@@ -508,14 +518,14 @@ class BlenderToRCPExportSettings(PropertyGroup):
         name="Background Job Dir",
         description="Path to the active background bake/export job",
         default="",
-        options={'HIDDEN'}
+        options={'HIDDEN', 'SKIP_SAVE'}
     )
 
     background_job_pid: IntProperty(
         name="Background Job PID",
         description="PID for the active background job",
         default=0,
-        options={'HIDDEN'}
+        options={'HIDDEN', 'SKIP_SAVE'}
     )
 
     history_applied: BoolProperty(
@@ -590,6 +600,25 @@ class BLENDERTORCP_PT_export_panel(Panel):
                         pass
                 if status.get("export_path"):
                     monitor.label(text=f"Output: {status.get('export_path')}")
+                if status.get("log_path"):
+                    log_row = monitor.row()
+                    log_row.label(text=f"Log: {status.get('log_path')}")
+                    op = log_row.operator(
+                        "blendertorcp.open_support_text",
+                        icon='TEXT',
+                        text="Open Log"
+                    )
+                    op.filepath = status.get("log_path")
+                    op.text_name = "BlenderToRCP Background Log"
+                if status.get("diagnostics_path"):
+                    diag_row = monitor.row()
+                    diag_row.label(text=f"Diagnostics: {status.get('diagnostics_path')}")
+                    op = diag_row.operator(
+                        "blendertorcp.open_diagnostics_text",
+                        icon='INFO',
+                        text="Open Diagnostics"
+                    )
+                    op.filepath = status.get("diagnostics_path")
                 if status.get("message"):
                     monitor.label(text=status.get("message"))
 
@@ -608,6 +637,7 @@ class BLENDERTORCP_PT_export_panel(Panel):
             prefs = addon_prefs.get_preferences(context)
             if prefs and prefs.enable_diagnostics:
                 actions_box.operator("blendertorcp.show_diagnostics", icon='INFO', text="Show Diagnostics")
+            actions_box.operator("blendertorcp.create_support_bundle", icon='FILE_FOLDER', text="Create Support Bundle")
         except Exception as exc:
             layout.label(text=f"UI error: {exc}")
             layout.operator("blendertorcp.export", icon='EXPORT', text="Export")
@@ -811,10 +841,14 @@ def register():
     bpy.types.Scene.blender_to_rcp_export_settings = bpy.props.PointerProperty(
         type=BlenderToRCPExportSettings
     )
+    _remove_background_job_load_handlers()
+    bpy.app.handlers.load_post.append(_clear_background_job_state_on_load)
+    _clear_missing_background_job_status()
 
 
 def unregister():
     """Unregister UI classes"""
+    _remove_background_job_load_handlers()
     del bpy.types.Scene.blender_to_rcp_export_settings
     bpy.utils.unregister_class(BLENDERTORCP_PT_export_bake_settings)
     bpy.utils.unregister_class(BLENDERTORCP_PT_export_usd_rigging)
@@ -908,14 +942,19 @@ def _read_background_job_status(settings):
     status_path = Path(job_dir) / "status.json"
     if not status_path.exists():
         if int(getattr(settings, "background_job_pid", 0)) > 0:
-            return {"state": "running", "message": "Waiting for status file..."}
+            return {"state": "error", "message": _MISSING_BACKGROUND_STATUS_MESSAGE}
         return None
     try:
         data = json.loads(status_path.read_text())
     except Exception:
         if int(getattr(settings, "background_job_pid", 0)) > 0:
-            return {"state": "running", "message": "Reading status..."}
+            return {"state": "error", "message": "Background job status file could not be read. Clear stale job state."}
         return None
+    if data.get("state") in _ACTIVE_BACKGROUND_JOB_STATES:
+        pid = _safe_int(getattr(settings, "background_job_pid", 0)) or 0
+        status_pid = _safe_int(data.get("pid"))
+        if pid <= 0 or status_pid is None or status_pid != pid or not _pid_is_running(pid):
+            return {"state": "error", "message": _STALE_BACKGROUND_STATUS_MESSAGE}
     return data
 
 
@@ -924,3 +963,64 @@ def _is_job_running(settings) -> bool:
     if not status:
         return False
     return status.get("state") in {"queued", "running"}
+
+
+def _clear_background_job_state(settings) -> None:
+    try:
+        settings.background_job_dir = ""
+    except Exception:
+        pass
+    try:
+        settings.background_job_pid = 0
+    except Exception:
+        pass
+
+
+def _clear_missing_background_job_status() -> None:
+    for scene in getattr(bpy.data, "scenes", []):
+        settings = getattr(scene, "blender_to_rcp_export_settings", None)
+        if settings is None:
+            continue
+        job_dir = getattr(settings, "background_job_dir", "")
+        if not job_dir:
+            continue
+        if not (Path(job_dir) / "status.json").exists():
+            _clear_background_job_state(settings)
+
+
+@persistent
+def _clear_background_job_state_on_load(_dummy) -> None:
+    for scene in getattr(bpy.data, "scenes", []):
+        settings = getattr(scene, "blender_to_rcp_export_settings", None)
+        if settings is not None:
+            _clear_background_job_state(settings)
+
+
+def _remove_background_job_load_handlers() -> None:
+    for handler in list(bpy.app.handlers.load_post):
+        if getattr(handler, "__name__", "") == "_clear_background_job_state_on_load":
+            try:
+                bpy.app.handlers.load_post.remove(handler)
+            except ValueError:
+                pass
+
+
+def _safe_int(value) -> int | None:
+    try:
+        return int(value)
+    except Exception:
+        return None
+
+
+def _pid_is_running(pid: int) -> bool:
+    if pid <= 0:
+        return False
+    try:
+        os.kill(pid, 0)
+        return True
+    except OSError as exc:
+        if exc.errno == errno.EPERM:
+            return True
+        return False
+    except Exception:
+        return False

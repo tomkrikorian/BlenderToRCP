@@ -126,6 +126,7 @@ def bake_materials_for_objects(
                 result.baked_materials.append(baked_mat)
 
                 entry = {
+                    "source_material": source_mat,
                     "material": baked_mat,
                     "base_image": None,
                     "opacity_image": None,
@@ -177,6 +178,13 @@ def bake_materials_for_objects(
                         if not entry or not entry.get("base_image"):
                             continue
                         entry["base_image"].save()
+                        if diagnostics:
+                            diagnostics.add_generated_file(
+                                "baked_base_color",
+                                getattr(entry["base_image"], "filepath_raw", ""),
+                                object=obj.name,
+                                material=entry["source_material"].name,
+                            )
                     _finish_step(step_message)
 
                 if bake_opacity and has_materials:
@@ -218,6 +226,13 @@ def bake_materials_for_objects(
                         if not entry or not entry.get("opacity_image"):
                             continue
                         entry["opacity_image"].save()
+                        if diagnostics:
+                            diagnostics.add_generated_file(
+                                "baked_opacity",
+                                getattr(entry["opacity_image"], "filepath_raw", ""),
+                                object=obj.name,
+                                material=entry["source_material"].name,
+                            )
                     _finish_step(step_message)
 
                     for entry in baked_entries:

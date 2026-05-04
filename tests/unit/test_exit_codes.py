@@ -13,6 +13,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from Plugin.cli.__main__ import main  # noqa: E402
+from Plugin.cli.bridge import BridgeError  # noqa: E402
 
 
 def _run_main(*args: str) -> tuple[int, str, str]:
@@ -98,3 +99,24 @@ class TestJsonErrorOutput:
             assert code == 0
             parsed = json.loads(stdout)
             assert parsed["key"] == "val"
+
+    def test_json_mode_preserves_bridge_error_envelope(self):
+        error = BridgeError(
+            "Postprocess failed",
+            response={
+                "ok": False,
+                "schema_version": "1.0",
+                "command": "export",
+                "error": {"code": "POSTPROCESS_FAILED", "message": "Postprocess failed"},
+                "artifacts": {"diagnostics_path": "/tmp/out.diagnostics.json"},
+            },
+            returncode=1,
+            command="export",
+        )
+        with patch("Plugin.cli.__main__.bridge.run", side_effect=error):
+            code, stdout, stderr = _run_main("--json", "export", "scene.blend", "-o", "out.usdz")
+            assert code == 1
+            parsed = json.loads(stdout)
+            assert parsed["error"]["code"] == "POSTPROCESS_FAILED"
+            assert parsed["artifacts"]["diagnostics_path"] == "/tmp/out.diagnostics.json"
+            assert stderr == ""

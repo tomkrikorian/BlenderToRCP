@@ -197,6 +197,33 @@ class TestBakeExportCommand:
         assert args.timeout_step == 300
 
 
+class TestSupportBundleCommand:
+    def test_parses(self, parser):
+        args = parser.parse_args(["support-bundle", "scene.blend", "-o", "out.usdz"])
+        assert args.command == "support-bundle"
+        assert args.blend_file == "scene.blend"
+        assert args.output == "out.usdz"
+
+    def test_options(self, parser):
+        args = parser.parse_args([
+            "support-bundle", "scene.blend",
+            "--bundle-output", "support.zip",
+            "--job-dir", ".blendertorcp_jobs/job",
+            "--diagnostics", "out.diagnostics.json",
+            "--include-output",
+            "--include-blend",
+            "--full-log",
+            "--no-redact",
+        ])
+        assert args.bundle_output == "support.zip"
+        assert args.job_dir == ".blendertorcp_jobs/job"
+        assert args.diagnostics == "out.diagnostics.json"
+        assert args.include_output is True
+        assert args.include_blend is True
+        assert args.full_log is True
+        assert args.no_redact is True
+
+
 class TestSettingsGetCommand:
     def test_parses(self, parser):
         args = parser.parse_args(["settings", "get", "scene.blend"])

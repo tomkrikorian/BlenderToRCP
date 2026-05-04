@@ -44,10 +44,19 @@ def ensure_addon_loaded(
     if hasattr(bpy.types.Scene, scene_attr):
         return
 
+    failures = []
     for module_name in _candidate_module_names(addon_name):
         try:
             bpy.ops.preferences.addon_enable(module=module_name)
-        except Exception:
+        except Exception as exc:
+            failures.append({"module": module_name, "error": str(exc)})
             continue
         if hasattr(bpy.types.Scene, scene_attr):
             return
+        failures.append({"module": module_name, "error": f"'{scene_attr}' was not registered"})
+
+    attempted = ", ".join(item["module"] for item in failures) or addon_name
+    raise RuntimeError(
+        f"BlenderToRCP addon could not be loaded. Attempted: {attempted}. "
+        f"Failures: {failures}"
+    )

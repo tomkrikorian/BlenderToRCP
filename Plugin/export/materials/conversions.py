@@ -217,6 +217,15 @@ def _create_convert_output(
     if not nodedef_name:
         nodedef_name = f"ND_convert_{from_type}_{to_type}"
         if diagnostics:
+            diagnostics.add_material_issue(
+                "missing_mappings",
+                nodegraph_path=nodegraph_path,
+                input_name=input_name,
+                source_type=from_type,
+                target_type=to_type,
+                fallback_nodedef=nodedef_name,
+                message="No matching convert nodedef was found; output may be invalid.",
+            )
             diagnostics.add_warning(
                 f"Falling back to '{nodedef_name}' for conversion {from_type} -> {to_type}. "
                 "No matching nodedef was found; output may be invalid."

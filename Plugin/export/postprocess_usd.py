@@ -20,16 +20,34 @@ def process_usd_stage(usd_path: str, settings, context, diagnostics=None) -> Non
     if not stage:
         raise RuntimeError(f"Failed to open USD stage: {usd_path}")
 
-    normalize_scene(stage, settings)
+    _run_step(diagnostics, "normalize_scene", normalize_scene, stage, settings)
 
-    rewrite_materials(stage, settings, context, diagnostics)
+    _run_step(diagnostics, "rewrite_materials", rewrite_materials, stage, settings, context, diagnostics)
 
-    author_animation_library(stage, settings, diagnostics)
+    _run_step(diagnostics, "author_animation_library", author_animation_library, stage, settings, diagnostics)
 
-    prepare_textures(stage, usd_path, settings, diagnostics)
-    prepare_assets(stage, usd_path, diagnostics)
+    _run_step(diagnostics, "prepare_textures", prepare_textures, stage, usd_path, settings, diagnostics)
+    _run_step(diagnostics, "prepare_assets", prepare_assets, stage, usd_path, diagnostics)
 
+    if diagnostics:
+        diagnostics.begin_phase("stage_save", {"usd_path": usd_path})
     stage.Save()
+    if diagnostics:
+        diagnostics.end_phase("stage_save")
 
     if diagnostics:
         diagnostics.add_warning("USD stage post-processed for RealityKit compatibility")
+
+
+def _run_step(diagnostics, name: str, func, *args):
+    if diagnostics:
+        diagnostics.begin_phase(name)
+    try:
+        result = func(*args)
+    except Exception as exc:
+        if diagnostics:
+            diagnostics.record_phase_error(name, exc)
+        raise
+    if diagnostics:
+        diagnostics.end_phase(name)
+    return result

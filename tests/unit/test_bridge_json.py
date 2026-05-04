@@ -15,6 +15,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from Plugin.cli.bridge import (  # noqa: E402
+    BridgeError,
     OUTPUT_MARKER,
     extract_result,
     find_blender,
@@ -79,6 +80,20 @@ class TestExtractResultErrors:
         stdout = f"{OUTPUT_MARKER}{json.dumps(payload)}{OUTPUT_MARKER}"
         with pytest.raises(RuntimeError, match="Export failed: missing UV map"):
             extract_result(stdout, "", 0)
+
+    def test_structured_error_response_is_preserved(self):
+        payload = {
+            "ok": False,
+            "schema_version": "1.0",
+            "command": "export",
+            "error": {"code": "POSTPROCESS_FAILED", "message": "Postprocess failed"},
+            "artifacts": {"diagnostics_path": "/tmp/out.diagnostics.json"},
+        }
+        stdout = f"{OUTPUT_MARKER}{json.dumps(payload)}{OUTPUT_MARKER}"
+        with pytest.raises(BridgeError) as exc_info:
+            extract_result(stdout, "stderr tail", 1)
+        assert exc_info.value.response["artifacts"]["diagnostics_path"] == "/tmp/out.diagnostics.json"
+        assert exc_info.value.to_json()["error"]["code"] == "POSTPROCESS_FAILED"
 
     def test_error_response_unknown_error(self):
         payload = {"ok": False}

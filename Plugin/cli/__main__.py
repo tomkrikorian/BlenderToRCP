@@ -216,6 +216,34 @@ def cmd_bake_export(parsed: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_support_bundle(parsed: argparse.Namespace) -> int:
+    args = {
+        "blend_file": parsed.blend_file,
+    }
+    if parsed.output:
+        args["export_path"] = parsed.output
+    if parsed.bundle_output:
+        args["bundle_output"] = parsed.bundle_output
+    if parsed.job_dir:
+        args["job_dir"] = parsed.job_dir
+    if parsed.diagnostics:
+        args["diagnostics_path"] = parsed.diagnostics
+    if parsed.include_output:
+        args["include_output"] = True
+    if parsed.include_blend:
+        args["include_blend"] = True
+    if parsed.full_log:
+        args["full_log"] = True
+    if parsed.no_redact:
+        args["no_redact"] = True
+
+    _log("Creating support bundle...", parsed.quiet)
+    result = _run("support_bundle", args, parsed)
+    _print_json(result)
+    _log(f"Support bundle: {result.get('support_bundle_path', '?')}", parsed.quiet)
+    return 0
+
+
 def cmd_preferences_get(parsed: argparse.Namespace) -> int:
     result = _run("preferences_get", {}, parsed)
     _print_json(result)
@@ -355,6 +383,19 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("overrides", nargs="*", metavar="--key=value", help="Setting overrides")
     p.set_defaults(func=cmd_bake_export)
 
+    # --- support-bundle ---
+    p = subs.add_parser("support-bundle", help="Create a redacted support bundle")
+    p.add_argument("blend_file", help="Path to .blend file")
+    p.add_argument("-o", "--output", help="Existing export output path")
+    p.add_argument("--bundle-output", help="Destination ZIP path")
+    p.add_argument("--job-dir", help="Background bake/export job directory")
+    p.add_argument("--diagnostics", help="Diagnostics JSON path")
+    p.add_argument("--include-output", action="store_true", help="Include exported USD/USDZ and sidecar assets")
+    p.add_argument("--include-blend", action="store_true", help="Include the source .blend file")
+    p.add_argument("--full-log", action="store_true", help="Include full redacted logs instead of the last 2000 lines")
+    p.add_argument("--no-redact", action="store_true", help="Disable support bundle redaction")
+    p.set_defaults(func=cmd_support_bundle)
+
     # --- preferences (subcommand group) ---
     prefs_parser = subs.add_parser("preferences", help="Read or modify addon preferences")
     prefs_subs = prefs_parser.add_subparsers(dest="prefs_command", required=True)
@@ -379,6 +420,25 @@ def main() -> int:
 
     try:
         return parsed.func(parsed)
+    except bridge.BridgeError as exc:
+        msg = str(exc)
+        if parsed.json_only:
+            _print_json(exc.to_json())
+        else:
+            print(f"Error: {msg}", file=sys.stderr)
+            if exc.response:
+                artifacts = exc.response.get("artifacts") or {}
+                diagnostics_path = artifacts.get("diagnostics_path")
+                if diagnostics_path:
+                    print(f"Diagnostics: {diagnostics_path}", file=sys.stderr)
+                support_hint = artifacts.get("support_bundle_hint")
+                if support_hint:
+                    print(f"Support bundle: {support_hint}", file=sys.stderr)
+        if "Blender not found" in msg:
+            return 2
+        if "Plugin not loaded" in msg or "Failed to import" in msg:
+            return 3
+        return 1
     except RuntimeError as exc:
         msg = str(exc)
         if parsed.json_only:

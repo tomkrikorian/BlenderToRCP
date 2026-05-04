@@ -639,6 +639,7 @@ def _build_rk_node_graph(surface_node) -> Optional[Dict[str, Any]]:
     connections: List[Dict[str, str]] = []
     node_map: Dict[object, str] = {}
     used_names: Set[str] = set()
+    has_premultiplied_alpha = False
 
     def _unique_name(base: str) -> str:
         base = _sanitize_node_name(base)
@@ -661,6 +662,7 @@ def _build_rk_node_graph(surface_node) -> Optional[Dict[str, Any]]:
         return name
 
     def visit(node) -> None:
+        nonlocal has_premultiplied_alpha
         if node in node_map:
             return
         if not _is_rk_group_node(node):
@@ -715,7 +717,7 @@ def _build_rk_node_graph(surface_node) -> Optional[Dict[str, Any]]:
                     if alpha_mode:
                         texture_spec['alpha_mode'] = alpha_mode
                         if alpha_mode == 'premul':
-                            data['has_premultiplied_alpha'] = True
+                            has_premultiplied_alpha = True
                     inputs[input_name] = texture_spec
                     continue
 
@@ -740,11 +742,14 @@ def _build_rk_node_graph(surface_node) -> Optional[Dict[str, Any]]:
     if not nodes:
         return None
 
-    return {
+    result = {
         "nodes": nodes,
         "connections": connections,
         "output": _node_name(surface_node),
     }
+    if has_premultiplied_alpha:
+        result["has_premultiplied_alpha"] = True
+    return result
 
 
 def _extract_group_inputs(group_node) -> Dict[str, Any]:

@@ -8,6 +8,7 @@ Usage (invoked by Blender):
 from __future__ import annotations
 
 import json
+import os
 import sys
 import traceback
 from pathlib import Path
@@ -22,6 +23,17 @@ if str(REPO_ROOT) not in sys.path:
 
 from Plugin.api.addon_loader import ensure_addon_loaded as _load_blendertorcp_addon
 
+_APPLY_SETTINGS_SKIP_KEYS = {
+    "rna_type",
+    "name",
+    "history_applied",
+    "last_diagnostics_path",
+    "persist_suspended",
+    "background_job_dir",
+    "background_job_pid",
+    "filepath",
+}
+
 
 def _ensure_addon_loaded() -> None:
     _load_blendertorcp_addon()
@@ -34,11 +46,13 @@ def _update_status(
     message: str | None = None,
     log_path: str | None = None,
     export_path: str | None = None,
+    diagnostics_path: str | None = None,
     step_elapsed_seconds: int | None = None,
 ) -> None:
     payload = {
         "state": state,
         "time": time.time(),
+        "pid": os.getpid(),
     }
     if progress is not None:
         payload["progress"] = progress
@@ -48,6 +62,8 @@ def _update_status(
         payload["log_path"] = log_path
     if export_path:
         payload["export_path"] = export_path
+    if diagnostics_path:
+        payload["diagnostics_path"] = diagnostics_path
     if step_elapsed_seconds is not None:
         payload["step_elapsed_seconds"] = int(step_elapsed_seconds)
     try:
@@ -131,7 +147,7 @@ class _BakeProgressReporter:
 def _apply_settings(scene_settings, data: dict) -> None:
     prop_defs = {prop.identifier for prop in scene_settings.bl_rna.properties}
     for key, value in data.items():
-        if key in {"rna_type", "name", "history_applied", "last_diagnostics_path"}:
+        if key in _APPLY_SETTINGS_SKIP_KEYS:
             continue
         if key not in prop_defs:
             continue
@@ -182,11 +198,28 @@ def main() -> int:
     status_path = job_dir / "status.json"
     log_path = job_dir / "log.txt"
 
-    _update_status(status_path, "running", 0.02, "Loading settings", str(log_path), payload.get("export_path"))
+    diagnostics_path = str(Path(payload.get("export_path")).with_suffix(".diagnostics.json")) if payload.get("export_path") else None
+
+    _update_status(
+        status_path,
+        "running",
+        0.02,
+        "Loading settings",
+        str(log_path),
+        payload.get("export_path"),
+        diagnostics_path=diagnostics_path,
+    )
 
     _ensure_addon_loaded()
     if not hasattr(bpy.types.Scene, "blender_to_rcp_export_settings"):
-        _update_status(status_path, "error", 1.0, "BlenderToRCP add-on not loaded", export_path=payload.get("export_path"))
+        _update_status(
+            status_path,
+            "error",
+            1.0,
+            "BlenderToRCP add-on not loaded",
+            export_path=payload.get("export_path"),
+            diagnostics_path=diagnostics_path,
+        )
         return 1
 
     scene_settings = bpy.context.scene.blender_to_rcp_export_settings
@@ -199,23 +232,59 @@ def main() -> int:
     if payload.get("selected_only"):
         _select_objects(payload.get("selection") or [])
 
-    _update_status(status_path, "running", 0.08, "Preparing bake", export_path=payload.get("export_path"))
+    _update_status(
+        status_path,
+        "running",
+        0.08,
+        "Preparing bake",
+        export_path=payload.get("export_path"),
+        diagnostics_path=diagnostics_path,
+    )
 
     try:
         from Plugin.ops import bake_export_operator as bake_ops
         from Plugin.export import bake_textures, blender_usd_export, postprocess_usd, pack_usdz, diagnostics
         from Plugin.nodes import validate as rk_validate
     except Exception as exc:
-        _update_status(status_path, "error", 1.0, f"Import failed: {exc}", export_path=payload.get("export_path"))
+        _update_status(
+            status_path,
+            "error",
+            1.0,
+            f"Import failed: {exc}",
+            export_path=payload.get("export_path"),
+            diagnostics_path=diagnostics_path,
+        )
         print("Import error:", exc)
         traceback.print_exc()
         return 1
 
     diag = diagnostics.ExportDiagnostics()
+    try:
+        from Plugin.export.support_bundle import collect_environment, collect_scene_snapshot
+        diag.set_export_context(
+            command="background_bake_export",
+            resolved_output_path=payload.get("export_path"),
+            export_format=getattr(scene_settings, "export_format", None),
+            selected_only=bool(payload.get("selected_only")),
+            blend_file=payload.get("blend_file"),
+            job_dir=str(job_dir),
+        )
+        diag.set_environment(**collect_environment(bpy.context))
+        diag.data["scene"] = collect_scene_snapshot(bpy.context)
+    except Exception:
+        pass
     objects_to_export = bake_ops._collect_export_objects(bpy.context, scene_settings)
 
     if not objects_to_export:
-        _update_status(status_path, "error", 1.0, "No exportable objects found", export_path=payload.get("export_path"))
+        _save_diagnostics(diag, diagnostics_path)
+        _update_status(
+            status_path,
+            "error",
+            1.0,
+            "No exportable objects found",
+            export_path=payload.get("export_path"),
+            diagnostics_path=diagnostics_path,
+        )
         return 1
 
     original_selection = list(bpy.context.selected_objects)
@@ -273,13 +342,17 @@ def main() -> int:
                 result["ok"] = not result["errors"]
             if result["errors"]:
                 error_count = len(result["errors"])
+                for issue in result["errors"]:
+                    diag.add_validation_issue(material.name, issue, severity="error")
                 progress_reporter.stop()
+                _save_diagnostics(diag, diagnostics_path)
                 _update_status(
                     status_path,
                     "error",
                     1.0,
                     f"Unsupported nodes in material '{material.name}' ({error_count})",
                     export_path=payload.get("export_path"),
+                    diagnostics_path=diagnostics_path,
                 )
                 return 1
 
@@ -292,7 +365,15 @@ def main() -> int:
         )
         if not temp_usd_path or not Path(temp_usd_path).exists():
             progress_reporter.stop()
-            _update_status(status_path, "error", 1.0, "Blender USD export failed", export_path=payload.get("export_path"))
+            _save_diagnostics(diag, diagnostics_path)
+            _update_status(
+                status_path,
+                "error",
+                1.0,
+                "Blender USD export failed",
+                export_path=payload.get("export_path"),
+                diagnostics_path=diagnostics_path,
+            )
             return 1
 
         _set_running_stage(0.7, "Rewriting materials (Unlit)")
@@ -305,7 +386,15 @@ def main() -> int:
 
         if diag.data.get("errors"):
             progress_reporter.stop()
-            _update_status(status_path, "error", 1.0, "Postprocess failed; see diagnostics", export_path=payload.get("export_path"))
+            _save_diagnostics(diag, diagnostics_path)
+            _update_status(
+                status_path,
+                "error",
+                1.0,
+                "Postprocess failed; see diagnostics",
+                export_path=payload.get("export_path"),
+                diagnostics_path=diagnostics_path,
+            )
             return 1
 
         if scene_settings.export_format == "USDZ":
@@ -323,13 +412,34 @@ def main() -> int:
                 shutil.move(temp_usd_path, export_path)
 
         progress_reporter.stop()
-        _update_status(status_path, "done", 1.0, "Bake & Export complete", str(log_path), export_path)
+        _save_diagnostics(diag, diagnostics_path)
+        _update_status(
+            status_path,
+            "done",
+            1.0,
+            "Bake & Export complete",
+            str(log_path),
+            export_path,
+            diagnostics_path=diagnostics_path,
+        )
         return 0
 
     except Exception as exc:
         if progress_reporter is not None:
             progress_reporter.stop()
-        _update_status(status_path, "error", 1.0, f"Exception: {exc}", export_path=payload.get("export_path"))
+        try:
+            diag.add_exception(exc, stage="background_bake_export")
+        except Exception:
+            pass
+        _save_diagnostics(diag, diagnostics_path)
+        _update_status(
+            status_path,
+            "error",
+            1.0,
+            f"Exception: {exc}",
+            export_path=payload.get("export_path"),
+            diagnostics_path=diagnostics_path,
+        )
         print("Bake export error:", exc)
         traceback.print_exc()
         return 1
@@ -348,6 +458,16 @@ def main() -> int:
             )
         bake_ops._restore_selection(bpy.context, original_selection, original_active)
         bake_ops._restore_mode(bpy.context, original_active, original_mode)
+
+
+def _save_diagnostics(diag, diagnostics_path: str | None) -> None:
+    if not diagnostics_path:
+        return
+    try:
+        diag.set_artifact("diagnostics_path", diagnostics_path)
+        diag.save(Path(diagnostics_path))
+    except Exception:
+        pass
 
 
 if __name__ == "__main__":

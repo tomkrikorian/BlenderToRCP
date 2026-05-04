@@ -477,7 +477,8 @@ blendertorcp export scene.blend -o /output/scene.usda \
   "export_path": "/output/scene.usdz",
   "format": "USDZ",
   "duration_seconds": 4.2,
-  "diagnostics_path": "/output/scene_diagnostics.json"
+  "diagnostics_path": "/output/scene.diagnostics.json",
+  "support_bundle_hint": "blendertorcp support-bundle scene.blend -o /output/scene.usdz --diagnostics /output/scene.diagnostics.json"
 }
 ```
 
@@ -580,7 +581,8 @@ blendertorcp bake-export scene.blend -o /tmp/preview.usdz \
     "resolution": 2048,
     "image_format": "AVIF"
   },
-  "diagnostics_path": "/output/scene_diagnostics.json"
+  "diagnostics_path": "/output/scene.diagnostics.json",
+  "support_bundle_hint": "blendertorcp support-bundle scene.blend -o /output/scene.usdz --diagnostics /output/scene.diagnostics.json"
 }
 ```
 
@@ -590,6 +592,45 @@ blendertorcp bake-export scene.blend -o /tmp/preview.usdz \
 |------|---------|
 | 0 | Bake and export completed successfully |
 | 1 | Bake or export failed |
+
+---
+
+### `support-bundle`
+
+Create a redacted ZIP with the files support needs to diagnose an export or bake failure.
+
+```bash
+blendertorcp support-bundle <file.blend> [options]
+```
+
+**Options:**
+
+| Flag | Description |
+|------|-------------|
+| `-o, --output <path>` | Existing exported `.usda`, `.usdc`, or `.usdz` path |
+| `--bundle-output <path>` | Destination ZIP path |
+| `--job-dir <path>` | Include a background bake/export job directory |
+| `--diagnostics <path>` | Include a specific `.diagnostics.json` file |
+| `--include-output` | Include exported USD/USDZ and sidecar assets |
+| `--include-blend` | Include the source `.blend` file |
+| `--full-log` | Include full redacted logs instead of the last 2000 lines |
+| `--no-redact` | Disable redaction |
+
+By default, bundles redact absolute paths and do not include the source `.blend` or exported assets. The default ZIP name is `BlenderToRCP-support-<blend-stem>-<timestamp>.zip`.
+
+```bash
+blendertorcp support-bundle scene.blend \
+  -o /output/scene.usdz \
+  --diagnostics /output/scene.diagnostics.json
+```
+
+For Blender UI background bake/export jobs, pass the job directory shown under `<export_dir>/.blendertorcp_jobs/<job_id>/`:
+
+```bash
+blendertorcp support-bundle scene.blend \
+  -o /output/scene.usdz \
+  --job-dir /output/.blendertorcp_jobs/bake_export_20260504_143012_abcd
+```
 
 ---
 
@@ -764,6 +805,16 @@ By default, commands print:
 - **Status messages** to **stderr** — human-readable progress
 
 Use `--json` to suppress all stderr output. Use `--quiet` to suppress stderr without affecting stdout. Use `--verbose` to include Blender's startup log on stderr.
+
+For support captures, prefer saving stdout and stderr separately:
+
+```bash
+blendertorcp --verbose export scene.blend -o output.usdz --format USDZ \
+  > blendertorcp-result.json \
+  2> blendertorcp-stderr.log
+```
+
+If the command returns a `diagnostics_path`, attach that file. If the failure happened in Blender UI background bake/export, attach the job `settings.json`, `status.json`, and `log.txt`, or create a redacted ZIP with `support-bundle`.
 
 Pipe-friendly:
 

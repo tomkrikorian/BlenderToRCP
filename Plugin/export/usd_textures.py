@@ -78,7 +78,12 @@ def prepare_textures(stage, usd_path: str, settings, diagnostics=None) -> None:
                             shutil.copy2(source_path, dest_path)
                         seen_sources[source_path] = dest_path
                         if diagnostics:
-                            diagnostics.add_texture_copied(str(source_path))
+                            diagnostics.add_texture_copied(
+                                str(source_path),
+                                str(dest_path),
+                                usd_attribute=str(attr.GetPath()),
+                                authored_path=asset_path,
+                            )
                     except Exception as e:
                         if diagnostics:
                             diagnostics.add_texture_failed(str(source_path), str(e))

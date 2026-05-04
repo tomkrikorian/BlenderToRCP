@@ -95,6 +95,21 @@ class BLENDERTORCP_OT_export(Operator, ExportHelper):
         settings.filepath = self.filepath
 
         prefs = addon_prefs.get_preferences(context)
+        from ..export import diagnostics
+        from ..export.support_bundle import collect_environment, collect_scene_snapshot
+
+        diag = diagnostics.ExportDiagnostics()
+        diag_path = Path(self.filepath).with_suffix('.diagnostics.json')
+        diag.set_export_context(
+            command="ui_export",
+            resolved_output_path=self.filepath,
+            export_format=export_format,
+            selected_only=bool(getattr(settings, "selected_objects_only", False)),
+            blend_file=context.blend_data.filepath or None,
+        )
+        diag.set_environment(**collect_environment(context))
+        diag.data["scene"] = collect_scene_snapshot(context)
+
         from ..nodes import validate as rk_validate
 
         materials = rk_validate.collect_scene_materials(context)
@@ -109,6 +124,8 @@ class BLENDERTORCP_OT_export(Operator, ExportHelper):
                 result["ok"] = not result["errors"]
             if result["errors"]:
                 error_count = len(result["errors"])
+                for issue in result["errors"]:
+                    diag.add_validation_issue(material.name, issue, severity="error")
                 self.report(
                     {'ERROR'},
                     f"Unsupported nodes found in material '{material.name}' ({error_count})."
@@ -120,14 +137,13 @@ class BLENDERTORCP_OT_export(Operator, ExportHelper):
                     self.report({'ERROR'}, f"{node_name} ({node_type}): {message}")
                 if error_count > 6:
                     self.report({'ERROR'}, f"{error_count - 6} more errors in '{material.name}'.")
+                diag.save(diag_path)
+                settings.last_diagnostics_path = str(diag_path)
                 return {'CANCELLED'}
 
         try:
             # Import export modules
-            from ..export import blender_usd_export, postprocess_usd, pack_usdz, diagnostics
-            
-            # Create diagnostics instance
-            diag = diagnostics.ExportDiagnostics()
+            from ..export import blender_usd_export, postprocess_usd, pack_usdz
             
             # Step 1: Export from Blender to USD
             self.report({'INFO'}, "Exporting from Blender...")
@@ -153,10 +169,8 @@ class BLENDERTORCP_OT_export(Operator, ExportHelper):
             
             # Fail fast on strict export errors before packaging.
             if diag.data.get('errors'):
-                if prefs and prefs.enable_diagnostics:
-                    diag_path = Path(self.filepath).with_suffix('.diagnostics.json')
-                    diag.save(diag_path)
-                    settings.last_diagnostics_path = str(diag_path)
+                diag.save(diag_path)
+                settings.last_diagnostics_path = str(diag_path)
                 for error in diag.data['errors'][:5]:
                     self.report({'ERROR'}, str(error))
                 if len(diag.data['errors']) > 5:
@@ -198,6 +212,12 @@ class BLENDERTORCP_OT_export(Operator, ExportHelper):
             
         except Exception as e:
             import traceback
+            diag.add_exception(e, stage="ui_export")
+            try:
+                diag.save(diag_path)
+                settings.last_diagnostics_path = str(diag_path)
+            except Exception:
+                pass
             self.report({'ERROR'}, f"Export failed: {str(e)}")
             traceback.print_exc()
             return {'CANCELLED'}
@@ -313,6 +333,74 @@ class BLENDERTORCP_OT_open_diagnostics_text(Operator):
         return {'FINISHED'}
 
 
+class BLENDERTORCP_OT_open_support_text(Operator):
+    """Load a support text file into a Text datablock."""
+    bl_idname = "blendertorcp.open_support_text"
+    bl_label = "Open Support File"
+    bl_description = "Load a support log/status file into Blender's Text Editor"
+
+    filepath: StringProperty(
+        name="File Path",
+        description="Path to support text file",
+        subtype='FILE_PATH'
+    )
+
+    text_name: StringProperty(
+        name="Text Name",
+        description="Blender Text datablock name",
+        default="BlenderToRCP Support"
+    )
+
+    def execute(self, context):
+        if not self.filepath:
+            self.report({'ERROR'}, "No file path provided.")
+            return {'CANCELLED'}
+        path = Path(self.filepath)
+        if not path.exists():
+            self.report({'ERROR'}, f"Support file not found: {path}")
+            return {'CANCELLED'}
+        try:
+            content = path.read_text(errors="replace")
+        except Exception as exc:
+            self.report({'ERROR'}, f"Failed to read support file: {exc}")
+            return {'CANCELLED'}
+
+        text_block = bpy.data.texts.get(self.text_name)
+        if text_block is None:
+            text_block = bpy.data.texts.new(self.text_name)
+        text_block.clear()
+        text_block.write(content)
+        self.report({'INFO'}, f"Loaded support file into Text Editor: {self.text_name}")
+        return {'FINISHED'}
+
+
+class BLENDERTORCP_OT_create_support_bundle(Operator):
+    """Create a redacted support bundle for the latest export."""
+    bl_idname = "blendertorcp.create_support_bundle"
+    bl_label = "Create Support Bundle"
+    bl_description = "Create a redacted support ZIP for sharing BlenderToRCP diagnostics"
+    bl_options = {'REGISTER'}
+
+    def execute(self, context):
+        settings = context.scene.blender_to_rcp_export_settings
+        try:
+            from ..export.support_bundle import create_support_bundle
+
+            result = create_support_bundle(
+                context=context,
+                blend_file=bpy.data.filepath or None,
+                export_path=getattr(settings, "filepath", "") or None,
+                diagnostics_path=_resolve_diagnostics_path(context),
+                job_dir=getattr(settings, "background_job_dir", "") or None,
+            )
+        except Exception as exc:
+            self.report({'ERROR'}, f"Failed to create support bundle: {exc}")
+            return {'CANCELLED'}
+
+        self.report({'INFO'}, f"Support bundle created: {result.get('support_bundle_path')}")
+        return {'FINISHED'}
+
+
 def _resolve_diagnostics_path(context) -> str | None:
     settings = context.scene.blender_to_rcp_export_settings
     candidates = []
@@ -419,10 +507,14 @@ def register():
     bpy.utils.register_class(BLENDERTORCP_OT_export)
     bpy.utils.register_class(BLENDERTORCP_OT_show_diagnostics)
     bpy.utils.register_class(BLENDERTORCP_OT_open_diagnostics_text)
+    bpy.utils.register_class(BLENDERTORCP_OT_open_support_text)
+    bpy.utils.register_class(BLENDERTORCP_OT_create_support_bundle)
 
 
 def unregister():
     """Unregister operators"""
+    bpy.utils.unregister_class(BLENDERTORCP_OT_create_support_bundle)
+    bpy.utils.unregister_class(BLENDERTORCP_OT_open_support_text)
     bpy.utils.unregister_class(BLENDERTORCP_OT_open_diagnostics_text)
     bpy.utils.unregister_class(BLENDERTORCP_OT_show_diagnostics)
     bpy.utils.unregister_class(BLENDERTORCP_OT_export)

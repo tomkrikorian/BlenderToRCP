@@ -26,6 +26,18 @@ from .export_operator import (
     _store_last_export_settings,
 )
 
+_ACTIVE_JOB_STATES = {"queued", "running"}
+_SERIALIZED_SETTINGS_SKIP_KEYS = {
+    "rna_type",
+    "name",
+    "history_applied",
+    "last_diagnostics_path",
+    "persist_suspended",
+    "background_job_dir",
+    "background_job_pid",
+    "filepath",
+}
+
 
 class BLENDERTORCP_OT_bake_export_background(Operator, ExportHelper):
     """Bake textures and export scene in a background Blender process."""
@@ -96,6 +108,7 @@ class BLENDERTORCP_OT_bake_export_background(Operator, ExportHelper):
         job_dir = _create_job_dir(export_dir)
         status_path = job_dir / "status.json"
         log_path = job_dir / "log.txt"
+        diagnostics_path = Path(self.filepath).with_suffix(".diagnostics.json")
 
         selection_names = []
         if getattr(settings, "selected_objects_only", False):
@@ -119,6 +132,7 @@ class BLENDERTORCP_OT_bake_export_background(Operator, ExportHelper):
             message="Queued background export",
             log_path=str(log_path),
             export_path=self.filepath,
+            diagnostics_path=str(diagnostics_path),
         )
 
         blender_bin = bpy.app.binary_path
@@ -142,6 +156,16 @@ class BLENDERTORCP_OT_bake_export_background(Operator, ExportHelper):
                 stderr=log_file,
             )
 
+        _write_status(
+            status_path,
+            state="queued",
+            progress=0.0,
+            message="Queued background export",
+            log_path=str(log_path),
+            export_path=self.filepath,
+            diagnostics_path=str(diagnostics_path),
+            pid=proc.pid,
+        )
         settings.background_job_dir = str(job_dir)
         settings.background_job_pid = proc.pid
         _store_last_export_settings(context, settings)
@@ -169,18 +193,35 @@ class BLENDERTORCP_OT_cancel_bake_export(Operator):
             self.report({'ERROR'}, "No background job to cancel.")
             return {'CANCELLED'}
 
-        try:
-            os.kill(pid, 15)
-        except Exception as exc:
-            self.report({'ERROR'}, f"Failed to cancel job: {exc}")
-            return {'CANCELLED'}
-
         status_path = Path(job_dir) / "status.json"
+        status = _read_job_status(job_dir)
+        if not status or status.get("state") not in _ACTIVE_JOB_STATES:
+            settings.background_job_pid = 0
+            settings.background_job_dir = ""
+            self.report({'INFO'}, "Cleared stale background job state.")
+            return {'FINISHED'}
+
+        status_pid = _status_pid(status)
+        if status_pid is None or status_pid != pid:
+            settings.background_job_pid = 0
+            settings.background_job_dir = ""
+            self.report({'INFO'}, "Cleared stale background job state.")
+            return {'FINISHED'}
+
+        if _pid_is_running(pid):
+            _terminate_process(pid)
+        else:
+            settings.background_job_pid = 0
+            settings.background_job_dir = ""
+            self.report({'INFO'}, "Cleared stale background job state.")
+            return {'FINISHED'}
+
         _write_status(
             status_path,
             state="canceled",
             progress=1.0,
             message="Canceled by user",
+            pid=pid,
         )
 
         settings.background_job_pid = 0
@@ -231,7 +272,12 @@ class BLENDERTORCP_OT_watch_bake_export_job(Operator):
             return {'CANCELLED'}
 
         status_path = Path(job_dir) / "status.json"
-        status = _read_job_status(job_dir) or {}
+        status = _read_job_status(job_dir)
+        if status is None and not status_path.exists():
+            _tag_export_ui_redraw()
+            self._stop(context)
+            return {'FINISHED'}
+        status = status or {}
         state = status.get("state")
         pid = int(getattr(settings, "background_job_pid", 0))
 
@@ -352,6 +398,17 @@ def _extract_step_elapsed_seconds(status: dict) -> int | None:
         return None
 
 
+def _status_pid(status: dict) -> int | None:
+    if not isinstance(status, dict):
+        return None
+    raw = status.get("pid")
+    if raw is None:
+        return None
+    try:
+        return int(raw)
+    except Exception:
+        return None
+
 
 
 def _collect_export_objects(context, settings):
@@ -437,7 +494,7 @@ def _serialize_settings(settings) -> dict:
     data = {}
     for prop in settings.bl_rna.properties:
         key = prop.identifier
-        if key in {"rna_type", "name", "history_applied", "last_diagnostics_path"}:
+        if key in _SERIALIZED_SETTINGS_SKIP_KEYS:
             continue
         try:
             data[key] = getattr(settings, key)
@@ -461,6 +518,8 @@ def _write_status(
     message: str | None = None,
     log_path: str | None = None,
     export_path: str | None = None,
+    diagnostics_path: str | None = None,
+    pid: int | None = None,
 ) -> None:
     payload = {
         "state": state,
@@ -474,6 +533,10 @@ def _write_status(
         payload["log_path"] = log_path
     if export_path:
         payload["export_path"] = export_path
+    if diagnostics_path:
+        payload["diagnostics_path"] = diagnostics_path
+    if pid is not None:
+        payload["pid"] = int(pid)
     try:
         tmp_path = path.with_suffix(".json.tmp")
         tmp_path.write_text(json.dumps(payload, indent=2))

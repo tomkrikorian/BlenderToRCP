@@ -109,7 +109,10 @@ Packager: `Plugin/export/pack_usdz.py`
 Collector: `Plugin/export/diagnostics.py`
 - Captures warnings, errors, animation segments, texture work, and material conversion results.
 - If diagnostics are enabled in preferences, writes `<output>.diagnostics.json`.
+- Failure paths attempt to write `<output>.diagnostics.json` even before a final export exists, unless diagnostics are explicitly disabled for that command.
+- Diagnostics include export context, runtime environment, phase timings, validation issues, material graph issues, generated files, artifacts, warnings, errors, and captured exceptions.
 - The diagnostics viewer in `Plugin/ops/export_operator.py` renders a summary dialog in Blender.
+- `Plugin/export/support_bundle.py` creates redacted ZIPs containing environment, scene/settings, validation, diagnostics, and background job files.
 
 ## Background Bake & Export
 The background bake operator is `blendertorcp.bake_export_background` in `Plugin/ops/bake_export_operator.py`.
@@ -119,6 +122,7 @@ The background bake operator is `blendertorcp.bake_export_background` in `Plugin
 - Allows only one background job at a time.
 - Serializes settings into `<export_dir>/.blendertorcp_jobs/<job_id>/settings.json`.
 - Writes live status to `status.json` and process output to `log.txt`.
+- Writes the diagnostics path into `status.json` when available so the UI can expose `Open Log`, `Open Diagnostics`, and `Create Support Bundle`.
 - Stores the job directory and process ID on the scene settings.
 - Uses a modal watcher to refresh the UI, detect process death, and enforce per-step timeouts.
 

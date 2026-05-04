@@ -484,6 +484,7 @@ def _bake_object(context, obj, anim_data, total_frames: int):
 
 def _bake_shapekeys(scene, obj, key, anim_data, total_frames: int):
     baked_action = _new_action(f"__B2RCP_BAKED_SHAPEKEYS_{obj.name}")
+    anim_data.action = baked_action
 
     key_blocks = [kb for kb in key.key_blocks if kb.name != "Basis"]
     if not key_blocks:
@@ -492,7 +493,13 @@ def _bake_shapekeys(scene, obj, key, anim_data, total_frames: int):
     fcurves = {}
     for kb in key_blocks:
         data_path = f'key_blocks["{kb.name}"].value'
-        fcurves[kb.name] = baked_action.fcurves.new(data_path=data_path, index=0)
+        fcurves[kb.name] = _ensure_action_fcurve(
+            baked_action,
+            key,
+            data_path,
+            index=0,
+            group_name="Shape Keys",
+        )
 
     for frame in range(1, int(total_frames) + 1):
         scene.frame_set(frame)
@@ -501,6 +508,20 @@ def _bake_shapekeys(scene, obj, key, anim_data, total_frames: int):
             fcurve.keyframe_points.insert(frame, kb.value, options={"FAST"})
 
     return baked_action
+
+
+def _ensure_action_fcurve(action, datablock, data_path: str, index: int = 0, group_name: str = ""):
+    """Create an F-Curve across Blender's legacy and layered Action APIs."""
+    if hasattr(action, "fcurves"):
+        return action.fcurves.new(data_path=data_path, index=index)
+    if hasattr(action, "fcurve_ensure_for_datablock"):
+        return action.fcurve_ensure_for_datablock(
+            datablock,
+            data_path,
+            index=index,
+            group_name=group_name,
+        )
+    raise RuntimeError("Blender Action API does not expose an F-Curve creation method.")
 
 
 def _get_shape_key_block(obj):

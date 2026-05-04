@@ -179,7 +179,7 @@ The main export operator validates every scene material in strict mode before wr
 - Object-type toggles for meshes, lights, cameras, curves, points, volumes, hair, and world dome light conversion.
 - Geometry and rigging controls such as UV export, `st` renaming, normals, triangulation, subdivision, armatures, deform bones, and shape keys.
 
-If diagnostics are enabled, exports can write a `.diagnostics.json` file next to the final output and expose a `Show Diagnostics` dialog in the main panel.
+Exports write support-oriented diagnostics as `<output>.diagnostics.json` when diagnostics are enabled. Failure paths also try to persist that file so users can share validation, traceback, environment, timing, and artifact context. The main panel exposes `Show Diagnostics` and `Create Support Bundle` actions.
 
 ## Background Bake & Export
 `Bake & Export` is a background-only workflow. The add-on launches a second Blender process, bakes textures, runs the same USD export pipeline, and updates live job status in the panel.
@@ -188,8 +188,8 @@ Operational details:
 - The `.blend` file must be saved before starting a background bake.
 - Only one background bake/export job can run at a time.
 - Job state lives under `<export_dir>/.blendertorcp_jobs/<job_id>/`.
-- Each job writes `settings.json`, `status.json`, and `log.txt`.
-- The panel shows progress, output path, and the current step, and supports cancel and clear actions.
+- Each job writes `settings.json`, `status.json`, and `log.txt`; status also records the diagnostics path when available.
+- The panel shows progress, output path, log path, diagnostics path, and the current step, and supports cancel, clear, log open, diagnostics open, and support bundle actions.
 - `Step Timeout (sec)` terminates the background process if a single step exceeds the configured duration.
 
 Bake modes:
@@ -209,6 +209,19 @@ Diagnostics workflow:
 - Export-time diagnostics are gated by the `Enable Diagnostics` preference.
 - The diagnostics dialog summarizes converted and failed materials, copied and converted textures, fallback nodes, KTX-required nodes, omitted nodes, and truncated warning/error lists.
 - Diagnostics JSON can be inspected directly or opened in Blender's Text Editor for troubleshooting.
+- Support bundles are redacted ZIP files created from the Blender UI or with `blendertorcp support-bundle scene.blend -o output.usdz --diagnostics output.diagnostics.json`.
+- Support bundles include environment, scene/settings, validation, diagnostics, and background job files when present. Source `.blend` files and exported assets are opt-in.
+
+## Troubleshooting and support capture
+For CLI failures, capture stdout and stderr separately:
+
+```bash
+blendertorcp --verbose export scene.blend -o output.usdz --format USDZ \
+  > blendertorcp-result.json \
+  2> blendertorcp-stderr.log
+```
+
+Attach `blendertorcp-result.json`, `blendertorcp-stderr.log`, the exact command, `blendertorcp version`, `blendertorcp preferences get`, the returned `.diagnostics.json`, and a redacted support bundle. For background bake/export, also include `<export_dir>/.blendertorcp_jobs/<job_id>/settings.json`, `status.json`, and `log.txt` or use the support bundle action.
 
 ## Release and packaging flow
 - Local packaging is script-driven through `bash scripts/build_archive.sh`.

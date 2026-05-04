@@ -30,9 +30,13 @@ def create_usdz(usd_path: str, output_path: str, settings, context, diagnostics=
     if usdzip_path and os.path.exists(usdzip_path):
         # Use external tool
         create_usdz_with_tool(usd_path, output_path, usdzip_path)
+        if diagnostics:
+            diagnostics.add_generated_file("usdz", output_path, packager="usdzip")
     else:
         # Use Python fallback
         create_usdz_python(usd_path, output_path, settings, diagnostics)
+        if diagnostics:
+            diagnostics.add_generated_file("usdz", output_path, packager="python_zip")
 
     _cleanup_usdz_staging(usd_path, diagnostics)
 

@@ -16,6 +16,7 @@ from . import (
     settings_list,
     export,
     bake_export,
+    support_bundle,
     preferences_get,
     preferences_set,
 )
@@ -31,6 +32,7 @@ REGISTRY = {
     "settings_list": settings_list.handle,
     "export": export.handle,
     "bake_export": bake_export.handle,
+    "support_bundle": support_bundle.handle,
     "preferences_get": preferences_get.handle,
     "preferences_set": preferences_set.handle,
 }
