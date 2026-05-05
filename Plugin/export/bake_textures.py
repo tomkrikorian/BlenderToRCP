@@ -1,5 +1,5 @@
 """
-Texture baking utilities for Bake & Export.
+Texture baking utilities for Bake Textures & Export.
 
 Bakes base color and optional opacity textures per object/material.
 """
@@ -163,7 +163,7 @@ def bake_materials_for_objects(
 
             with _temporary_mesh_isolation(context, obj, enabled=isolate_meshes):
                 if bake_base and has_base_targets:
-                    label = "Baking base color" if bake_mode == "UNLIT_ALBEDO" else "Baking lit (IBL)"
+                    label = "Baking material color" if bake_mode == "UNLIT_ALBEDO" else "Baking lighting and shadows"
                     step_message = f"{label} [{mesh_index}/{mesh_count}] - {obj.name}"
                     _start_step(step_message)
                     _select_object(context, obj)
@@ -282,7 +282,7 @@ def _temporary_ibl_world(context, settings, diagnostics=None, enabled: bool = Tr
 
     hdri_path = str(getattr(settings, "bake_ibl_filepath", "") or "").strip()
     if not hdri_path:
-        msg = "Bake mode is 'Lit (IBL baked)' but no HDRI file is set."
+        msg = "Bake mode is 'Lighting & Shadows' but no HDRI file is set."
         if diagnostics:
             diagnostics.add_error(msg)
         raise RuntimeError(msg)

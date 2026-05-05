@@ -50,9 +50,9 @@ Any export setting key can be passed as a positional `key=value` override (does 
 blendertorcp export <file.blend> export-animation=true triangulate-meshes=true -o out.usdz
 ```
 
-### Bake & Export
+### Bake Textures & Export
 
-Bake textures and export. Default: unlit albedo, 2048 px, AVIF format.
+Bake textures and export. Default: Material Color Only (`UNLIT_ALBEDO`), 2048 px, AVIF format.
 
 ```bash
 # Simple bake
@@ -61,7 +61,7 @@ blendertorcp bake-export <file.blend> -o /path/to/output.usdz
 # High-res PNG bake
 blendertorcp bake-export <file.blend> -o out.usdz --resolution 4096 --image-format PNG
 
-# Lit IBL bake with HDRI override
+# Lighting & Shadows bake with HDRI override
 blendertorcp bake-export <file.blend> -o out.usdz \
   --bake-mode LIT_IBL \
   --ibl-source HDRI_FILE \
@@ -80,15 +80,15 @@ Bake-export flags:
 | `--format` | from settings | `USDA`, `USDC`, or `USDZ` |
 | `--selected-only` | off | Only bake/export selected objects |
 | `--no-diagnostics` | off | Skip diagnostics generation |
-| `--bake-mode` | `UNLIT_ALBEDO` | `UNLIT_ALBEDO` or `LIT_IBL` |
+| `--bake-mode` | `UNLIT_ALBEDO` | `UNLIT_ALBEDO` = Material Color Only, `LIT_IBL` = Lighting & Shadows |
 | `--resolution` | `2048` | `512`, `1024`, `2048`, `4096`, or any integer |
 | `--image-format` | `AVIF` | `AVIF` (Blender 5.1+) or `PNG` |
 | `--margin` | `8` | Bake padding in pixels |
-| `--ibl-source` | `SCENE_WORLD` | `SCENE_WORLD` or `HDRI_FILE` |
+| `--ibl-source` | `SCENE_WORLD` | Lighting source: `SCENE_WORLD` or `HDRI_FILE` |
 | `--ibl-filepath` | — | Path to HDRI file |
-| `--ibl-strength` | `1.0` | IBL strength multiplier |
-| `--ibl-rotation` | `0.0` | IBL Z rotation in radians |
-| `--isolate-meshes` | off | Isolate meshes during lit bake |
+| `--ibl-strength` | `1.0` | Lighting strength multiplier |
+| `--ibl-rotation` | `0.0` | Lighting-source Z rotation in radians |
+| `--isolate-meshes` | off | Isolate meshes during Lighting & Shadows bake |
 | `--no-base-color` | off | Skip base color channel |
 | `--no-opacity` | off | Skip opacity channel |
 | `--keep-materials` | off | Keep baked materials after export |
@@ -204,7 +204,7 @@ fi
 
 **Export:** `export_format` (USDA/USDC/USDZ), `root_prim_name`, `export_animation`, `selected_objects_only`
 
-**Bake:** `bake_mode` (UNLIT_ALBEDO/LIT_IBL), `bake_resolution` (512/1024/2048/4096/CUSTOM), `bake_image_format` (AVIF/PNG), `bake_margin`
+**Bake:** `bake_mode` (`UNLIT_ALBEDO` = Material Color Only, `LIT_IBL` = Lighting & Shadows), `bake_resolution` (512/1024/2048/4096/CUSTOM), `bake_image_format` (AVIF/PNG), `bake_margin`
 
 **Geometry:** `triangulate_meshes`, `export_normals`, `export_uvmaps`, `export_subdivision` (IGNORE/TESSELLATE/BEST_MATCH)
 

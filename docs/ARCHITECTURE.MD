@@ -7,7 +7,7 @@ Core design constraints:
 - Strict mode first. If a material graph cannot be translated deterministically, export fails with actionable errors instead of silently falling back.
 - Portable outputs. Textures and auxiliary assets are copied next to the exported USD and rewritten to relative paths.
 - Reality Composer Pro compatibility. Post-processing reshapes Blender-authored USD into the subset RealityKit and RCP expect.
-- Responsive baking. Bake & Export runs inside a second Blender process so the foreground UI stays interactive.
+- Responsive baking. Bake Textures & Export runs inside a second Blender process so the foreground UI stays interactive.
 - Built artifacts stay built. Runtime loads the prebuilt MaterialX manifest and nodegroup library; it does not regenerate them inside Blender.
 
 ## Repository layout
@@ -114,7 +114,7 @@ Collector: `Plugin/export/diagnostics.py`
 - The diagnostics viewer in `Plugin/ops/export_operator.py` renders a summary dialog in Blender.
 - `Plugin/export/support_bundle.py` creates redacted ZIPs containing environment, scene/settings, validation, diagnostics, and background job files when a job directory is supplied. Redaction covers plain absolute paths and JSON-escaped Windows path strings.
 
-## Background Bake & Export
+## Background Bake Textures & Export
 The background bake operator is `blendertorcp.bake_export_background` in `Plugin/ops/bake_export_operator.py`.
 
 ### Control-plane behavior
@@ -140,10 +140,10 @@ Runner script: `Plugin/bake_export_runner.py`
 Baking is implemented in `Plugin/export/bake_textures.py`.
 
 User-visible contracts:
-- `Bake & Export` always authors the final exported materials as RealityKit Unlit materials.
-- `Unlit (Albedo)` bakes light-independent color.
-- `Lit (IBL baked)` bakes lit appearance under the chosen image-based light, then still exports Unlit materials whose textures already include that lighting.
-- `Isolate Meshes (Lit)` hides non-target meshes during each lit bake pass to avoid cross-mesh shadows.
+- `Bake Textures & Export` always authors the final exported materials as RealityKit Unlit materials.
+- `Material Color Only` (`UNLIT_ALBEDO`) bakes light-independent material color.
+- `Lighting & Shadows` (`LIT_IBL`) bakes appearance under the chosen lighting source, then still exports Unlit materials whose textures already include that lighting and shadowing.
+- `Isolate Meshes for Shadows` hides non-target meshes during each lighting-and-shadows bake pass to avoid cross-mesh shadows.
 - `Step Timeout (sec)` is enforced by the foreground watcher and can terminate the background Blender process when a single step stalls.
 
 ## Material rewrite flow
@@ -179,7 +179,7 @@ Material rewriting is orchestrated in `Plugin/export/materials/rewrite.py`.
 - `rk_graph`
 - `rk_group`
 
-`force_unlit_materials` is used by Bake & Export so that the final stage is always authored as RealityKit Unlit even when the source graph started as a lit graph.
+`force_unlit_materials` is used by Bake Textures & Export so that the final stage is always authored as RealityKit Unlit even when the source graph started as a lit graph.
 
 ## MaterialX manifest and node catalog
 Runtime manifest loading lives in `Plugin/manifest/materialx_nodes.py`.

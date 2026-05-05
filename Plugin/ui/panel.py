@@ -15,12 +15,19 @@ from bpy.types import Panel, PropertyGroup
 
 _PERSIST_APPLY_SCHEDULED = set()
 _MISSING_BACKGROUND_STATUS_MESSAGE = (
-    "Background job status file is missing. Clear stale job state, then run Bake & Export again."
+    "Background job status file is missing. Clear stale job state, then run Bake Textures & Export again."
 )
 _STALE_BACKGROUND_STATUS_MESSAGE = (
     "Background job is no longer attached to this Blender session. Clear stale job state."
 )
 _ACTIVE_BACKGROUND_JOB_STATES = {"queued", "running"}
+
+
+def _bake_result_summary(settings) -> str:
+    bake_mode = getattr(settings, "bake_mode", "UNLIT_ALBEDO")
+    if bake_mode == "LIT_IBL":
+        return "Final export: RealityKit Unlit with baked lighting and shadows."
+    return "Final export: RealityKit Unlit with material color only."
 
 def _persist_settings(context, settings) -> None:
     """Persist settings to add-on preferences."""
@@ -375,22 +382,22 @@ class BlenderToRCPExportSettings(PropertyGroup):
     )
 
     bake_mode: EnumProperty(
-        name="Bake Mode",
-        description="Choose whether baked textures are light-independent (albedo) or include lighting from an IBL",
+        name="Texture Bake Includes",
+        description="Choose whether baked textures include material color only or Blender lighting and shadows",
         items=[
-            ('UNLIT_ALBEDO', "Unlit (Albedo)", "Bake light-independent albedo (recommended)"),
-            ('LIT_IBL', "Lit (IBL baked)", "Bake combined appearance under an IBL and export as Unlit"),
+            ('UNLIT_ALBEDO', "Material Color Only", "Use when Reality Composer Pro or RealityKit should light the scene. Blender shadows are not baked."),
+            ('LIT_IBL', "Lighting & Shadows", "Use when the export should match the Blender preview. Blender lighting and shadows are baked into textures."),
         ],
         default='UNLIT_ALBEDO',
         update=_on_settings_changed,
     )
 
     bake_ibl_source: EnumProperty(
-        name="IBL Source",
-        description="Select which Image Based Light (IBL) is used for lit baking",
+        name="Lighting Source",
+        description="Select which scene world or HDRI lighting source is baked into textures",
         items=[
-            ('SCENE_WORLD', "Use Scene World", "Use the current scene World as the IBL"),
-            ('HDRI_FILE', "Override HDRI File", "Use a specific HDRI file for the IBL bake"),
+            ('SCENE_WORLD', "Scene World", "Use the current scene World for the lighting bake"),
+            ('HDRI_FILE', "HDRI File", "Use a specific HDRI file for the lighting bake"),
         ],
         default='SCENE_WORLD',
         update=_on_settings_changed,
@@ -398,7 +405,7 @@ class BlenderToRCPExportSettings(PropertyGroup):
 
     bake_ibl_filepath: StringProperty(
         name="HDRI File",
-        description="HDRI file used for lit (IBL baked) mode",
+        description="HDRI file used when baking lighting and shadows",
         default="",
         maxlen=1024,
         subtype='FILE_PATH',
@@ -406,24 +413,24 @@ class BlenderToRCPExportSettings(PropertyGroup):
     )
 
     bake_ibl_strength: FloatProperty(
-        name="IBL Strength",
-        description="IBL strength multiplier",
+        name="Lighting Strength",
+        description="Lighting strength multiplier for the HDRI bake",
         default=1.0,
         min=0.0,
         update=_on_settings_changed,
     )
 
     bake_ibl_rotation: FloatProperty(
-        name="IBL Rotation",
-        description="Z rotation for the IBL",
+        name="Lighting Rotation",
+        description="Z rotation for the HDRI lighting source",
         default=0.0,
         subtype='ANGLE',
         update=_on_settings_changed,
     )
 
     bake_isolate_meshes_lit: BoolProperty(
-        name="Isolate Meshes (Lit)",
-        description="In Lit (IBL baked) mode, hide other meshes while baking each mesh to avoid cross-mesh shadows",
+        name="Isolate Meshes for Shadows",
+        description="When baking lighting and shadows, hide other meshes while baking each mesh to avoid cross-mesh shadows",
         default=False,
         update=_on_settings_changed,
     )
@@ -560,7 +567,7 @@ class BLENDERTORCP_PT_export_panel(Panel):
         settings = getattr(context.scene, "blender_to_rcp_export_settings", None)
         if settings is None:
             layout.label(text="Export settings unavailable. Reload the add-on.")
-            layout.operator("blendertorcp.export", icon='EXPORT', text="Export")
+            layout.operator("blendertorcp.export", icon='EXPORT', text="Export Scene")
             return
 
         try:
@@ -579,15 +586,22 @@ class BLENDERTORCP_PT_export_panel(Panel):
 
             export_row = actions_box.row()
             export_row.enabled = not job_running
-            export_row.operator("blendertorcp.export", icon='EXPORT', text="Export")
+            export_row.operator("blendertorcp.export", icon='EXPORT', text="Export Scene")
+            export_help = actions_box.row()
+            export_help.enabled = not job_running
+            export_help.label(text="Fast export without baking textures.")
 
             bake_row = actions_box.row()
             bake_row.enabled = not job_running
             bake_row.operator(
                 "blendertorcp.bake_export_background",
                 icon='RENDER_STILL',
-                text="Bake & Export"
+                text="Bake Textures & Export"
             )
+            bake_help = actions_box.row()
+            bake_help.enabled = not job_running
+            bake_help.label(text="Bake Blender materials into textures before exporting.")
+            actions_box.label(text=_bake_result_summary(settings), icon='INFO')
 
             if status:
                 monitor = actions_box.box()
@@ -640,7 +654,7 @@ class BLENDERTORCP_PT_export_panel(Panel):
             actions_box.operator("blendertorcp.create_support_bundle", icon='FILE_FOLDER', text="Create Support Bundle")
         except Exception as exc:
             layout.label(text=f"UI error: {exc}")
-            layout.operator("blendertorcp.export", icon='EXPORT', text="Export")
+            layout.operator("blendertorcp.export", icon='EXPORT', text="Export Scene")
 
 
 class BLENDERTORCP_PT_export_usd_root(Panel):
@@ -652,7 +666,7 @@ class BLENDERTORCP_PT_export_usd_root(Panel):
     bl_region_type = 'UI'
     bl_category = "RCP Exporter"
     bl_options = {'DEFAULT_CLOSED'}
-    bl_order = 0
+    bl_order = 1
 
     def draw(self, context):
         layout = self.layout
@@ -787,10 +801,61 @@ class BLENDERTORCP_PT_export_usd_rigging(Panel):
 
 
 class BLENDERTORCP_PT_export_bake_settings(Panel):
-    """Bake & Export settings"""
-    bl_label = "Bake Settings"
+    """Bake Textures & Export settings"""
+    bl_label = "Bake Texture Settings"
     bl_idname = "BLENDERTORCP_PT_export_bake_settings"
-    bl_parent_id = "BLENDERTORCP_PT_export_usd_root"
+    bl_parent_id = "BLENDERTORCP_PT_export_panel"
+    bl_space_type = 'VIEW_3D'
+    bl_region_type = 'UI'
+    bl_category = "RCP Exporter"
+    bl_options = {'DEFAULT_CLOSED'}
+    bl_order = 0
+
+    def draw(self, context):
+        layout = self.layout
+        layout.use_property_split = True
+        layout.use_property_decorate = False
+
+        settings = context.scene.blender_to_rcp_export_settings
+        layout.enabled = not _is_job_running(settings)
+
+        mode_box = layout.box()
+        mode_box.use_property_split = False
+        mode_box.label(text="Texture Bake Includes")
+        mode_box.prop_enum(settings, "bake_mode", 'UNLIT_ALBEDO', text="Material Color Only")
+        mode_box.label(text="Reality Composer Pro or RealityKit lights the scene.")
+        mode_box.label(text="Blender shadows are not baked.")
+        mode_box.separator()
+        mode_box.prop_enum(settings, "bake_mode", 'LIT_IBL', text="Lighting & Shadows")
+        mode_box.label(text="Matches the Blender preview.")
+        mode_box.label(text="Lighting and shadows are baked into textures.")
+        mode_box.separator()
+        mode_box.label(text=_bake_result_summary(settings), icon='INFO')
+
+        if settings.bake_mode == 'LIT_IBL':
+            lighting_box = layout.box()
+            lighting_box.label(text="Lighting Source")
+            lighting_box.prop(settings, "bake_ibl_source")
+            if settings.bake_ibl_source == 'HDRI_FILE':
+                lighting_box.prop(settings, "bake_ibl_filepath")
+                lighting_box.prop(settings, "bake_ibl_strength")
+                lighting_box.prop(settings, "bake_ibl_rotation")
+            lighting_box.prop(settings, "bake_isolate_meshes_lit")
+
+        texture_box = layout.box()
+        texture_box.label(text="Texture Output")
+        texture_box.prop(settings, "bake_resolution")
+        texture_box.prop(settings, "bake_image_format")
+        if settings.bake_resolution == 'CUSTOM':
+            texture_box.prop(settings, "bake_resolution_custom")
+        texture_box.prop(settings, "bake_margin")
+
+
+class BLENDERTORCP_PT_export_bake_advanced(Panel):
+    """Advanced Bake Textures & Export settings"""
+    bl_label = "Advanced Bake Options"
+    bl_idname = "BLENDERTORCP_PT_export_bake_advanced"
+    bl_parent_id = "BLENDERTORCP_PT_export_bake_settings"
     bl_space_type = 'VIEW_3D'
     bl_region_type = 'UI'
     bl_category = "RCP Exporter"
@@ -803,22 +868,6 @@ class BLENDERTORCP_PT_export_bake_settings(Panel):
 
         settings = context.scene.blender_to_rcp_export_settings
         layout.enabled = not _is_job_running(settings)
-        color_box = layout.box()
-        color_box.label(text="Color Bake")
-        color_box.prop(settings, "bake_mode")
-        if settings.bake_mode == 'LIT_IBL':
-            color_box.prop(settings, "bake_ibl_source")
-            if settings.bake_ibl_source == 'HDRI_FILE':
-                color_box.prop(settings, "bake_ibl_filepath")
-                color_box.prop(settings, "bake_ibl_strength")
-                color_box.prop(settings, "bake_ibl_rotation")
-            color_box.prop(settings, "bake_isolate_meshes_lit")
-
-        layout.prop(settings, "bake_resolution")
-        layout.prop(settings, "bake_image_format")
-        if settings.bake_resolution == 'CUSTOM':
-            layout.prop(settings, "bake_resolution_custom")
-        layout.prop(settings, "bake_margin")
         layout.prop(settings, "bake_base_color")
         layout.prop(settings, "bake_opacity")
         layout.prop(settings, "bake_step_timeout_seconds")
@@ -836,6 +885,7 @@ def register():
     bpy.utils.register_class(BLENDERTORCP_PT_export_usd_geometry)
     bpy.utils.register_class(BLENDERTORCP_PT_export_usd_rigging)
     bpy.utils.register_class(BLENDERTORCP_PT_export_bake_settings)
+    bpy.utils.register_class(BLENDERTORCP_PT_export_bake_advanced)
     
     # Register property on Scene
     bpy.types.Scene.blender_to_rcp_export_settings = bpy.props.PointerProperty(
@@ -850,6 +900,7 @@ def unregister():
     """Unregister UI classes"""
     _remove_background_job_load_handlers()
     del bpy.types.Scene.blender_to_rcp_export_settings
+    bpy.utils.unregister_class(BLENDERTORCP_PT_export_bake_advanced)
     bpy.utils.unregister_class(BLENDERTORCP_PT_export_bake_settings)
     bpy.utils.unregister_class(BLENDERTORCP_PT_export_usd_rigging)
     bpy.utils.unregister_class(BLENDERTORCP_PT_export_usd_geometry)

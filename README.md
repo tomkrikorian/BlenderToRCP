@@ -10,7 +10,7 @@ Blender add-on to export USD/USDZ and rewrite Blender materials into Reality Com
 - RealityKit material rewrite: supported Blender shader graphs are rewritten into MaterialX graphs that Reality Composer Pro can edit.
 - Portable exports: textures and auxiliary assets are staged next to the USD and rewritten to relative paths.
 - Animation compatibility: actions can be concatenated for export and authored into a Reality Composer Pro animation library.
-- Background Bake & Export: runs baking and export in a second Blender process, writes status/log files, and keeps the UI responsive.
+- Background Bake Textures & Export: runs baking and export in a second Blender process, writes status/log files, and keeps the UI responsive.
 - Shader authoring helpers: insert RealityKit PBR or Unlit node groups, browse a generated RealityKit node menu, and validate active materials in the Shader Editor.
 
 ## Important note
@@ -181,8 +181,16 @@ The main export operator validates every scene material in strict mode before wr
 
 Exports write support-oriented diagnostics as `<output>.diagnostics.json` when diagnostics are enabled. Failure paths also try to persist that file so users can share validation, traceback, environment, timing, and artifact context. The main panel exposes `Show Diagnostics` and `Create Support Bundle` actions.
 
-## Background Bake & Export
-`Bake & Export` is a background-only workflow. The add-on launches a second Blender process, bakes textures, runs the same USD export pipeline, and updates live job status in the panel.
+## Background Bake Textures & Export
+`Bake Textures & Export` is a background-only workflow. The add-on launches a second Blender process, bakes textures, runs the same USD export pipeline, and updates live job status in the panel.
+
+Which option should I choose?
+
+| Goal | Use |
+|------|-----|
+| Quick USDZ export without baking textures | `Export Scene` |
+| Reusable baked textures that Reality Composer Pro or RealityKit can light | `Bake Textures & Export` with `Material Color Only` |
+| Export that preserves Blender-looking lighting and shadows | `Bake Textures & Export` with `Lighting & Shadows` |
 
 Operational details:
 - The `.blend` file must be saved before starting a background bake.
@@ -193,9 +201,9 @@ Operational details:
 - `Step Timeout (sec)` terminates the background process if a single step exceeds the configured duration.
 
 Bake modes:
-- `Unlit (Albedo)`: bakes light-independent color and rewrites the exported materials as RealityKit Unlit materials.
-- `Lit (IBL baked)`: bakes the appearance under an image-based light, then still exports the final materials as RealityKit Unlit materials with the baked lighting encoded into textures.
-- `Isolate Meshes (Lit)`: hides non-target meshes during lit bakes to avoid cross-mesh shadow contribution.
+- `Material Color Only` (`UNLIT_ALBEDO`): bakes light-independent material color and rewrites the exported materials as RealityKit Unlit materials. Use this when Reality Composer Pro or RealityKit should light the scene.
+- `Lighting & Shadows` (`LIT_IBL`): bakes the appearance under the selected lighting source, then still exports the final materials as RealityKit Unlit materials with lighting and shadows encoded into textures. Use this when the USDZ should match the Blender preview.
+- `Isolate Meshes for Shadows`: hides non-target meshes during lighting-and-shadows bakes to avoid cross-mesh shadow contribution.
 - `Image Format`: baked textures can be written as `.png` or `.avif`; AVIF support requires Blender 5.1+, and older builds warn and fall back to PNG.
 
 ## Material authoring and diagnostics

@@ -177,7 +177,7 @@ def handle(args: dict) -> dict:
         )
         diag.end_phase("bake_textures")
 
-        # Bake & Export always forces Unlit
+        # Bake Textures & Export always forces Unlit
         settings.force_unlit_materials = True
 
         if getattr(settings, "selected_objects_only", False):

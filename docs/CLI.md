@@ -495,7 +495,17 @@ blendertorcp export scene.blend \
 
 ### `bake-export`
 
-Bake textures and export the scene. This is the CLI equivalent of the "Bake & Export" button in the plugin UI.
+Bake textures and export the scene. This is the CLI equivalent of the "Bake Textures & Export" button in the plugin UI.
+
+Which option should I choose?
+
+| Goal | Use |
+|------|-----|
+| Quick USDZ export without baking textures | `blendertorcp export` / `Export Scene` |
+| Reusable baked textures that Reality Composer Pro or RealityKit can light | `bake-export --bake-mode UNLIT_ALBEDO` / `Material Color Only` |
+| Export that preserves Blender-looking lighting and shadows | `bake-export --bake-mode LIT_IBL` / `Lighting & Shadows` |
+
+Both bake modes export the final baked result as RealityKit Unlit materials. The difference is what gets written into the texture: material color only, or lighting and shadows baked in.
 
 ```bash
 blendertorcp bake-export <file.blend> -o <output_path> [options]
@@ -513,21 +523,21 @@ blendertorcp bake-export <file.blend> -o <output_path> [options]
 | Flag | Default | Description |
 |------|---------|-------------|
 | `--format <FORMAT>` | from settings | Export format: `USDA`, `USDC`, `USDZ` |
-| `--bake-mode <MODE>` | `UNLIT_ALBEDO` | `UNLIT_ALBEDO` for light-independent albedo, `LIT_IBL` for appearance baked under an IBL |
+| `--bake-mode <MODE>` | `UNLIT_ALBEDO` | `UNLIT_ALBEDO` for Material Color Only, `LIT_IBL` for Lighting & Shadows |
 | `--resolution <RES>` | `2048` | Bake resolution: `512`, `1024`, `2048`, `4096`, or any integer for custom |
 | `--image-format <FMT>` | `AVIF` | Baked texture format: `AVIF` (requires Blender 5.1+) or `PNG` |
 | `--margin <PX>` | `8` | Bake padding in pixels |
 | `--selected-only` | off | Only bake and export selected objects |
 | `--no-diagnostics` | off | Skip diagnostics generation |
 
-**IBL options** (only apply when `--bake-mode LIT_IBL`):
+**Lighting source options** (only apply when `--bake-mode LIT_IBL` / Lighting & Shadows):
 
 | Flag | Default | Description |
 |------|---------|-------------|
 | `--ibl-source <SRC>` | `SCENE_WORLD` | `SCENE_WORLD` to use the scene's world, or `HDRI_FILE` to override |
 | `--ibl-filepath <PATH>` | none | Path to HDRI file (required when `--ibl-source HDRI_FILE`) |
-| `--ibl-strength <FLOAT>` | `1.0` | IBL strength multiplier |
-| `--ibl-rotation <RAD>` | `0.0` | IBL Z-axis rotation in radians |
+| `--ibl-strength <FLOAT>` | `1.0` | Lighting strength multiplier |
+| `--ibl-rotation <RAD>` | `0.0` | Lighting-source Z-axis rotation in radians |
 | `--isolate-meshes` | off | Hide other meshes while baking each object (avoids cross-mesh shadows) |
 
 **Texture channel options:**
@@ -547,7 +557,7 @@ blendertorcp bake-export <file.blend> -o <output_path> [options]
 **Examples:**
 
 ```bash
-# Quick unlit bake at default settings
+# Material Color Only bake at default settings
 blendertorcp bake-export scene.blend -o /output/scene.usdz
 
 # High-res bake with PNG textures
@@ -555,7 +565,7 @@ blendertorcp bake-export scene.blend -o /output/scene.usdz \
   --resolution 4096 \
   --image-format PNG
 
-# Lit IBL bake with custom HDRI
+# Lighting & Shadows bake with custom HDRI
 blendertorcp bake-export scene.blend -o /output/scene.usdz \
   --bake-mode LIT_IBL \
   --ibl-source HDRI_FILE \
@@ -783,6 +793,10 @@ Complete list of every export setting that can be read with `settings get`, writ
 | `bake_opacity` | bool | `true`, `false` | `true` |
 | `bake_keep_materials` | bool | `true`, `false` | `false` |
 | `bake_step_timeout_seconds` | int | 0+ (0 = disabled) | `0` |
+
+User-facing bake mode names in the Blender UI:
+- `UNLIT_ALBEDO` appears as `Material Color Only`.
+- `LIT_IBL` appears as `Lighting & Shadows`.
 
 ---
 

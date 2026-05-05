@@ -387,7 +387,7 @@ def main() -> int:
             progress_callback=_bake_progress,
         )
 
-        # Bake & Export always authors Unlit materials.
+        # Bake Textures & Export always authors Unlit materials.
         scene_settings.force_unlit_materials = True
 
         if getattr(scene_settings, "selected_objects_only", False):
@@ -484,7 +484,7 @@ def main() -> int:
             status_path,
             "done",
             1.0,
-            "Bake & Export complete",
+            "Bake Textures & Export complete",
             str(log_path),
             export_path,
             diagnostics_path=diagnostics_path,

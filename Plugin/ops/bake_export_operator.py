@@ -1,5 +1,5 @@
 """
-Bake & Export operator for BlenderToRCP.
+Bake Textures & Export operator for BlenderToRCP.
 """
 
 from __future__ import annotations
@@ -42,7 +42,7 @@ _SERIALIZED_SETTINGS_SKIP_KEYS = {
 class BLENDERTORCP_OT_bake_export_background(Operator, ExportHelper):
     """Bake textures and export scene in a background Blender process."""
     bl_idname = "blendertorcp.bake_export_background"
-    bl_label = "Bake & Export (Background)"
+    bl_label = "Bake Textures & Export (Background)"
     bl_description = "Run bake + export in a background Blender process"
     bl_options = {'REGISTER'}
 
