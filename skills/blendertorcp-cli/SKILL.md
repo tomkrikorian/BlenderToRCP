@@ -5,7 +5,7 @@ description: "Use when a user asks to export a Blender scene to USD or USDZ, bak
 
 # BlenderToRCP CLI
 
-Control the BlenderToRCP Blender plugin from the terminal. Every command spawns `blender --background`, runs the requested operation, and returns JSON to stdout.
+Control the BlenderToRCP Blender plugin from the terminal. Every command spawns `blender --background`; successful commands return JSON to stdout, and `--json` keeps failure envelopes machine-readable on stdout.
 
 ## Prerequisites
 
@@ -44,10 +44,10 @@ blendertorcp export <file.blend> -o /path/to/output.usdz --format USDZ
 blendertorcp export <file.blend> -o out.usda --selected-only
 ```
 
-Any export setting key can be passed as an override flag (does not modify the .blend):
+Any export setting key can be passed as a positional `key=value` override (does not modify the .blend). Put override tokens before optional flags:
 
 ```bash
-blendertorcp export <file.blend> -o out.usdz --export-animation=true --triangulate-meshes=true
+blendertorcp export <file.blend> export-animation=true triangulate-meshes=true -o out.usdz
 ```
 
 ### Bake & Export
@@ -94,7 +94,7 @@ Bake-export flags:
 | `--keep-materials` | off | Keep baked materials after export |
 | `--timeout` | `0` | Per-step timeout in seconds |
 
-Any export setting key can also be passed as an override flag (same as `export`), e.g. `--export-animation=true`.
+Any export setting key can also be passed as a positional override (same as `export`), e.g. `export-animation=true`.
 
 ### Settings
 
@@ -134,6 +134,8 @@ blendertorcp preferences set default_export_format=USDZ enable_diagnostics=true
 blendertorcp version
 ```
 
+On this branch, the add-on manifest and `bl_info` report version `1.1.0`.
+
 ### Support bundle
 
 ```bash
@@ -142,7 +144,15 @@ blendertorcp support-bundle scene.blend \
   --diagnostics output.diagnostics.json
 ```
 
-Use this after failed exports or background bake/export jobs. Bundles are redacted by default and do not include the source `.blend` or exported assets unless `--include-blend` or `--include-output` is passed.
+Use this after failed exports or background bake/export jobs. For background jobs, include the job directory so `settings.json`, `status.json`, and `log.txt` are bundled:
+
+```bash
+blendertorcp support-bundle scene.blend \
+  -o output.usdz \
+  --job-dir output/.blendertorcp_jobs/bake_export_YYYYMMDD_HHMMSS_abcd
+```
+
+Useful options: `--bundle-output`, `--job-dir`, `--diagnostics`, `--include-output`, `--include-blend`, `--full-log`, and `--no-redact`. Bundles are redacted by default, including JSON-escaped Windows paths, and do not include the source `.blend` or exported assets unless `--include-blend` or `--include-output` is passed.
 
 ## Global flags
 
@@ -155,7 +165,7 @@ Use this after failed exports or background bake/export jobs. Bundles are redact
 
 ## Output format
 
-All commands return JSON to stdout. Parse with `jq` or read directly:
+Successful commands return JSON to stdout. Parse with `jq` or read directly:
 
 ```bash
 blendertorcp info scene.blend | jq '.object_count'
@@ -168,6 +178,8 @@ blendertorcp --verbose export scene.blend -o output.usdz \
   > blendertorcp-result.json \
   2> blendertorcp-stderr.log
 ```
+
+For automation, use `--json`; failures then return a structured JSON envelope with `ok`, `schema_version`, `command`, `error`, `context`, `artifacts`, and optional `process_output`.
 
 Chain commands conditionally:
 

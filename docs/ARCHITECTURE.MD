@@ -112,7 +112,7 @@ Collector: `Plugin/export/diagnostics.py`
 - Failure paths attempt to write `<output>.diagnostics.json` even before a final export exists, unless diagnostics are explicitly disabled for that command.
 - Diagnostics include export context, runtime environment, phase timings, validation issues, material graph issues, generated files, artifacts, warnings, errors, and captured exceptions.
 - The diagnostics viewer in `Plugin/ops/export_operator.py` renders a summary dialog in Blender.
-- `Plugin/export/support_bundle.py` creates redacted ZIPs containing environment, scene/settings, validation, diagnostics, and background job files.
+- `Plugin/export/support_bundle.py` creates redacted ZIPs containing environment, scene/settings, validation, diagnostics, and background job files when a job directory is supplied. Redaction covers plain absolute paths and JSON-escaped Windows path strings.
 
 ## Background Bake & Export
 The background bake operator is `blendertorcp.bake_export_background` in `Plugin/ops/bake_export_operator.py`.
@@ -122,7 +122,7 @@ The background bake operator is `blendertorcp.bake_export_background` in `Plugin
 - Allows only one background job at a time.
 - Serializes settings into `<export_dir>/.blendertorcp_jobs/<job_id>/settings.json`.
 - Writes live status to `status.json` and process output to `log.txt`.
-- Writes the diagnostics path into `status.json` when available so the UI can expose `Open Log`, `Open Diagnostics`, and `Create Support Bundle`.
+- Writes the log and diagnostics paths into `status.json` when available, including progress heartbeats, so the UI can expose `Open Log`, `Open Diagnostics`, and `Create Support Bundle` even after a failed or timed-out job.
 - Stores the job directory and process ID on the scene settings.
 - Uses a modal watcher to refresh the UI, detect process death, and enforce per-step timeouts.
 

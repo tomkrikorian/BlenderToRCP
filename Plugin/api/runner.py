@@ -123,7 +123,13 @@ def main() -> int:
     NO_BLEND_COMMANDS = {"version"}
 
     if command not in NO_BLEND_COMMANDS:
-        _ensure_addon_loaded()
+        try:
+            _ensure_addon_loaded()
+        except Exception as exc:
+            tb = traceback.format_exc()
+            _output(_error_response(command, exc, tb))
+            print(tb, file=sys.stderr)
+            return 1
 
     try:
         from Plugin.api.commands import REGISTRY

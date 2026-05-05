@@ -13,6 +13,8 @@ Configure the BlenderToRCP CLI so the agent can export scenes, bake textures, va
 - BlenderToRCP addon installed and enabled in Blender's preferences
 - Python 3 available as `python3`
 
+For manual installs, install `BlenderToRCP.zip` in Blender via `Edit > Preferences > Extensions > Add-ons > Install from Disk...`, then enable `BlenderToRCP`. For development installs, symlink `<repo>/Plugin` to the Blender `extensions/user_default/BlenderToRCP` path.
+
 ## Inputs
 
 - `blender-path` (optional): explicit path to the Blender binary
@@ -80,6 +82,8 @@ python3 /path/to/repo/Plugin --blender /path/to/blender settings list
 | `BlenderToRCP addon preferences not available.` | 1 | Add-on is not enabled, or the path points at the wrong directory | Enable the add-on, then re-run `preferences get` against the resolved extension root |
 | `'Scene' object has no attribute 'blender_to_rcp_export_settings'` | 1 | Add-on did not register its scene properties | Enable the add-on, then re-run `settings list` or `settings get` |
 
+With `--json`, add-on load failures and export failures are emitted as structured JSON with `ok`, `schema_version`, `command`, `error`, `context`, `artifacts`, and optional `process_output`; without `--json`, the CLI prints a shorter stderr message plus diagnostics/support hints when available.
+
 For support captures:
 
 ```bash
@@ -87,6 +91,9 @@ blendertorcp --verbose export scene.blend -o output.usdz \
   > blendertorcp-result.json \
   2> blendertorcp-stderr.log
 blendertorcp support-bundle scene.blend -o output.usdz --diagnostics output.diagnostics.json
+# For UI background bake/export failures, also pass the job directory:
+blendertorcp support-bundle scene.blend -o output.usdz \
+  --job-dir output/.blendertorcp_jobs/bake_export_YYYYMMDD_HHMMSS_abcd
 ```
 
 ### 4. Configure the shell

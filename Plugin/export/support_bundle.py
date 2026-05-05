@@ -373,7 +373,13 @@ def _redact_json(value: Any, tokens: list[tuple[str, str]], key: str | None = No
 def _redact_text(text: str, tokens: list[tuple[str, str]]) -> str:
     redacted = str(text)
     for source, token in tokens:
-        redacted = redacted.replace(source, token)
+        variants = [(source, token)]
+        escaped_source = json.dumps(source)[1:-1]
+        escaped_token = json.dumps(token)[1:-1]
+        if escaped_source != source:
+            variants.append((escaped_source, escaped_token))
+        for candidate, replacement in variants:
+            redacted = redacted.replace(candidate, replacement)
     redacted = re.sub(r"(?i)(api[_-]?key|token|secret|password)=\S+", r"\1=<redacted>", redacted)
     return redacted
 

@@ -35,7 +35,7 @@ This repo supports three workflows:
 
 ## CLI
 
-BlenderToRCP includes a command-line interface that can export, bake, validate, and manage settings without opening the Blender UI. Every command spawns `blender --background`, runs the requested operation, and returns JSON to stdout.
+BlenderToRCP includes a command-line interface that can export, bake, validate, and manage settings without opening the Blender UI. Every command spawns `blender --background` and returns JSON to stdout on success. For failures, use `--json` when callers need the structured error envelope on stdout; without `--json`, the CLI prints a short human-readable error and support hints to stderr.
 
 ### Quick start
 
@@ -210,7 +210,8 @@ Diagnostics workflow:
 - The diagnostics dialog summarizes converted and failed materials, copied and converted textures, fallback nodes, KTX-required nodes, omitted nodes, and truncated warning/error lists.
 - Diagnostics JSON can be inspected directly or opened in Blender's Text Editor for troubleshooting.
 - Support bundles are redacted ZIP files created from the Blender UI or with `blendertorcp support-bundle scene.blend -o output.usdz --diagnostics output.diagnostics.json`.
-- Support bundles include environment, scene/settings, validation, diagnostics, and background job files when present. Source `.blend` files and exported assets are opt-in.
+- Support bundles include environment, scene/settings, validation, and diagnostics. Background job files are included by the UI action for the active job or by passing `--job-dir` to the CLI. Source `.blend` files and exported assets are opt-in.
+- Redaction covers absolute paths in plain text and JSON-escaped Windows path strings; `--no-redact` disables that protection.
 
 ## Troubleshooting and support capture
 For CLI failures, capture stdout and stderr separately:
@@ -222,6 +223,7 @@ blendertorcp --verbose export scene.blend -o output.usdz --format USDZ \
 ```
 
 Attach `blendertorcp-result.json`, `blendertorcp-stderr.log`, the exact command, `blendertorcp version`, `blendertorcp preferences get`, the returned `.diagnostics.json`, and a redacted support bundle. For background bake/export, also include `<export_dir>/.blendertorcp_jobs/<job_id>/settings.json`, `status.json`, and `log.txt` or use the support bundle action.
+Use `--json` for automated support capture so load failures, validation failures, diagnostics paths, support-bundle hints, and process-output tails stay in a machine-readable JSON envelope.
 
 ## Release and packaging flow
 - Local packaging is script-driven through `bash scripts/build_archive.sh`.

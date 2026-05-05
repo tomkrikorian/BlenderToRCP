@@ -2,7 +2,7 @@
 
 Command-line interface for BlenderToRCP. Run exports, bake textures, validate materials, and manage settings — all from your terminal, scripts, or AI agents.
 
-Every command spawns Blender in background mode, runs the requested operation, and prints structured JSON to stdout. Human-readable status goes to stderr.
+Every command spawns Blender in background mode and prints structured JSON to stdout on success. Human-readable status goes to stderr. On failure, use `--json` when automation needs the structured error envelope on stdout; without `--json`, failures are summarized on stderr with diagnostics and support-bundle hints when available.
 
 ## Installation
 
@@ -427,7 +427,7 @@ This command does not require a `.blend` file. It prints the schema for all expo
 Export the scene to USD or USDZ.
 
 ```bash
-blendertorcp export <file.blend> -o <output_path> [options]
+blendertorcp export <file.blend> [setting=value ...] -o <output_path> [options]
 ```
 
 **Arguments:**
@@ -445,16 +445,17 @@ blendertorcp export <file.blend> -o <output_path> [options]
 | `--selected-only` | Export selected objects only |
 | `--no-diagnostics` | Skip diagnostics generation |
 
-Any export setting key can also be passed as a flag override. These overrides apply for this export only and do not modify the `.blend` file:
+Any export setting key can also be passed as a positional `key=value` override. These overrides apply for this export only and do not modify the `.blend` file:
 
 ```bash
-blendertorcp export scene.blend -o out.usdz \
-  --export-animation=true \
-  --triangulate-meshes=true \
-  --root-prim-name="/MyRoot"
+blendertorcp export scene.blend \
+  export-animation=true \
+  triangulate-meshes=true \
+  root-prim-name="/MyRoot" \
+  -o out.usdz
 ```
 
-Note: setting keys use hyphens as flag names (`bake_resolution` becomes `--bake-resolution`).
+Note: setting keys use hyphens in CLI overrides (`bake_resolution` becomes `bake-resolution=true`). Place override tokens before optional flags such as `-o` or `--format`.
 
 **Examples:**
 
@@ -463,10 +464,11 @@ Note: setting keys use hyphens as flag names (`bake_resolution` becomes `--bake-
 blendertorcp export scene.blend -o /output/scene.usdz --format USDZ
 
 # Export with overrides
-blendertorcp export scene.blend -o /output/scene.usda \
-  --selected-only \
-  --export-animation=true \
-  --convert-scene-units=CENTIMETERS
+blendertorcp export scene.blend \
+  export-animation=true \
+  convert-scene-units=CENTIMETERS \
+  -o /output/scene.usda \
+  --selected-only
 ```
 
 **Output:**
@@ -577,7 +579,6 @@ blendertorcp bake-export scene.blend -o /tmp/preview.usdz \
   "duration_seconds": 45.3,
   "bake_stats": {
     "objects_baked": 8,
-    "textures_generated": 16,
     "resolution": 2048,
     "image_format": "AVIF"
   },
@@ -616,7 +617,7 @@ blendertorcp support-bundle <file.blend> [options]
 | `--full-log` | Include full redacted logs instead of the last 2000 lines |
 | `--no-redact` | Disable redaction |
 
-By default, bundles redact absolute paths and do not include the source `.blend` or exported assets. The default ZIP name is `BlenderToRCP-support-<blend-stem>-<timestamp>.zip`.
+By default, bundles redact absolute paths, including JSON-escaped Windows path strings, and do not include the source `.blend` or exported assets. The default ZIP name is `BlenderToRCP-support-<blend-stem>-<timestamp>.zip`.
 
 ```bash
 blendertorcp support-bundle scene.blend \
@@ -800,11 +801,39 @@ All commands use consistent exit codes:
 
 ## Output Format
 
-By default, commands print:
+On success, commands print:
 - **JSON** to **stdout** — machine-readable result
 - **Status messages** to **stderr** — human-readable progress
 
 Use `--json` to suppress all stderr output. Use `--quiet` to suppress stderr without affecting stdout. Use `--verbose` to include Blender's startup log on stderr.
+
+On failure without `--json`, the CLI prints a short `Error: ...` message to stderr and includes diagnostics/support-bundle hints when the Blender runner returned them. With `--json`, failures are emitted to stdout as a structured envelope:
+
+```json
+{
+  "ok": false,
+  "schema_version": "1.0",
+  "command": "export",
+  "error": {
+    "code": "POSTPROCESS_FAILED",
+    "type": "CommandError",
+    "message": "Postprocess failed",
+    "stage": "postprocess_usd"
+  },
+  "context": {
+    "blend_file": "scene.blend",
+    "blender_path": "/Applications/Blender.app/Contents/MacOS/Blender",
+    "returncode": 1
+  },
+  "artifacts": {
+    "diagnostics_path": "/output/scene.diagnostics.json",
+    "support_bundle_hint": "blendertorcp support-bundle scene.blend -o /output/scene.usdz --diagnostics /output/scene.diagnostics.json"
+  },
+  "process_output": {
+    "stderr_tail": "..."
+  }
+}
+```
 
 For support captures, prefer saving stdout and stderr separately:
 

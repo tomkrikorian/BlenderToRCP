@@ -108,9 +108,17 @@ def _update_status(
 class _BakeProgressReporter:
     """Tracks bake progress and emits heartbeat updates while bake ops are running."""
 
-    def __init__(self, status_path: Path, export_path: str | None):
+    def __init__(
+        self,
+        status_path: Path,
+        export_path: str | None,
+        log_path: str | None,
+        diagnostics_path: str | None,
+    ):
         self.status_path = status_path
         self.export_path = export_path
+        self.log_path = log_path
+        self.diagnostics_path = diagnostics_path
         self._lock = threading.Lock()
         self._stop_event = threading.Event()
         self._thread = None
@@ -164,7 +172,9 @@ class _BakeProgressReporter:
             "running",
             progress,
             display,
+            log_path=self.log_path,
             export_path=self.export_path,
+            diagnostics_path=self.diagnostics_path,
             step_elapsed_seconds=elapsed,
         )
 
@@ -263,6 +273,7 @@ def main() -> int:
             "error",
             1.0,
             "BlenderToRCP add-on not loaded",
+            str(log_path),
             export_path=payload.get("export_path"),
             diagnostics_path=diagnostics_path,
         )
@@ -283,6 +294,7 @@ def main() -> int:
         "running",
         0.08,
         "Preparing bake",
+        str(log_path),
         export_path=payload.get("export_path"),
         diagnostics_path=diagnostics_path,
     )
@@ -297,6 +309,7 @@ def main() -> int:
             "error",
             1.0,
             f"Import failed: {exc}",
+            str(log_path),
             export_path=payload.get("export_path"),
             diagnostics_path=diagnostics_path,
         )
@@ -350,7 +363,12 @@ def main() -> int:
             texture_dir = blender_usd_export.get_usdz_staging_dir(export_path) / "textures"
         else:
             texture_dir = Path(export_path).parent / "textures"
-        progress_reporter = _BakeProgressReporter(status_path, payload.get("export_path"))
+        progress_reporter = _BakeProgressReporter(
+            status_path,
+            payload.get("export_path"),
+            str(log_path),
+            diagnostics_path,
+        )
         progress_reporter.start()
 
         def _set_running_stage(progress: float, message: str) -> None:
@@ -397,6 +415,7 @@ def main() -> int:
                     "error",
                     1.0,
                     f"Unsupported nodes in material '{material.name}' ({error_count})",
+                    str(log_path),
                     export_path=payload.get("export_path"),
                     diagnostics_path=diagnostics_path,
                 )
@@ -417,6 +436,7 @@ def main() -> int:
                 "error",
                 1.0,
                 "Blender USD export failed",
+                str(log_path),
                 export_path=payload.get("export_path"),
                 diagnostics_path=diagnostics_path,
             )
@@ -438,6 +458,7 @@ def main() -> int:
                 "error",
                 1.0,
                 "Postprocess failed; see diagnostics",
+                str(log_path),
                 export_path=payload.get("export_path"),
                 diagnostics_path=diagnostics_path,
             )
@@ -483,6 +504,7 @@ def main() -> int:
             "error",
             1.0,
             f"Exception: {exc}",
+            str(log_path),
             export_path=payload.get("export_path"),
             diagnostics_path=diagnostics_path,
         )

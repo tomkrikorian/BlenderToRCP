@@ -6,7 +6,7 @@ import json
 import zipfile
 from pathlib import Path
 
-from Plugin.export.support_bundle import create_support_bundle
+from Plugin.export.support_bundle import create_support_bundle, _redact_text
 
 
 def test_support_bundle_redacts_paths_and_includes_manifest(tmp_path: Path):
@@ -40,3 +40,17 @@ def test_support_bundle_redacts_paths_and_includes_manifest(tmp_path: Path):
         diag_text = zf.read(diag_name).decode()
         assert str(tmp_path) not in diag_text
         assert "$EXPORT_DIR" in diag_text or "$BLEND_DIR" in diag_text or "$HOME" in diag_text
+
+
+def test_redact_text_handles_json_escaped_windows_paths():
+    source = r"C:\Users\steve\Projects\Blender\bakeTest"
+    text = json.dumps({
+        "export_path": source + r"\bakeTest_02.usdz",
+        "log": f"opened {source}\\bakeTest.blend",
+    })
+
+    redacted = _redact_text(text, [(source, "$EXPORT_DIR")])
+
+    assert source not in redacted
+    assert source.replace("\\", "\\\\") not in redacted
+    assert "$EXPORT_DIR" in redacted
