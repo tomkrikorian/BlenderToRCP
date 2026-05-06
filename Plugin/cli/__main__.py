@@ -362,7 +362,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("blend_file", help="Path to .blend file")
     p.add_argument("-o", "--output", required=True, help="Output file path")
     p.add_argument("--format", choices=["USDA", "USDC", "USDZ"], help="Export format")
-    p.add_argument("--bake-mode", choices=["UNLIT_ALBEDO", "LIT_IBL"], help="Bake mode: UNLIT_ALBEDO (Material Color Only) or LIT_IBL (Lighting & Shadows)")
+    p.add_argument("--bake-mode", choices=["UNLIT_ALBEDO", "LIT_IBL"], help="Bake mode: LIT_IBL (Lighting & Shadows, default) or UNLIT_ALBEDO (Material Color Only)")
     p.add_argument("--resolution", help="Bake resolution (512, 1024, 2048, 4096, or custom int)")
     p.add_argument("--image-format", choices=["AVIF", "PNG"], help="Baked texture format")
     p.add_argument("--margin", type=int, help="Bake padding in pixels")

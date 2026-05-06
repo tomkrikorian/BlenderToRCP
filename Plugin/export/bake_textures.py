@@ -47,9 +47,9 @@ def bake_materials_for_objects(
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    bake_mode = str(getattr(settings, "bake_mode", "UNLIT_ALBEDO") or "UNLIT_ALBEDO")
+    bake_mode = str(getattr(settings, "bake_mode", "LIT_IBL") or "LIT_IBL")
     if bake_mode not in {"UNLIT_ALBEDO", "LIT_IBL"}:
-        bake_mode = "UNLIT_ALBEDO"
+        bake_mode = "LIT_IBL"
 
     resolution = _resolve_bake_resolution(settings)
     image_format = _resolve_bake_image_format(settings, diagnostics)

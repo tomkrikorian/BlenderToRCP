@@ -16,7 +16,7 @@ class BLENDERTORCP_OT_export(Operator, ExportHelper):
     """Export scene to RealityKit-compatible USD/USDZ"""
     bl_idname = "blendertorcp.export"
     bl_label = "Export to RCP"
-    bl_description = "Export Blender scene to RealityKit-compatible USD or USDZ format"
+    bl_description = "Fast export without baking textures."
     bl_options = {'REGISTER', 'UNDO'}
     
     # ExportHelper properties
@@ -482,41 +482,27 @@ def _apply_persisted_settings(context, settings) -> None:
         settings.history_applied = True
         return
     serialized = getattr(prefs, "last_export_settings_json", "")
-    if not serialized:
-        settings.history_applied = True
-        return
-    try:
-        data = json.loads(serialized)
-    except Exception:
-        settings.history_applied = True
-        return
     prop_defs = {prop.identifier for prop in settings.bl_rna.properties}
     settings.persist_suspended = True
     try:
-        for key, value in data.items():
-            if key in {"history_applied", "last_diagnostics_path", "persist_suspended", "background_job_dir", "background_job_pid", "filepath"}:
-                continue
-            if key not in prop_defs:
-                continue
+        if serialized:
             try:
-                setattr(settings, key, value)
+                data = json.loads(serialized)
             except Exception:
-                continue
+                data = {}
+            if isinstance(data, dict):
+                for key, value in data.items():
+                    if key in {"history_applied", "last_diagnostics_path", "persist_suspended", "background_job_dir", "background_job_pid", "filepath"}:
+                        continue
+                    if key not in prop_defs:
+                        continue
+                    try:
+                        setattr(settings, key, value)
+                    except Exception:
+                        continue
+        addon_prefs.apply_last_export_path(context, settings)
     finally:
         settings.persist_suspended = False
-    blend_path = getattr(context.blend_data, "filepath", None)
-    if blend_path:
-        last_path = addon_prefs.get_last_export_path(context, blend_path)
-        if last_path:
-            try:
-                settings.filepath = last_path
-            except Exception:
-                pass
-    else:
-        try:
-            settings.filepath = ""
-        except Exception:
-            pass
     settings.history_applied = True
 
 

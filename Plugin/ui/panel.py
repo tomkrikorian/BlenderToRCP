@@ -24,10 +24,24 @@ _ACTIVE_BACKGROUND_JOB_STATES = {"queued", "running"}
 
 
 def _bake_result_summary(settings) -> str:
-    bake_mode = getattr(settings, "bake_mode", "UNLIT_ALBEDO")
+    bake_mode = getattr(settings, "bake_mode", "LIT_IBL")
     if bake_mode == "LIT_IBL":
-        return "Final export: RealityKit Unlit with baked lighting and shadows."
-    return "Final export: RealityKit Unlit with material color only."
+        return "Final export: RealityKit Unlit, baked lighting/shadows."
+    return "Final export: RealityKit Unlit, material color only."
+
+
+def _bake_mode_help_lines(settings) -> tuple[str, str]:
+    bake_mode = getattr(settings, "bake_mode", "LIT_IBL")
+    if bake_mode == "LIT_IBL":
+        return (
+            "Matches the Blender preview.",
+            "Lighting and shadows are baked into textures.",
+        )
+    return (
+        "Reality Composer Pro or RealityKit lights the scene.",
+        "Blender shadows are not baked.",
+    )
+
 
 def _persist_settings(context, settings) -> None:
     """Persist settings to add-on preferences."""
@@ -388,7 +402,7 @@ class BlenderToRCPExportSettings(PropertyGroup):
             ('UNLIT_ALBEDO', "Material Color Only", "Use when Reality Composer Pro or RealityKit should light the scene. Blender shadows are not baked."),
             ('LIT_IBL', "Lighting & Shadows", "Use when the export should match the Blender preview. Blender lighting and shadows are baked into textures."),
         ],
-        default='UNLIT_ALBEDO',
+        default='LIT_IBL',
         update=_on_settings_changed,
     )
 
@@ -587,9 +601,6 @@ class BLENDERTORCP_PT_export_panel(Panel):
             export_row = actions_box.row()
             export_row.enabled = not job_running
             export_row.operator("blendertorcp.export", icon='EXPORT', text="Export Scene")
-            export_help = actions_box.row()
-            export_help.enabled = not job_running
-            export_help.label(text="Fast export without baking textures.")
 
             bake_row = actions_box.row()
             bake_row.enabled = not job_running
@@ -598,9 +609,6 @@ class BLENDERTORCP_PT_export_panel(Panel):
                 icon='RENDER_STILL',
                 text="Bake Textures & Export"
             )
-            bake_help = actions_box.row()
-            bake_help.enabled = not job_running
-            bake_help.label(text="Bake Blender materials into textures before exporting.")
             actions_box.label(text=_bake_result_summary(settings), icon='INFO')
 
             if status:
@@ -820,15 +828,9 @@ class BLENDERTORCP_PT_export_bake_settings(Panel):
         layout.enabled = not _is_job_running(settings)
 
         mode_box = layout.box()
-        mode_box.use_property_split = False
-        mode_box.label(text="Texture Bake Includes")
-        mode_box.prop_enum(settings, "bake_mode", 'UNLIT_ALBEDO', text="Material Color Only")
-        mode_box.label(text="Reality Composer Pro or RealityKit lights the scene.")
-        mode_box.label(text="Blender shadows are not baked.")
-        mode_box.separator()
-        mode_box.prop_enum(settings, "bake_mode", 'LIT_IBL', text="Lighting & Shadows")
-        mode_box.label(text="Matches the Blender preview.")
-        mode_box.label(text="Lighting and shadows are baked into textures.")
+        mode_box.prop(settings, "bake_mode")
+        for line in _bake_mode_help_lines(settings):
+            mode_box.label(text=line)
         mode_box.separator()
         mode_box.label(text=_bake_result_summary(settings), icon='INFO')
 
@@ -922,44 +924,28 @@ def _apply_persisted_settings_now(context, settings) -> None:
         return
 
     serialized = getattr(prefs, "last_export_settings_json", "")
-    if not serialized:
-        settings.history_applied = True
-        return
-
-    try:
-        data = json.loads(serialized)
-    except Exception:
-        settings.history_applied = True
-        return
-
     prop_defs = {prop.identifier for prop in settings.bl_rna.properties}
     settings.persist_suspended = True
     try:
-        for key, value in data.items():
-            if key in {"history_applied", "last_diagnostics_path", "persist_suspended", "background_job_dir", "background_job_pid", "filepath"}:
-                continue
-            if key not in prop_defs:
-                continue
+        if serialized:
             try:
-                setattr(settings, key, value)
+                data = json.loads(serialized)
             except Exception:
-                continue
+                data = {}
+            if isinstance(data, dict):
+                for key, value in data.items():
+                    if key in {"history_applied", "last_diagnostics_path", "persist_suspended", "background_job_dir", "background_job_pid", "filepath"}:
+                        continue
+                    if key not in prop_defs:
+                        continue
+                    try:
+                        setattr(settings, key, value)
+                    except Exception:
+                        continue
+        addon_prefs.apply_last_export_path(context, settings)
     finally:
         settings.persist_suspended = False
 
-    blend_path = getattr(context.blend_data, "filepath", None)
-    if blend_path:
-        last_path = addon_prefs.get_last_export_path(context, blend_path)
-        if last_path:
-            try:
-                settings.filepath = last_path
-            except Exception:
-                pass
-    else:
-        try:
-            settings.filepath = ""
-        except Exception:
-            pass
     settings.history_applied = True
 
 

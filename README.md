@@ -190,7 +190,7 @@ Which option should I choose?
 |------|-----|
 | Quick USDZ export without baking textures | `Export Scene` |
 | Reusable baked textures that Reality Composer Pro or RealityKit can light | `Bake Textures & Export` with `Material Color Only` |
-| Export that preserves Blender-looking lighting and shadows | `Bake Textures & Export` with `Lighting & Shadows` |
+| Export that preserves Blender-looking lighting and shadows | `Bake Textures & Export` with `Lighting & Shadows` (default) |
 
 Operational details:
 - The `.blend` file must be saved before starting a background bake.
@@ -204,7 +204,7 @@ Operational details:
 
 Bake modes:
 - `Material Color Only` (`UNLIT_ALBEDO`): bakes light-independent material color and rewrites the exported materials as RealityKit Unlit materials. Use this when Reality Composer Pro or RealityKit should light the scene.
-- `Lighting & Shadows` (`LIT_IBL`): bakes the appearance under the selected lighting source, then still exports the final materials as RealityKit Unlit materials with lighting and shadows encoded into textures. Use this when the USDZ should match the Blender preview.
+- `Lighting & Shadows` (`LIT_IBL`, default): bakes the appearance under the selected lighting source, then still exports the final materials as RealityKit Unlit materials with lighting and shadows encoded into textures. Use this when the USDZ should match the Blender preview.
 - `Isolate Meshes for Shadows`: hides non-target meshes during lighting-and-shadows bakes to avoid cross-mesh shadow contribution.
 - `Image Format`: baked textures can be written as `.png` or `.avif`; AVIF support requires Blender 5.1+, and older builds warn and fall back to PNG.
 

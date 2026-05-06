@@ -43,7 +43,7 @@ class BLENDERTORCP_OT_bake_export_background(Operator, ExportHelper):
     """Bake textures and export scene in a background Blender process."""
     bl_idname = "blendertorcp.bake_export_background"
     bl_label = "Bake Textures & Export (Background)"
-    bl_description = "Run bake + export in a background Blender process"
+    bl_description = "Bake Blender materials into textures before exporting."
     bl_options = {'REGISTER'}
 
     filename_ext = ".usdz"

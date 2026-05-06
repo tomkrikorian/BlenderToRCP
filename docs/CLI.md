@@ -503,7 +503,7 @@ Which option should I choose?
 |------|-----|
 | Quick USDZ export without baking textures | `blendertorcp export` / `Export Scene` |
 | Reusable baked textures that Reality Composer Pro or RealityKit can light | `bake-export --bake-mode UNLIT_ALBEDO` / `Material Color Only` |
-| Export that preserves Blender-looking lighting and shadows | `bake-export --bake-mode LIT_IBL` / `Lighting & Shadows` |
+| Export that preserves Blender-looking lighting and shadows | `bake-export` default / `Lighting & Shadows` |
 
 Both bake modes export the final baked result as RealityKit Unlit materials. The difference is what gets written into the texture: material color only, or lighting and shadows baked in.
 
@@ -525,7 +525,7 @@ blendertorcp bake-export <file.blend> -o <output_path> [options]
 | Flag | Default | Description |
 |------|---------|-------------|
 | `--format <FORMAT>` | from settings | Export format: `USDA`, `USDC`, `USDZ` |
-| `--bake-mode <MODE>` | `UNLIT_ALBEDO` | `UNLIT_ALBEDO` for Material Color Only, `LIT_IBL` for Lighting & Shadows |
+| `--bake-mode <MODE>` | from settings (`LIT_IBL` for fresh scenes) | `UNLIT_ALBEDO` for Material Color Only, `LIT_IBL` for Lighting & Shadows |
 | `--resolution <RES>` | `2048` | Bake resolution: `512`, `1024`, `2048`, `4096`, or any integer for custom |
 | `--image-format <FMT>` | `AVIF` | Baked texture format: `AVIF` (requires Blender 5.1+) or `PNG` |
 | `--margin <PX>` | `8` | Bake padding in pixels |
@@ -559,8 +559,12 @@ blendertorcp bake-export <file.blend> -o <output_path> [options]
 **Examples:**
 
 ```bash
-# Material Color Only bake at default settings
+# Lighting & Shadows bake at default settings
 blendertorcp bake-export scene.blend -o /output/scene.usdz
+
+# Material Color Only bake
+blendertorcp bake-export scene.blend -o /output/scene.usdz \
+  --bake-mode UNLIT_ALBEDO
 
 # High-res bake with PNG textures
 blendertorcp bake-export scene.blend -o /output/scene.usdz \
@@ -569,7 +573,6 @@ blendertorcp bake-export scene.blend -o /output/scene.usdz \
 
 # Lighting & Shadows bake with custom HDRI
 blendertorcp bake-export scene.blend -o /output/scene.usdz \
-  --bake-mode LIT_IBL \
   --ibl-source HDRI_FILE \
   --ibl-filepath /hdris/studio.hdr \
   --ibl-strength 1.5 \
@@ -783,7 +786,7 @@ Complete list of every export setting that can be read with `settings get`, writ
 
 | Key | Type | Values | Default |
 |-----|------|--------|---------|
-| `bake_mode` | enum | `UNLIT_ALBEDO`, `LIT_IBL` | `UNLIT_ALBEDO` |
+| `bake_mode` | enum | `UNLIT_ALBEDO`, `LIT_IBL` | `LIT_IBL` |
 | `bake_ibl_source` | enum | `SCENE_WORLD`, `HDRI_FILE` | `SCENE_WORLD` |
 | `bake_ibl_filepath` | string | file path | `""` |
 | `bake_ibl_strength` | float | 0.0+ | `1.0` |

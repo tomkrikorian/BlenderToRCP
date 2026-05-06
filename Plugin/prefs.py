@@ -2,6 +2,8 @@
 Add-on preferences for BlenderToRCP
 """
 
+from __future__ import annotations
+
 import bpy
 import json
 from pathlib import Path
@@ -176,6 +178,37 @@ def set_last_export_path(
         prefs.last_export_paths_json = json.dumps(data)
     except Exception:
         pass
+
+
+def apply_last_export_path(
+    context=None,
+    settings=None,
+    blend_path: str | Path | None = None,
+) -> bool:
+    """Apply the last remembered output path for a .blend to export settings."""
+    if settings is None:
+        return False
+
+    key_path = blend_path
+    if key_path is None and context is not None:
+        key_path = getattr(getattr(context, "blend_data", None), "filepath", None)
+
+    if not key_path:
+        try:
+            settings.filepath = ""
+        except Exception:
+            pass
+        return False
+
+    last_path = get_last_export_path(context, key_path)
+    if not last_path:
+        return False
+
+    try:
+        settings.filepath = last_path
+    except Exception:
+        return False
+    return True
 
 
 def register():
