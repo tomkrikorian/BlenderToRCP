@@ -18,6 +18,7 @@ from Plugin.api.errors import CommandError
 def handle(args: dict) -> dict:
     import bpy
     from Plugin.export import (
+        asset_preflight,
         bake_textures,
         blender_usd_export,
         postprocess_usd,
@@ -25,7 +26,6 @@ def handle(args: dict) -> dict:
         diagnostics,
     )
     from Plugin.export.support_bundle import collect_environment, collect_scene_snapshot
-    from Plugin.nodes import validate as rk_validate
     from Plugin.ops import bake_export_operator as bake_ops
     from Plugin import prefs as addon_prefs
 
@@ -124,6 +124,11 @@ def handle(args: dict) -> dict:
     )
     diag.set_environment(**collect_environment(bpy.context))
     diag.data["scene"] = collect_scene_snapshot(bpy.context)
+    diag.data.setdefault("validation", {})["skipped"] = True
+    diag.data["validation"]["reason"] = (
+        "Bake Textures & Export bakes source materials before export; "
+        "source material graph validation only applies to Export Scene."
+    )
 
     # Collect objects
     objects_to_export = bake_ops._collect_export_objects(bpy.context, settings)
@@ -133,6 +138,18 @@ def handle(args: dict) -> dict:
             "No exportable objects found.",
             code="NO_EXPORTABLE_OBJECTS",
             stage="validation",
+            artifacts=_artifacts(diagnostics_path, filepath, bpy.data.filepath),
+        )
+
+    missing_images = asset_preflight.collect_missing_image_files_for_objects(objects_to_export, bpy)
+    if missing_images:
+        asset_preflight.record_missing_image_files(diag, missing_images)
+        _save_diagnostics(diag, diagnostics_path)
+        raise CommandError(
+            asset_preflight.missing_images_status_message(missing_images),
+            code="MISSING_EXTERNAL_TEXTURES",
+            stage="asset_preflight",
+            details=missing_images,
             artifacts=_artifacts(diagnostics_path, filepath, bpy.data.filepath),
         )
 
@@ -182,34 +199,6 @@ def handle(args: dict) -> dict:
 
         if getattr(settings, "selected_objects_only", False):
             bake_ops._set_selection(bpy.context, objects_to_export)
-
-        # Validate post-bake
-        materials = bake_ops._collect_materials_from_objects(objects_to_export)
-        for mat in materials:
-            try:
-                result = rk_validate.validate_material(mat, strict=True)
-            except TypeError:
-                result = rk_validate.validate_material(mat)
-                if result.get("warnings"):
-                    result["errors"].extend(result["warnings"])
-                    result["warnings"] = []
-            result["ok"] = not result["errors"]
-            if result["errors"]:
-                for issue in result["errors"]:
-                    diag.add_validation_issue(mat.name, issue, severity="error")
-                error_msgs = [
-                    f"{e.get('node_name', '?')} ({e.get('node_type', '?')}): {e.get('message', '')}"
-                    for e in result["errors"][:10]
-                ]
-                _save_diagnostics(diag, diagnostics_path)
-                raise CommandError(
-                    f"Unsupported nodes in material '{mat.name}' after baking.",
-                    code="UNSUPPORTED_MATERIAL_NODES",
-                    stage="validation",
-                    details=result["errors"],
-                    artifacts=_artifacts(diagnostics_path, filepath, bpy.data.filepath),
-                    context={"material": mat.name, "errors": error_msgs},
-                )
 
         # Export
         diag.begin_phase("blender_usd_export", {"output_path": filepath})
@@ -271,7 +260,7 @@ def handle(args: dict) -> dict:
         saved_diagnostics_path = None
         if not no_diagnostics:
             prefs = addon_prefs.get_preferences(bpy.context)
-            if prefs and prefs.enable_diagnostics:
+            if prefs is None or prefs.enable_diagnostics:
                 _save_diagnostics(diag, diagnostics_path)
                 saved_diagnostics_path = diagnostics_path
 

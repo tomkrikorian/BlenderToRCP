@@ -179,7 +179,7 @@ The main export operator validates every scene material in strict mode before wr
 - Object-type toggles for meshes, lights, cameras, curves, points, volumes, hair, and world dome light conversion.
 - Geometry and rigging controls such as UV export, `st` renaming, normals, triangulation, subdivision, armatures, deform bones, and shape keys.
 
-Exports write support-oriented diagnostics as `<output>.diagnostics.json` when diagnostics are enabled. Failure paths also try to persist that file so users can share validation, traceback, environment, timing, and artifact context. The main panel exposes `Show Diagnostics` and `Create Support Bundle` actions.
+Exports write support-oriented diagnostics as `<output>.diagnostics.json` when diagnostics are enabled. Failure paths also try to persist that file so users can share validation, asset dependencies, traceback, environment, timing, and artifact context. The main panel exposes `Show Diagnostics` and `Create Support Bundle` actions.
 
 ## Background Bake Textures & Export
 `Bake Textures & Export` is a background-only workflow. The add-on launches a second Blender process, bakes textures, runs the same USD export pipeline, and updates live job status in the panel.
@@ -199,6 +199,8 @@ Operational details:
 - Each job writes `settings.json`, `status.json`, and `log.txt`; status also records the diagnostics path when available.
 - The panel shows progress, output path, log path, diagnostics path, and the current step, and supports cancel, clear, log open, diagnostics open, and support bundle actions.
 - `Step Timeout (sec)` terminates the background process if a single step exceeds the configured duration.
+- Bake/export preflights external image files used by exported objects. Missing, unpacked textures fail early with an actionable pack-or-relink error.
+- Bake/export does not validate the source material graph. Unsupported Blender node groups are expected to be resolved by baking; strict graph validation only applies to `Export Scene`.
 
 Bake modes:
 - `Material Color Only` (`UNLIT_ALBEDO`): bakes light-independent material color and rewrites the exported materials as RealityKit Unlit materials. Use this when Reality Composer Pro or RealityKit should light the scene.
@@ -218,7 +220,7 @@ Diagnostics workflow:
 - The diagnostics dialog summarizes converted and failed materials, copied and converted textures, fallback nodes, KTX-required nodes, omitted nodes, and truncated warning/error lists.
 - Diagnostics JSON can be inspected directly or opened in Blender's Text Editor for troubleshooting.
 - Support bundles are redacted ZIP files created from the Blender UI or with `blendertorcp support-bundle scene.blend -o output.usdz --diagnostics output.diagnostics.json`.
-- Support bundles include environment, scene/settings, validation, and diagnostics. Background job files are included by the UI action for the active job or by passing `--job-dir` to the CLI. Source `.blend` files and exported assets are opt-in.
+- Support bundles include environment, scene/settings, asset dependency diagnostics, and export diagnostics. They include material validation only for non-baked exports. Background job files are included by the UI action for the active job or by passing `--job-dir` to the CLI. Source `.blend` files and exported assets are opt-in.
 - Redaction covers absolute paths in plain text and JSON-escaped Windows path strings; `--no-redact` disables that protection.
 
 ## Troubleshooting and support capture

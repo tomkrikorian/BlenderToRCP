@@ -177,7 +177,7 @@ def handle(args: dict) -> dict:
     saved_diagnostics_path = None
     if not no_diagnostics:
         prefs = addon_prefs.get_preferences(bpy.context)
-        if prefs and prefs.enable_diagnostics:
+        if prefs is None or prefs.enable_diagnostics:
             _save_diagnostics(diag, diagnostics_path)
             saved_diagnostics_path = diagnostics_path
 

@@ -54,6 +54,10 @@ class ExportDiagnostics:
                 'materialx_failures': [],
             },
             'generated_files': [],
+            'asset_dependencies': {
+                'missing_image_count': 0,
+                'missing_images': [],
+            },
             'exceptions': [],
             'artifacts': {},
             'errors': [],

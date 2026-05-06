@@ -40,11 +40,24 @@ def ensure_addon_loaded(
 ) -> None:
     """Enable the addon if its scene properties are not registered yet."""
     import bpy
+    import sys
 
     if hasattr(bpy.types.Scene, scene_attr):
         return
 
     failures = []
+    plugin_module = sys.modules.get("Plugin")
+    register = getattr(plugin_module, "register", None) if plugin_module is not None else None
+    if callable(register):
+        try:
+            register()
+        except Exception as exc:
+            failures.append({"module": "Plugin", "error": str(exc)})
+        else:
+            if hasattr(bpy.types.Scene, scene_attr):
+                return
+            failures.append({"module": "Plugin", "error": f"'{scene_attr}' was not registered"})
+
     for module_name in _candidate_module_names(addon_name):
         try:
             bpy.ops.preferences.addon_enable(module=module_name)

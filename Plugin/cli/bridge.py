@@ -130,6 +130,8 @@ def run(
     payload = json.dumps({"command": command, "args": args})
 
     cmd: list[str] = [blender, "--background"]
+    if command == "bake_export":
+        cmd.append("--factory-startup")
     if blend_file:
         cmd.append(blend_file)
     cmd.extend(["--python", RUNNER_PATH, "--", payload])

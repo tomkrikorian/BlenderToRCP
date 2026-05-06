@@ -110,9 +110,9 @@ Collector: `Plugin/export/diagnostics.py`
 - Captures warnings, errors, animation segments, texture work, and material conversion results.
 - If diagnostics are enabled in preferences, writes `<output>.diagnostics.json`.
 - Failure paths attempt to write `<output>.diagnostics.json` even before a final export exists, unless diagnostics are explicitly disabled for that command.
-- Diagnostics include export context, runtime environment, phase timings, validation issues, material graph issues, generated files, artifacts, warnings, errors, and captured exceptions.
+- Diagnostics include export context, runtime environment, phase timings, validation issues, material graph issues, asset dependency preflights, generated files, artifacts, warnings, errors, and captured exceptions.
 - The diagnostics viewer in `Plugin/ops/export_operator.py` renders a summary dialog in Blender.
-- `Plugin/export/support_bundle.py` creates redacted ZIPs containing environment, scene/settings, validation, diagnostics, and background job files when a job directory is supplied. Redaction covers plain absolute paths and JSON-escaped Windows path strings.
+- `Plugin/export/support_bundle.py` creates redacted ZIPs containing environment, scene/settings, asset dependencies, diagnostics, and background job files when a job directory is supplied. Material validation snapshots are included only for non-baked exports. Redaction covers plain absolute paths and JSON-escaped Windows path strings.
 
 ## Background Bake Textures & Export
 The background bake operator is `blendertorcp.bake_export_background` in `Plugin/ops/bake_export_operator.py`.
@@ -128,9 +128,10 @@ The background bake operator is `blendertorcp.bake_export_background` in `Plugin
 
 ### Runner behavior
 Runner script: `Plugin/bake_export_runner.py`
-- Launches Blender in background mode with the current `.blend`.
+- Launches Blender in background factory-startup mode with the current `.blend` so unrelated user add-ons do not pollute the bake session.
 - Ensures the add-on is enabled inside the background session.
 - Applies serialized scene settings.
+- Fails early if exported objects reference missing, unpacked external image files.
 - Restores selection when `Selection Only` is active.
 - Switches the render engine to `CYCLES` for baking.
 - Uses a heartbeat thread to keep `status.json` fresh while long bake steps run.
@@ -141,6 +142,7 @@ Baking is implemented in `Plugin/export/bake_textures.py`.
 
 User-visible contracts:
 - `Bake Textures & Export` always authors the final exported materials as RealityKit Unlit materials.
+- Bake/export skips source material graph validation because baking is the compatibility boundary. Strict graph validation remains part of `Export Scene`.
 - `Material Color Only` (`UNLIT_ALBEDO`) bakes light-independent material color.
 - `Lighting & Shadows` (`LIT_IBL`) bakes appearance under the chosen lighting source, then still exports Unlit materials whose textures already include that lighting and shadowing.
 - `Isolate Meshes for Shadows` hides non-target meshes during each lighting-and-shadows bake pass to avoid cross-mesh shadows.

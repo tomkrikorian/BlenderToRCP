@@ -173,6 +173,16 @@ class TestBridgeRun:
             cmd = mock_run.call_args[0][0]
             assert "/path/to/scene.blend" in cmd
 
+    def test_bake_export_uses_factory_startup(self):
+        """bake_export isolates the background Blender session from user add-ons."""
+        payload = {"ok": True, "result": {}}
+        stdout = f"{OUTPUT_MARKER}{json.dumps(payload)}{OUTPUT_MARKER}"
+        mock_proc = SimpleNamespace(stdout=stdout, stderr="", returncode=0)
+        with patch("Plugin.cli.bridge.subprocess.run", return_value=mock_proc) as mock_run:
+            run("bake_export", {}, blend_file="/path/to/scene.blend", blender_path="blender")
+            cmd = mock_run.call_args[0][0]
+            assert "--factory-startup" in cmd
+
     def test_verbose_prints_stderr(self, capsys):
         """verbose=True prints Blender's stderr."""
         payload = {"ok": True, "result": {}}

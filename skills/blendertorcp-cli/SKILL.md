@@ -52,7 +52,7 @@ blendertorcp export <file.blend> export-animation=true triangulate-meshes=true -
 
 ### Bake Textures & Export
 
-Bake textures and export. Default: Material Color Only (`UNLIT_ALBEDO`), 2048 px, AVIF format.
+Bake textures and export. Default: Material Color Only (`UNLIT_ALBEDO`), 2048 px, AVIF format. Bake/export skips source material graph validation; use `validate` or `export` when checking direct RealityKit graph compatibility.
 
 ```bash
 # Simple bake
@@ -93,6 +93,8 @@ Bake-export flags:
 | `--no-opacity` | off | Skip opacity channel |
 | `--keep-materials` | off | Keep baked materials after export |
 | `--timeout` | `0` | Per-step timeout in seconds |
+
+Missing, unpacked external images fail before baking with `MISSING_EXTERNAL_TEXTURES`; pack or relink textures in Blender and rerun.
 
 Any export setting key can also be passed as a positional override (same as `export`), e.g. `export-animation=true`.
 

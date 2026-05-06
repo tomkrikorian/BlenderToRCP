@@ -172,6 +172,16 @@ def collect_validation_snapshot(context=None) -> dict:
         return {"error": str(exc)}
 
 
+def collect_asset_dependency_snapshot(context=None) -> dict:
+    """Collect source asset dependencies without failing bundle creation."""
+    try:
+        from . import asset_preflight
+
+        return asset_preflight.collect_asset_dependency_snapshot(context)
+    except Exception as exc:
+        return {"error": str(exc)}
+
+
 def create_support_bundle(
     *,
     context=None,
@@ -215,6 +225,7 @@ def create_support_bundle(
     bundle_name = f"BlenderToRCP-support-{stem}-{stamp}"
     bundle_path = Path(bundle_output).expanduser() if bundle_output else output_dir / f"{bundle_name}.zip"
     bundle_path.parent.mkdir(parents=True, exist_ok=True)
+    bake_export_bundle = _is_bake_export_bundle(job, diagnostics)
 
     tokens = _build_redaction_tokens(blend, export)
     files: list[dict[str, str]] = []
@@ -253,7 +264,9 @@ def create_support_bundle(
         )
         add_json(zf, "environment/version.json", collect_environment(context))
         add_json(zf, "environment/scene-info.json", collect_scene_snapshot(context))
-        add_json(zf, "diagnostics/validate.json", collect_validation_snapshot(context))
+        add_json(zf, "diagnostics/assets.json", collect_asset_dependency_snapshot(context))
+        if not bake_export_bundle:
+            add_json(zf, "diagnostics/validate.json", collect_validation_snapshot(context))
 
         if diagnostics and diagnostics.exists():
             add_file(zf, diagnostics, "diagnostics/export.diagnostics.json", redact_file=redact)
@@ -343,6 +356,28 @@ def _json_is_valid(value: str) -> bool:
         return True
     except Exception:
         return False
+
+
+def _is_bake_export_bundle(job: Path | None, diagnostics: Path | None) -> bool:
+    if job:
+        settings_path = job / "settings.json"
+        try:
+            settings = json.loads(settings_path.read_text()) if settings_path.exists() else {}
+        except Exception:
+            settings = {}
+        export_settings = settings.get("export_settings") or {}
+        if "bake_mode" in export_settings:
+            return True
+
+    if diagnostics and diagnostics.exists():
+        try:
+            data = json.loads(diagnostics.read_text(errors="replace"))
+        except Exception:
+            data = {}
+        command = (data.get("export_context") or {}).get("command")
+        if command in {"bake_export", "background_bake_export"}:
+            return True
+    return False
 
 
 def _build_redaction_tokens(blend: Path | None, export: Path | None) -> list[tuple[str, str]]:

@@ -146,6 +146,7 @@ class BLENDERTORCP_OT_bake_export_background(Operator, ExportHelper):
                 [
                     blender_bin,
                     "--background",
+                    "--factory-startup",
                     context.blend_data.filepath,
                     "--python",
                     str(runner_path),

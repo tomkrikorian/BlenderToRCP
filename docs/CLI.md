@@ -2,7 +2,7 @@
 
 Command-line interface for BlenderToRCP. Run exports, bake textures, validate materials, and manage settings — all from your terminal, scripts, or AI agents.
 
-Every command spawns Blender in background mode and prints structured JSON to stdout on success. Human-readable status goes to stderr. On failure, use `--json` when automation needs the structured error envelope on stdout; without `--json`, failures are summarized on stderr with diagnostics and support-bundle hints when available.
+Every command spawns Blender in background mode and prints structured JSON to stdout on success. Human-readable status goes to stderr. Bake/export uses Blender factory-startup mode to avoid unrelated user add-ons polluting the bake session. On failure, use `--json` when automation needs the structured error envelope on stdout; without `--json`, failures are summarized on stderr with diagnostics and support-bundle hints when available.
 
 ## Installation
 
@@ -507,6 +507,8 @@ Which option should I choose?
 
 Both bake modes export the final baked result as RealityKit Unlit materials. The difference is what gets written into the texture: material color only, or lighting and shadows baked in.
 
+Bake/export preflights external image files used by exported objects. Missing, unpacked textures fail before baking with `MISSING_EXTERNAL_TEXTURES`; pack or relink those files in Blender before retrying. Bake/export intentionally skips source material graph validation because unsupported Blender node groups are resolved by baking. Strict graph validation remains part of `blendertorcp export` and `blendertorcp validate`.
+
 ```bash
 blendertorcp bake-export <file.blend> -o <output_path> [options]
 ```
@@ -613,6 +615,8 @@ Create a redacted ZIP with the files support needs to diagnose an export or bake
 ```bash
 blendertorcp support-bundle <file.blend> [options]
 ```
+
+Support bundles include `diagnostics/assets.json` for missing external image dependencies. `diagnostics/validate.json` is included for `Export Scene` failures, but omitted for Bake Textures & Export jobs because baking does not require the source material graph to be RealityKit-compatible.
 
 **Options:**
 

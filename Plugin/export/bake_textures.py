@@ -562,11 +562,10 @@ def _configure_emission_for_alpha(material) -> None:
 
     if alpha_socket and alpha_socket.is_linked:
         from_socket = alpha_socket.links[0].from_socket
-        combine = nodes.new("ShaderNodeCombineRGB")
-        links.new(from_socket, combine.inputs['R'])
-        links.new(from_socket, combine.inputs['G'])
-        links.new(from_socket, combine.inputs['B'])
-        links.new(combine.outputs['Image'], emission_node.inputs['Color'])
+        combine, inputs, output = _new_combine_color_node(nodes)
+        for input_name in inputs:
+            links.new(from_socket, combine.inputs[input_name])
+        links.new(combine.outputs[output], emission_node.inputs['Color'])
     else:
         alpha_value = 1.0
         if alpha_socket:
@@ -577,6 +576,14 @@ def _configure_emission_for_alpha(material) -> None:
         emission_node.inputs['Color'].default_value = (alpha_value, alpha_value, alpha_value, 1.0)
 
     links.new(emission_node.outputs['Emission'], output_node.inputs['Surface'])
+
+
+def _new_combine_color_node(nodes):
+    """Create a shader color-combine node across Blender versions."""
+    try:
+        return nodes.new("ShaderNodeCombineColor"), ("Red", "Green", "Blue"), "Color"
+    except Exception:
+        return nodes.new("ShaderNodeCombineRGB"), ("R", "G", "B"), "Image"
 
 
 def _build_baked_material(

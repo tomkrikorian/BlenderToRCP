@@ -301,8 +301,14 @@ def main() -> int:
 
     try:
         from Plugin.ops import bake_export_operator as bake_ops
-        from Plugin.export import bake_textures, blender_usd_export, postprocess_usd, pack_usdz, diagnostics
-        from Plugin.nodes import validate as rk_validate
+        from Plugin.export import (
+            asset_preflight,
+            bake_textures,
+            blender_usd_export,
+            postprocess_usd,
+            pack_usdz,
+            diagnostics,
+        )
     except Exception as exc:
         _update_status(
             status_path,
@@ -332,6 +338,11 @@ def main() -> int:
         diag.data["scene"] = collect_scene_snapshot(bpy.context)
     except Exception:
         pass
+    diag.data.setdefault("validation", {})["skipped"] = True
+    diag.data["validation"]["reason"] = (
+        "Bake Textures & Export bakes source materials before export; "
+        "source material graph validation only applies to Export Scene."
+    )
     objects_to_export = bake_ops._collect_export_objects(bpy.context, scene_settings)
 
     if not objects_to_export:
@@ -341,6 +352,21 @@ def main() -> int:
             "error",
             1.0,
             "No exportable objects found",
+            export_path=payload.get("export_path"),
+            diagnostics_path=diagnostics_path,
+        )
+        return 1
+
+    missing_images = asset_preflight.collect_missing_image_files_for_objects(objects_to_export, bpy)
+    if missing_images:
+        asset_preflight.record_missing_image_files(diag, missing_images)
+        _save_diagnostics(diag, diagnostics_path)
+        _update_status(
+            status_path,
+            "error",
+            1.0,
+            asset_preflight.missing_images_status_message(missing_images),
+            str(log_path),
             export_path=payload.get("export_path"),
             diagnostics_path=diagnostics_path,
         )
@@ -393,35 +419,7 @@ def main() -> int:
         if getattr(scene_settings, "selected_objects_only", False):
             bake_ops._set_selection(bpy.context, objects_to_export)
 
-        _set_running_stage(0.5, "Validating materials")
-        materials = bake_ops._collect_materials_from_objects(objects_to_export)
-        for material in materials:
-            try:
-                result = rk_validate.validate_material(material, strict=True)
-            except TypeError:
-                result = rk_validate.validate_material(material)
-                if result.get("warnings"):
-                    result["errors"].extend(result["warnings"])
-                    result["warnings"] = []
-                result["ok"] = not result["errors"]
-            if result["errors"]:
-                error_count = len(result["errors"])
-                for issue in result["errors"]:
-                    diag.add_validation_issue(material.name, issue, severity="error")
-                progress_reporter.stop()
-                _save_diagnostics(diag, diagnostics_path)
-                _update_status(
-                    status_path,
-                    "error",
-                    1.0,
-                    f"Unsupported nodes in material '{material.name}' ({error_count})",
-                    str(log_path),
-                    export_path=payload.get("export_path"),
-                    diagnostics_path=diagnostics_path,
-                )
-                return 1
-
-        _set_running_stage(0.55, "Exporting USD")
+        _set_running_stage(0.5, "Exporting USD")
         temp_usd_path = blender_usd_export.export_blender_scene(
             bpy.context,
             scene_settings,
