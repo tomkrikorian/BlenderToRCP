@@ -16,7 +16,7 @@ class BLENDERTORCP_OT_export(Operator, ExportHelper):
     """Export scene to RealityKit-compatible USD/USDZ"""
     bl_idname = "blendertorcp.export"
     bl_label = "Export to RCP"
-    bl_description = "Fast export without baking textures."
+    bl_description = "Fast export without baking textures. Best-effort converts Blender materials to RealityKit's Shadergraph."
     bl_options = {'REGISTER', 'UNDO'}
     
     # ExportHelper properties
