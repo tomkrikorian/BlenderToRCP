@@ -27,7 +27,6 @@ def handle(args: dict) -> dict:
     )
     from Plugin.export.support_bundle import collect_environment, collect_scene_snapshot
     from Plugin.ops import bake_export_operator as bake_ops
-    from Plugin import prefs as addon_prefs
 
     filepath = args.get("filepath")
     if not filepath:
@@ -85,6 +84,7 @@ def handle(args: dict) -> dict:
 
     # Handle resolution: could be a preset or custom int
     if "resolution" in args:
+        settings.export_texture_settings_enabled = True
         res = args["resolution"]
         res_str = str(res)
         if res_str in ("512", "1024", "2048", "4096"):
@@ -92,6 +92,10 @@ def handle(args: dict) -> dict:
         else:
             settings.bake_resolution = "CUSTOM"
             settings.bake_resolution_custom = int(res)
+    if "image_format" in args:
+        settings.export_texture_settings_enabled = True
+    if "margin" in args:
+        settings.export_texture_settings_enabled = True
 
     if args.get("selected_only"):
         settings.selected_objects_only = True
@@ -101,6 +105,8 @@ def handle(args: dict) -> dict:
         settings.bake_opacity = False
     if args.get("keep_materials"):
         settings.bake_keep_materials = True
+    if args.get("diagnostics"):
+        settings.diagnostics_enabled = True
 
     # Set format
     if "format" in args:
@@ -113,7 +119,8 @@ def handle(args: dict) -> dict:
     settings.filepath = filepath
 
     diag = diagnostics.ExportDiagnostics()
-    diagnostics_path = None if no_diagnostics else str(Path(filepath).with_suffix(".diagnostics.json"))
+    diagnostics_enabled = bool(getattr(settings, "diagnostics_enabled", False)) and not no_diagnostics
+    diagnostics_path = str(Path(filepath).with_suffix(".diagnostics.json")) if diagnostics_enabled else None
     diag.set_export_context(
         command="bake_export",
         requested_path=args.get("filepath"),
@@ -167,22 +174,17 @@ def handle(args: dict) -> dict:
         bake_ops._ensure_object_mode(bpy.context)
         bake_ops._set_render_engine(bpy.context.scene, "CYCLES")
 
-        if settings.export_format == "USDZ":
-            texture_dir = blender_usd_export.get_usdz_staging_dir(filepath) / "textures"
-        else:
-            texture_dir = Path(filepath).parent / "textures"
+        texture_dir = blender_usd_export.get_export_staging_dir(filepath) / "textures"
+        resolved_image_format = bake_textures._resolve_bake_image_format(settings, diag, safe_for_blender_save=True)
         diag.data["bake"] = {
             "mode": getattr(settings, "bake_mode", None),
-            "resolution": (
-                settings.bake_resolution_custom
-                if settings.bake_resolution == "CUSTOM"
-                else int(settings.bake_resolution)
-            ),
-            "image_format": getattr(settings, "bake_image_format", None),
-            "margin": getattr(settings, "bake_margin", None),
+            "resolution": bake_textures._resolve_bake_resolution(settings),
+            "image_format": resolved_image_format["file_format"],
+            "margin": bake_textures._resolve_bake_margin(settings),
             "base_color": bool(getattr(settings, "bake_base_color", False)),
             "opacity": bool(getattr(settings, "bake_opacity", False)),
             "isolate_meshes_lit": bool(getattr(settings, "bake_isolate_meshes_lit", False)),
+            "texture_settings_enabled": bool(getattr(settings, "export_texture_settings_enabled", False)),
             "object_count": len(objects_to_export),
             "texture_dir": str(texture_dir),
         }
@@ -249,30 +251,24 @@ def handle(args: dict) -> dict:
                 context={"file_size": Path(filepath).stat().st_size if Path(filepath).exists() else None},
             )
         else:
-            import shutil
             if temp_usd_path != filepath:
-                shutil.move(temp_usd_path, filepath)
-            diag.add_generated_file("export", filepath)
+                blender_usd_export.publish_unpacked_export(temp_usd_path, filepath, diag)
+            else:
+                diag.add_generated_file("export", filepath)
 
         duration = time.time() - start_time
 
         # Diagnostics
         saved_diagnostics_path = None
-        if not no_diagnostics:
-            prefs = addon_prefs.get_preferences(bpy.context)
-            if prefs is None or prefs.enable_diagnostics:
-                _save_diagnostics(diag, diagnostics_path)
-                saved_diagnostics_path = diagnostics_path
+        if diagnostics_enabled:
+            _save_diagnostics(diag, diagnostics_path)
+            saved_diagnostics_path = diagnostics_path
 
         # Bake stats
         bake_stats = {
             "objects_baked": len(objects_to_export),
-            "resolution": (
-                settings.bake_resolution_custom
-                if settings.bake_resolution == "CUSTOM"
-                else int(settings.bake_resolution)
-            ),
-            "image_format": settings.bake_image_format,
+            "resolution": bake_textures._resolve_bake_resolution(settings),
+            "image_format": bake_textures._resolve_bake_image_format(settings, diag, safe_for_blender_save=True)["file_format"],
         }
 
         return {

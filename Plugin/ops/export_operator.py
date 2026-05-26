@@ -53,53 +53,44 @@ class BLENDERTORCP_OT_export(Operator, ExportHelper):
     
     def invoke(self, context, event):
         """Called when operator is invoked"""
-        # Set default filepath from scene settings
         settings = context.scene.blender_to_rcp_export_settings
+        _apply_persisted_settings(context, settings)
         export_format = self._normalize_export_format(settings.export_format)
         settings.export_format = export_format
-        extension = self._format_extension(export_format)
-        self.filename_ext = extension
-        self.filter_glob = f"*{extension}"
-
-        blend_path = Path(context.blend_data.filepath) if context.blend_data.filepath else None
-        blend_name = blend_path.stem if blend_path else "untitled"
-        blend_dir = blend_path.parent if blend_path else None
-        last_path = addon_prefs.get_last_export_path(context, blend_path)
-
-        if last_path:
-            self.filepath = self._enforce_extension(str(last_path), export_format)
-        elif blend_dir:
-            suggested = blend_dir / f"{blend_name}{extension}"
-            self.filepath = self._enforce_extension(str(suggested), export_format)
-        else:
-            self.filepath = ""
-        
-        context.window_manager.fileselect_add(self)
-        return {'RUNNING_MODAL'}
+        self.filepath = _resolve_output_path_from_settings(context, settings, export_format)
+        if not self.filepath:
+            self.report({'ERROR'}, "Set Output Path before exporting.")
+            return {'CANCELLED'}
+        return self.execute(context)
     
     def execute(self, context):
         """Execute the export"""
         import sys
-        
-        # Validate filepath
-        if not self.filepath:
-            self.report({'ERROR'}, "No file path specified")
-            return {'CANCELLED'}
         
         # Get settings
         settings = context.scene.blender_to_rcp_export_settings
         _apply_persisted_settings(context, settings)
         export_format = self._normalize_export_format(settings.export_format)
         settings.export_format = export_format
-        self.filepath = self._enforce_extension(self.filepath, export_format)
+        self.filepath = _resolve_output_path_from_settings(
+            context,
+            settings,
+            export_format,
+            fallback=getattr(self, "filepath", ""),
+        )
+        if not self.filepath:
+            self.report({'ERROR'}, "Set Output Path before exporting.")
+            return {'CANCELLED'}
         settings.filepath = self.filepath
 
-        prefs = addon_prefs.get_preferences(context)
         from ..export import diagnostics
         from ..export.support_bundle import collect_environment, collect_scene_snapshot
 
         diag = diagnostics.ExportDiagnostics()
-        diag_path = Path(self.filepath).with_suffix('.diagnostics.json')
+        diagnostics_enabled = bool(getattr(settings, "diagnostics_enabled", False))
+        diag_path = Path(self.filepath).with_suffix('.diagnostics.json') if diagnostics_enabled else None
+        if not diagnostics_enabled:
+            settings.last_diagnostics_path = ""
         diag.set_export_context(
             command="ui_export",
             resolved_output_path=self.filepath,
@@ -137,8 +128,9 @@ class BLENDERTORCP_OT_export(Operator, ExportHelper):
                     self.report({'ERROR'}, f"{node_name} ({node_type}): {message}")
                 if error_count > 6:
                     self.report({'ERROR'}, f"{error_count - 6} more errors in '{material.name}'.")
-                diag.save(diag_path)
-                settings.last_diagnostics_path = str(diag_path)
+                _save_diagnostics(diag, diag_path)
+                if diag_path:
+                    settings.last_diagnostics_path = str(diag_path)
                 return {'CANCELLED'}
 
         try:
@@ -169,12 +161,14 @@ class BLENDERTORCP_OT_export(Operator, ExportHelper):
             
             # Fail fast on strict export errors before packaging.
             if diag.data.get('errors'):
-                diag.save(diag_path)
-                settings.last_diagnostics_path = str(diag_path)
+                _save_diagnostics(diag, diag_path)
+                if diag_path:
+                    settings.last_diagnostics_path = str(diag_path)
                 for error in diag.data['errors'][:5]:
                     self.report({'ERROR'}, str(error))
                 if len(diag.data['errors']) > 5:
-                    self.report({'ERROR'}, f"{len(diag.data['errors']) - 5} more errors (see diagnostics)")
+                    suffix = " (see diagnostics)" if diag_path else ""
+                    self.report({'ERROR'}, f"{len(diag.data['errors']) - 5} more errors{suffix}")
                 return {'CANCELLED'}
 
             # Step 3: Package as USDZ if requested
@@ -188,15 +182,13 @@ class BLENDERTORCP_OT_export(Operator, ExportHelper):
                     diag
                 )
             else:
-                # Just copy/move the USD file to final location
-                import shutil
+                # Publish the staged USD and sidecar assets to the final location.
                 if temp_usd_path != self.filepath:
-                    shutil.move(temp_usd_path, self.filepath)
+                    blender_usd_export.publish_unpacked_export(temp_usd_path, self.filepath, diag)
             
-            # Save diagnostics if enabled
-            if prefs and prefs.enable_diagnostics:
-                diag_path = Path(self.filepath).with_suffix('.diagnostics.json')
-                diag.save(diag_path)
+            # Save diagnostics if enabled for this export.
+            if diagnostics_enabled and diag_path:
+                _save_diagnostics(diag, diag_path)
                 settings.last_diagnostics_path = str(diag_path)
 
             if diag.data.get('warnings'):
@@ -204,7 +196,8 @@ class BLENDERTORCP_OT_export(Operator, ExportHelper):
                 for warning in diag.data['warnings'][:5]:
                     self.report({'WARNING'}, warning)
                 if warning_count > 5:
-                    self.report({'WARNING'}, f"{warning_count - 5} more warnings (see diagnostics)")
+                    suffix = " (see diagnostics)" if diag_path else ""
+                    self.report({'WARNING'}, f"{warning_count - 5} more warnings{suffix}")
             
             self.report({'INFO'}, f"Export completed: {self.filepath}")
             _store_last_export_settings(context, settings)
@@ -214,8 +207,9 @@ class BLENDERTORCP_OT_export(Operator, ExportHelper):
             import traceback
             diag.add_exception(e, stage="ui_export")
             try:
-                diag.save(diag_path)
-                settings.last_diagnostics_path = str(diag_path)
+                _save_diagnostics(diag, diag_path)
+                if diag_path:
+                    settings.last_diagnostics_path = str(diag_path)
             except Exception:
                 pass
             self.report({'ERROR'}, f"Export failed: {str(e)}")
@@ -403,6 +397,8 @@ class BLENDERTORCP_OT_create_support_bundle(Operator):
 
 def _resolve_diagnostics_path(context) -> str | None:
     settings = context.scene.blender_to_rcp_export_settings
+    if not bool(getattr(settings, "diagnostics_enabled", False)):
+        return None
     candidates = []
     job_candidates = []
     job_dir = getattr(settings, "background_job_dir", "")
@@ -454,6 +450,13 @@ def _resolve_diagnostics_path(context) -> str | None:
     return str(latest) if latest else None
 
 
+def _save_diagnostics(diag, diag_path: Path | None) -> None:
+    if diag_path is None:
+        return
+    diag.set_artifact("diagnostics_path", str(diag_path))
+    diag.save(diag_path)
+
+
 def _store_last_export_settings(context, settings) -> None:
     prefs = addon_prefs.get_preferences(context)
     if not prefs:
@@ -500,10 +503,32 @@ def _apply_persisted_settings(context, settings) -> None:
                         setattr(settings, key, value)
                     except Exception:
                         continue
-        addon_prefs.apply_last_export_path(context, settings)
+        if not getattr(settings, "filepath", ""):
+            addon_prefs.apply_last_export_path(context, settings)
     finally:
         settings.persist_suspended = False
     settings.history_applied = True
+
+
+def _resolve_output_path_from_settings(context, settings, export_format: str, fallback: str = "") -> str:
+    filepath = str(getattr(settings, "filepath", "") or fallback or "").strip()
+    if not filepath:
+        return ""
+
+    try:
+        filepath = bpy.path.abspath(filepath)
+    except Exception:
+        pass
+
+    path = Path(filepath).expanduser()
+    if not path.is_absolute():
+        blend_file = getattr(getattr(context, "blend_data", None), "filepath", "")
+        if blend_file:
+            path = Path(blend_file).parent / path
+        else:
+            path = Path.cwd() / path
+
+    return BLENDERTORCP_OT_export._enforce_extension(str(path), export_format)
 
 
 def register():

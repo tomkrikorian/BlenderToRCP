@@ -24,6 +24,10 @@ _BAKE_IMAGE_FORMATS = {
     },
 }
 
+_DEFAULT_BAKE_RESOLUTION = 2048
+_DEFAULT_BAKE_IMAGE_FORMAT = "AVIF"
+_DEFAULT_BAKE_MARGIN = 8
+
 
 class BakeResult:
     """Holds bake session data for restoration/cleanup."""
@@ -52,8 +56,8 @@ def bake_materials_for_objects(
         bake_mode = "LIT_IBL"
 
     resolution = _resolve_bake_resolution(settings)
-    image_format = _resolve_bake_image_format(settings, diagnostics)
-    margin = int(getattr(settings, "bake_margin", 8))
+    image_format = _resolve_bake_image_format(settings, diagnostics, safe_for_blender_save=True)
+    margin = _resolve_bake_margin(settings)
     bake_base = bool(getattr(settings, "bake_base_color", True))
     bake_opacity = bool(getattr(settings, "bake_opacity", True))
     isolate_meshes_lit = bool(getattr(settings, "bake_isolate_meshes_lit", False))
@@ -428,19 +432,36 @@ def restore_baked_materials(result: BakeResult, keep_baked_materials: bool) -> N
 
 
 def _resolve_bake_resolution(settings) -> int:
+    if not _export_texture_settings_enabled(settings):
+        return _DEFAULT_BAKE_RESOLUTION
+
     value = getattr(settings, "bake_resolution", "2048")
     if value == 'CUSTOM':
-        return int(getattr(settings, "bake_resolution_custom", 2048))
+        return int(getattr(settings, "bake_resolution_custom", _DEFAULT_BAKE_RESOLUTION))
     try:
         return int(value)
     except Exception:
-        return 2048
+        return _DEFAULT_BAKE_RESOLUTION
 
 
-def _resolve_bake_image_format(settings, diagnostics=None) -> Dict[str, str]:
-    requested = str(getattr(settings, "bake_image_format", "AVIF") or "AVIF").upper()
+def _resolve_bake_image_format(settings, diagnostics=None, *, safe_for_blender_save: bool = False) -> Dict[str, str]:
+    if _export_texture_settings_enabled(settings):
+        requested = str(getattr(settings, "bake_image_format", _DEFAULT_BAKE_IMAGE_FORMAT) or _DEFAULT_BAKE_IMAGE_FORMAT).upper()
+    else:
+        requested = _DEFAULT_BAKE_IMAGE_FORMAT
     if requested not in _BAKE_IMAGE_FORMATS:
-        requested = "AVIF"
+        requested = _DEFAULT_BAKE_IMAGE_FORMAT
+
+    if safe_for_blender_save and requested == "AVIF":
+        fallback = "PNG"
+        message = (
+            "AVIF baked textures are temporarily saved as PNG because Blender 5.1 RC's native AVIF "
+            "image writer can crash during Image.save()."
+        )
+        print(f"Warning: {message}")
+        if diagnostics:
+            diagnostics.add_warning(message)
+        requested = fallback
 
     available = _available_image_file_formats()
     if available and requested not in available:
@@ -460,6 +481,19 @@ def _resolve_bake_image_format(settings, diagnostics=None) -> Dict[str, str]:
         requested = fallback
 
     return dict(_BAKE_IMAGE_FORMATS[requested])
+
+
+def _resolve_bake_margin(settings) -> int:
+    if not _export_texture_settings_enabled(settings):
+        return _DEFAULT_BAKE_MARGIN
+    try:
+        return int(getattr(settings, "bake_margin", _DEFAULT_BAKE_MARGIN))
+    except Exception:
+        return _DEFAULT_BAKE_MARGIN
+
+
+def _export_texture_settings_enabled(settings) -> bool:
+    return bool(getattr(settings, "export_texture_settings_enabled", False))
 
 
 def _available_image_file_formats() -> Optional[set[str]]:

@@ -155,6 +155,10 @@ class TestExportCommand:
         args = parser.parse_args(["export", "scene.blend", "-o", "out.usdz", "--no-diagnostics"])
         assert args.no_diagnostics is True
 
+    def test_diagnostics(self, parser):
+        args = parser.parse_args(["export", "scene.blend", "-o", "out.usdz", "--diagnostics"])
+        assert args.diagnostics is True
+
     def test_missing_output_raises(self, parser):
         with pytest.raises(SystemExit):
             parser.parse_args(["export", "scene.blend"])
@@ -162,8 +166,9 @@ class TestExportCommand:
     def test_overrides_plain(self, parser):
         """Overrides without leading dashes are parsed as positional args."""
         args = parser.parse_args([
-            "export", "scene.blend", "-o", "out.usdz",
+            "export", "scene.blend",
             "export-animation=true", "triangulate-meshes=true",
+            "-o", "out.usdz",
         ])
         assert "export-animation=true" in args.overrides
         assert "triangulate-meshes=true" in args.overrides
@@ -209,10 +214,15 @@ class TestBakeExportCommand:
         ])
         assert args.selected_only is True
         assert args.no_diagnostics is True
+        assert args.diagnostics is False
         assert args.isolate_meshes is True
         assert args.no_base_color is True
         assert args.no_opacity is True
         assert args.keep_materials is True
+
+    def test_diagnostics(self, parser):
+        args = parser.parse_args(["bake-export", "scene.blend", "-o", "out.usdz", "--diagnostics"])
+        assert args.diagnostics is True
 
     def test_timeout(self, parser):
         args = parser.parse_args(["bake-export", "scene.blend", "-o", "out.usdz", "--timeout", "300"])
@@ -257,8 +267,8 @@ class TestSettingsGetCommand:
         assert args.keys == ["export_format", "bake_resolution"]
 
     def test_group(self, parser):
-        args = parser.parse_args(["settings", "get", "scene.blend", "--group", "bake"])
-        assert args.group == "bake"
+        args = parser.parse_args(["settings", "get", "scene.blend", "--group", "texture"])
+        assert args.group == "texture"
 
 
 class TestSettingsSetCommand:

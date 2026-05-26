@@ -208,8 +208,10 @@ def _create_texture_connection(
     # Color space is handled by Reality Composer Pro; avoid injecting conversion nodes.
 
     if texture_kind == 'normal_texture':
-        # Blender's Normal Map node corresponds to ShaderGraph/MaterialX `normalmap`
-        # (transforms tangent/object-space normal vectors into world space).
+        # RealityKit's MaterialX library provides a dedicated tangent normal-map
+        # decoder. Prefer it over stdlib `normalmap`; Apple's USD renderer can
+        # fail shader compilation when stdlib normalmap is mixed into these
+        # RealityKit PBR graphs.
         if current_type != 'vector3':
             texture_output = _create_convert_output(
                 manifest,
@@ -225,9 +227,17 @@ def _create_texture_connection(
 
         normalmap_nodedef = select_nodedef_name_for_node(
             manifest,
-            "normalmap",
+            "normal_map_decode",
             output_type="vector3",
-        ) or "ND_normalmap"
+        )
+        normalmap_supports_only_input = bool(normalmap_nodedef)
+        if not normalmap_nodedef:
+            normalmap_nodedef = select_nodedef_name_for_node(
+                manifest,
+                "normalmap",
+                output_type="vector3",
+            )
+        normalmap_nodedef = normalmap_nodedef or "ND_normal_map_decode"
 
         normalmap_name = _sanitize_name(f"NormalMap_{input_name}")
         normalmap_prim = stage.DefinePrim(f"{nodegraph_path}/{normalmap_name}", "Shader")
@@ -237,7 +247,10 @@ def _create_texture_connection(
         in_input = normalmap_shader.CreateInput("in", Sdf.ValueTypeNames.Float3)
         in_input.ConnectToSource(texture_output)
 
-        # Optional strength hook (defaults to 1.0 if omitted).
+        if normalmap_supports_only_input:
+            return normalmap_shader.CreateOutput("out", Sdf.ValueTypeNames.Float3)
+
+        # Optional strength hook for stdlib normalmap fallback.
         strength = texture_spec.get("scale")
         if strength is not None:
             try:
@@ -247,7 +260,7 @@ def _create_texture_connection(
             if strength_value is not None and abs(strength_value - 1.0) > 1e-6:
                 normalmap_shader.CreateInput("scale", Sdf.ValueTypeNames.Float).Set(strength_value)
 
-        # Optional space override (defaults to tangent).
+        # Optional space override for stdlib normalmap fallback.
         space = (texture_spec.get("space") or "").strip().lower()
         if space in {"tangent", "object"}:
             normalmap_shader.CreateInput("space", Sdf.ValueTypeNames.String).Set(space)

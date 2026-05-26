@@ -305,7 +305,7 @@ blendertorcp settings get <file.blend> [options]
 | Flag | Description |
 |------|-------------|
 | `--keys <key> [<key> ...]` | Return only these specific setting keys |
-| `--group <name>` | Return settings from a panel group: `general`, `objects`, `geometry`, `rigging`, `bake`, or `all` (default) |
+| `--group <name>` | Return settings from a panel group: `general`, `objects`, `geometry`, `rigging`, `texture`, `bake`, `diagnostics`, or `all` (default) |
 
 **Group breakdown:**
 
@@ -315,13 +315,16 @@ blendertorcp settings get <file.blend> [options]
 | `objects` | `export_meshes`, `export_lights`, `convert_world_material`, `export_cameras`, `export_curves`, `export_points`, `export_volumes`, `export_hair` |
 | `geometry` | `export_uvmaps`, `rename_uvmaps`, `export_normals`, `merge_parent_xform`, `triangulate_meshes`, `quad_method`, `ngon_method`, `export_subdivision` |
 | `rigging` | `export_armatures`, `only_deform_bones`, `export_shapekeys` |
-| `bake` | `bake_mode`, `bake_ibl_source`, `bake_ibl_filepath`, `bake_ibl_strength`, `bake_ibl_rotation`, `bake_isolate_meshes_lit`, `bake_resolution`, `bake_resolution_custom`, `bake_image_format`, `bake_margin`, `bake_base_color`, `bake_opacity`, `bake_keep_materials`, `bake_step_timeout_seconds` |
+| `texture` | `export_texture_settings_enabled`, `bake_resolution`, `bake_resolution_custom`, `bake_image_format`, `bake_margin` |
+| `bake` | `bake_mode`, `bake_ibl_source`, `bake_ibl_filepath`, `bake_ibl_strength`, `bake_ibl_rotation`, `bake_isolate_meshes_lit`, `bake_base_color`, `bake_opacity`, `bake_keep_materials`, `bake_step_timeout_seconds` |
+| `diagnostics` | `diagnostics_enabled` |
 
 **Examples:**
 
 ```bash
 blendertorcp settings get scene.blend
 blendertorcp settings get scene.blend --group bake
+blendertorcp settings get scene.blend --group texture
 blendertorcp settings get scene.blend --keys export_format bake_resolution
 ```
 
@@ -363,7 +366,7 @@ blendertorcp settings set <file.blend> <key>=<value> [...] [options]
 
 ```bash
 blendertorcp settings set scene.blend export_format=USDZ
-blendertorcp settings set scene.blend bake_resolution=4096 bake_image_format=PNG --save
+blendertorcp settings set scene.blend export_texture_settings_enabled=true bake_resolution=4096 bake_image_format=PNG --save
 blendertorcp settings set scene.blend triangulate_meshes=true quad_method=BEAUTY --dry-run
 ```
 
@@ -381,7 +384,7 @@ With `--dry-run`:
 ```json
 {
   "valid": true,
-  "would_update": ["bake_resolution", "bake_image_format"]
+  "would_update": ["export_texture_settings_enabled", "bake_resolution", "bake_image_format"]
 }
 ```
 
@@ -443,12 +446,16 @@ blendertorcp export <file.blend> [setting=value ...] -o <output_path> [options]
 |------|-------------|
 | `--format <FORMAT>` | Override export format: `USDA`, `USDC`, `USDZ` |
 | `--selected-only` | Export selected objects only |
-| `--no-diagnostics` | Skip diagnostics generation |
+| `--diagnostics` | Write `<output>.diagnostics.json` |
+| `--no-diagnostics` | Do not write diagnostics, even if enabled by settings |
 
 Any export setting key can also be passed as a positional `key=value` override. These overrides apply for this export only and do not modify the `.blend` file:
 
 ```bash
 blendertorcp export scene.blend \
+  export-texture-settings-enabled=true \
+  bake-image-format=AVIF \
+  bake-resolution=1024 \
   export-animation=true \
   triangulate-meshes=true \
   root-prim-name="/MyRoot" \
@@ -479,8 +486,8 @@ blendertorcp export scene.blend \
   "export_path": "/output/scene.usdz",
   "format": "USDZ",
   "duration_seconds": 4.2,
-  "diagnostics_path": "/output/scene.diagnostics.json",
-  "support_bundle_hint": "blendertorcp support-bundle scene.blend -o /output/scene.usdz --diagnostics /output/scene.diagnostics.json"
+  "diagnostics_path": null,
+  "support_bundle_hint": "blendertorcp support-bundle scene.blend -o /output/scene.usdz"
 }
 ```
 
@@ -526,11 +533,12 @@ blendertorcp bake-export <file.blend> -o <output_path> [options]
 |------|---------|-------------|
 | `--format <FORMAT>` | from settings | Export format: `USDA`, `USDC`, `USDZ` |
 | `--bake-mode <MODE>` | from settings (`LIT_IBL` for fresh scenes) | `UNLIT_ALBEDO` for Material Color Only, `LIT_IBL` for Lighting & Shadows |
-| `--resolution <RES>` | `2048` | Bake resolution: `512`, `1024`, `2048`, `4096`, or any integer for custom |
-| `--image-format <FMT>` | `AVIF` | Baked texture format: `AVIF` (requires Blender 5.1+) or `PNG` |
-| `--margin <PX>` | `8` | Bake padding in pixels |
+| `--resolution <RES>` | `2048` | Enables texture overrides for this run and sets bake resolution: `512`, `1024`, `2048`, `4096`, or any integer for custom |
+| `--image-format <FMT>` | `AVIF` | Enables texture overrides for this run and sets baked texture format: `AVIF` (requires Blender 5.1+) or `PNG` |
+| `--margin <PX>` | `8` | Enables texture overrides for this run and sets bake padding in pixels |
 | `--selected-only` | off | Only bake and export selected objects |
-| `--no-diagnostics` | off | Skip diagnostics generation |
+| `--diagnostics` | off | Write `<output>.diagnostics.json` |
+| `--no-diagnostics` | off | Do not write diagnostics, even if enabled by settings |
 
 **Lighting source options** (only apply when `--bake-mode LIT_IBL` / Lighting & Shadows):
 
@@ -597,8 +605,8 @@ blendertorcp bake-export scene.blend -o /tmp/preview.usdz \
     "resolution": 2048,
     "image_format": "AVIF"
   },
-  "diagnostics_path": "/output/scene.diagnostics.json",
-  "support_bundle_hint": "blendertorcp support-bundle scene.blend -o /output/scene.usdz --diagnostics /output/scene.diagnostics.json"
+  "diagnostics_path": null,
+  "support_bundle_hint": "blendertorcp support-bundle scene.blend -o /output/scene.usdz"
 }
 ```
 
@@ -666,8 +674,7 @@ blendertorcp preferences get
 {
   "usdzip_path": "",
   "materialx_library_path": "",
-  "default_export_format": "USDA",
-  "enable_diagnostics": true
+  "default_export_format": "USDA"
 }
 ```
 
@@ -688,19 +695,18 @@ blendertorcp preferences set <key>=<value> [...]
 | `usdzip_path` | string | Path to the usdzip tool (leave empty for Python fallback) |
 | `materialx_library_path` | string | Path to MaterialX library directory (leave empty for bundled) |
 | `default_export_format` | enum | `USDA`, `USDC`, or `USDZ` |
-| `enable_diagnostics` | bool | Generate diagnostics JSON on export |
 
 **Examples:**
 
 ```bash
-blendertorcp preferences set default_export_format=USDZ enable_diagnostics=false
+blendertorcp preferences set default_export_format=USDZ
 ```
 
 **Output:**
 
 ```json
 {
-  "updated": ["default_export_format", "enable_diagnostics"]
+  "updated": ["default_export_format"]
 }
 ```
 
@@ -782,6 +788,26 @@ Complete list of every export setting that can be read with `settings get`, writ
 | `only_deform_bones` | bool | `true`, `false` | `false` |
 | `export_shapekeys` | bool | `true`, `false` | `true` |
 
+### Texture
+
+| Key | Type | Values | Default |
+|-----|------|--------|---------|
+| `export_texture_settings_enabled` | bool | `true`, `false` | `false` |
+| `bake_resolution` | enum | `512`, `1024`, `2048`, `4096`, `CUSTOM` | `2048` |
+| `bake_resolution_custom` | int | 32+ | `2048` |
+| `bake_image_format` | enum | `AVIF`, `PNG` | `AVIF` |
+| `bake_margin` | int | 0+ | `8` |
+
+When `export_texture_settings_enabled` is `false`, `Export Scene` preserves source texture files and `Bake Textures & Export` uses its internal defaults. When it is `true`, both export paths use this section to transcode to AVIF/PNG and apply the configured texture resolution.
+
+### Diagnostics
+
+| Key | Type | Values | Default |
+|-----|------|--------|---------|
+| `diagnostics_enabled` | bool | `true`, `false` | `false` |
+
+When `diagnostics_enabled` is `false`, exports do not write `<output>.diagnostics.json`. Use `--diagnostics` or `diagnostics-enabled=true` to enable the sidecar for a run.
+
 ### Bake
 
 | Key | Type | Values | Default |
@@ -792,10 +818,6 @@ Complete list of every export setting that can be read with `settings get`, writ
 | `bake_ibl_strength` | float | 0.0+ | `1.0` |
 | `bake_ibl_rotation` | float | radians | `0.0` |
 | `bake_isolate_meshes_lit` | bool | `true`, `false` | `false` |
-| `bake_resolution` | enum | `512`, `1024`, `2048`, `4096`, `CUSTOM` | `2048` |
-| `bake_resolution_custom` | int | 32+ | `2048` |
-| `bake_image_format` | enum | `AVIF`, `PNG` | `AVIF` |
-| `bake_margin` | int | 0+ | `8` |
 | `bake_base_color` | bool | `true`, `false` | `true` |
 | `bake_opacity` | bool | `true`, `false` | `true` |
 | `bake_keep_materials` | bool | `true`, `false` | `false` |

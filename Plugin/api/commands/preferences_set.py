@@ -6,7 +6,6 @@ _PREF_KEYS = {
     "usdzip_path",
     "materialx_library_path",
     "default_export_format",
-    "enable_diagnostics",
 }
 
 
@@ -27,9 +26,7 @@ def handle(args: dict) -> dict:
         if key not in _PREF_KEYS:
             raise ValueError(f"Unknown preference key: '{key}'. Available: {sorted(_PREF_KEYS)}")
 
-        if key == "enable_diagnostics":
-            value = str(value).lower() in ("true", "1", "yes") if isinstance(value, str) else bool(value)
-        elif key == "default_export_format":
+        if key == "default_export_format":
             value = str(value).upper()
             if value not in ("USDA", "USDC", "USDZ"):
                 raise ValueError(f"Invalid format: '{value}'. Allowed: USDA, USDC, USDZ")

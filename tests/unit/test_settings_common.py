@@ -41,8 +41,16 @@ class TestInternalKeys:
 
 
 class TestSettingGroups:
-    def test_has_five_groups(self):
-        assert set(SETTING_GROUPS.keys()) == {"general", "objects", "geometry", "rigging", "bake"}
+    def test_has_groups(self):
+        assert set(SETTING_GROUPS.keys()) == {
+            "general",
+            "objects",
+            "geometry",
+            "rigging",
+            "texture",
+            "bake",
+            "diagnostics",
+        }
 
     def test_no_overlap_between_groups(self):
         """No setting key should appear in multiple groups."""
@@ -66,6 +74,9 @@ class TestSettingGroups:
     def test_bake_contains_bake_mode(self):
         assert "bake_mode" in SETTING_GROUPS["bake"]
 
+    def test_texture_contains_override_toggle(self):
+        assert "export_texture_settings_enabled" in SETTING_GROUPS["texture"]
+
     def test_geometry_contains_triangulate(self):
         assert "triangulate_meshes" in SETTING_GROUPS["geometry"]
 
@@ -74,6 +85,9 @@ class TestSettingGroups:
 
     def test_objects_contains_meshes(self):
         assert "export_meshes" in SETTING_GROUPS["objects"]
+
+    def test_diagnostics_contains_toggle(self):
+        assert "diagnostics_enabled" in SETTING_GROUPS["diagnostics"]
 
     def test_all_values_are_sets(self):
         for group_name, keys in SETTING_GROUPS.items():

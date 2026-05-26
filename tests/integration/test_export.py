@@ -55,3 +55,21 @@ class TestExport:
         # diagnostics_path should be None when --no-diagnostics is used
         if "diagnostics_path" in result.json:
             assert result.json["diagnostics_path"] is None
+        assert not actual_path.with_suffix(".diagnostics.json").exists()
+
+    def test_diagnostics_disabled_by_default(self, run_cli, blend_file, tmp_output):
+        out = tmp_output / "scene.usdz"
+        result = run_cli("export", str(blend_file), "-o", str(out), "--format", "USDZ")
+        assert result.ok
+        actual_path = Path(result.json["export_path"])
+        assert actual_path.exists()
+        assert result.json.get("diagnostics_path") is None
+        assert not actual_path.with_suffix(".diagnostics.json").exists()
+
+    def test_diagnostics_flag_writes_sidecar(self, run_cli, blend_file, tmp_output):
+        out = tmp_output / "scene.usdz"
+        result = run_cli("export", str(blend_file), "-o", str(out), "--format", "USDZ", "--diagnostics")
+        assert result.ok
+        diag_path = Path(result.json["diagnostics_path"])
+        assert diag_path.exists()
+        assert diag_path.name == "scene.diagnostics.json"

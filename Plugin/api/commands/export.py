@@ -15,7 +15,6 @@ def handle(args: dict) -> dict:
     from Plugin.export import blender_usd_export, postprocess_usd, pack_usdz, diagnostics
     from Plugin.export.support_bundle import collect_environment, collect_scene_snapshot
     from Plugin.nodes import validate as rk_validate
-    from Plugin import prefs as addon_prefs
 
     filepath = args.get("filepath")
     if not filepath:
@@ -56,6 +55,9 @@ def handle(args: dict) -> dict:
     if args.get("selected_only"):
         settings.selected_objects_only = True
 
+    if args.get("diagnostics"):
+        settings.diagnostics_enabled = True
+
     # Enforce extension
     ext_map = {"USDA": ".usda", "USDC": ".usdc", "USDZ": ".usdz"}
     ext = ext_map.get(settings.export_format, ".usdz")
@@ -63,7 +65,8 @@ def handle(args: dict) -> dict:
     settings.filepath = filepath
 
     diag = diagnostics.ExportDiagnostics()
-    diagnostics_path = None if no_diagnostics else str(Path(filepath).with_suffix(".diagnostics.json"))
+    diagnostics_enabled = bool(getattr(settings, "diagnostics_enabled", False)) and not no_diagnostics
+    diagnostics_path = str(Path(filepath).with_suffix(".diagnostics.json")) if diagnostics_enabled else None
     diag.set_export_context(
         command="export",
         requested_path=args.get("filepath"),
@@ -150,10 +153,10 @@ def handle(args: dict) -> dict:
                 context={"file_size": Path(filepath).stat().st_size if Path(filepath).exists() else None},
             )
         else:
-            import shutil
             if temp_usd_path != filepath:
-                shutil.move(temp_usd_path, filepath)
-            diag.add_generated_file("export", filepath)
+                blender_usd_export.publish_unpacked_export(temp_usd_path, filepath, diag)
+            else:
+                diag.add_generated_file("export", filepath)
     except CommandError as exc:
         if exc.stage:
             diag.record_phase_error(exc.stage, exc)
@@ -175,11 +178,9 @@ def handle(args: dict) -> dict:
 
     # Save diagnostics
     saved_diagnostics_path = None
-    if not no_diagnostics:
-        prefs = addon_prefs.get_preferences(bpy.context)
-        if prefs is None or prefs.enable_diagnostics:
-            _save_diagnostics(diag, diagnostics_path)
-            saved_diagnostics_path = diagnostics_path
+    if diagnostics_enabled:
+        _save_diagnostics(diag, diagnostics_path)
+        saved_diagnostics_path = diagnostics_path
 
     return {
         "ok": True,

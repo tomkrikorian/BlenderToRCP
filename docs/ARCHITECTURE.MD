@@ -61,9 +61,8 @@ Preferences live in `Plugin/prefs.py`:
 - `usdzip_path`
 - `materialx_library_path`
 - `default_export_format`
-- `enable_diagnostics`
 
-These preferences are operational, not cosmetic. For example, `enable_diagnostics` gates whether `.diagnostics.json` files are written and whether the UI exposes the diagnostics viewer.
+Diagnostics are an export setting on `BlenderToRCPExportSettings`, not an always-on add-on preference. `diagnostics_enabled` gates whether `.diagnostics.json` files are written and whether the UI exposes the diagnostics viewer/support-bundle actions.
 
 ## Export pipeline
 The foreground export operator is `blendertorcp.export` in `Plugin/ops/export_operator.py`.
@@ -76,8 +75,9 @@ The foreground export operator is `blendertorcp.export` in `Plugin/ops/export_op
 ### 1. Base USD export
 Wrapper: `Plugin/export/blender_usd_export.py`
 - Computes the real output path.
-- For `.usda` or `.usdc`, writes directly to the requested destination.
-- For `.usdz`, exports to `.blendertorcp_temp/<name>.usdc` first and packages later.
+- Exports all formats to `.blendertorcp_temp/<name>/` first so Blender cannot reuse stale sidecar textures from the destination `textures/` directory.
+- For `.usda` or `.usdc`, publishes the processed staged USD plus fresh `textures/` and `assets/` sidecars to the requested destination.
+- For `.usdz`, exports to a staged `.usdc` first and packages the staged contents later.
 - Calls Blender's USD exporter with the add-on scene settings rather than a hard-coded configuration.
 
 ### 2. Optional animation preparation
@@ -98,6 +98,7 @@ Sub-steps:
 - `prepare_assets(stage, usd_path, diagnostics)` from `Plugin/export/usd_assets.py`
 
 This stage is where Blender-authored USD is converted into the RealityKit and Reality Composer Pro contract the rest of the toolchain expects.
+Texture staging prefixes generated texture filenames with the export output stem, for example `badge-streak-7-extracted_image_0.avif`, before applying hash suffixes for any remaining same-name collisions.
 
 ### 4. USDZ packaging
 Packager: `Plugin/export/pack_usdz.py`
@@ -108,8 +109,8 @@ Packager: `Plugin/export/pack_usdz.py`
 ### 5. Diagnostics
 Collector: `Plugin/export/diagnostics.py`
 - Captures warnings, errors, animation segments, texture work, and material conversion results.
-- If diagnostics are enabled in preferences, writes `<output>.diagnostics.json`.
-- Failure paths attempt to write `<output>.diagnostics.json` even before a final export exists, unless diagnostics are explicitly disabled for that command.
+- If diagnostics are enabled for the export, writes `<output>.diagnostics.json`.
+- Failure paths write `<output>.diagnostics.json` only when diagnostics are enabled for that command.
 - Diagnostics include export context, runtime environment, phase timings, validation issues, material graph issues, asset dependency preflights, generated files, artifacts, warnings, errors, and captured exceptions.
 - The diagnostics viewer in `Plugin/ops/export_operator.py` renders a summary dialog in Blender.
 - `Plugin/export/support_bundle.py` creates redacted ZIPs containing environment, scene/settings, asset dependencies, diagnostics, and background job files when a job directory is supplied. Material validation snapshots are included only for non-baked exports. Redaction covers plain absolute paths and JSON-escaped Windows path strings.

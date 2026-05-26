@@ -67,7 +67,7 @@ class BlenderToRCPPreferences(AddonPreferences):
     enable_diagnostics: BoolProperty(
         name="Enable Diagnostics",
         description="Generate detailed export diagnostics JSON",
-        default=True
+        default=False
     )
 
     enforcement_mode: EnumProperty(
@@ -114,7 +114,6 @@ class BlenderToRCPPreferences(AddonPreferences):
         box = layout.box()
         box.label(text="Default Settings", icon='PREFERENCES')
         box.prop(self, "default_export_format")
-        box.prop(self, "enable_diagnostics")
         # Strict mode only; no UI toggle.
 
 

@@ -28,7 +28,6 @@ def prepare_assets(stage, usd_path: str, diagnostics=None) -> None:
     """Stage non-texture assets and normalize their paths to be relative."""
     usd_dir = Path(usd_path).parent
     assets_dir = usd_dir / "assets"
-    assets_dir.mkdir(exist_ok=True)
 
     import shutil
 
@@ -67,6 +66,7 @@ def prepare_assets(stage, usd_path: str, diagnostics=None) -> None:
             if source_path.exists():
                 if source_path not in seen_sources:
                     try:
+                        assets_dir.mkdir(parents=True, exist_ok=True)
                         if source_path.resolve() != dest_path.resolve():
                             shutil.copy2(source_path, dest_path)
                         seen_sources[source_path] = dest_path

@@ -142,6 +142,8 @@ def cmd_export(parsed: argparse.Namespace) -> int:
         args["selected_only"] = True
     if parsed.no_diagnostics:
         args["no_diagnostics"] = True
+    if parsed.diagnostics:
+        args["diagnostics"] = True
 
     # Collect --key=value overrides
     overrides = {}
@@ -179,6 +181,8 @@ def cmd_bake_export(parsed: argparse.Namespace) -> int:
         args["selected_only"] = True
     if parsed.no_diagnostics:
         args["no_diagnostics"] = True
+    if parsed.diagnostics:
+        args["diagnostics"] = True
     if parsed.ibl_source:
         args["ibl_source"] = parsed.ibl_source
     if parsed.ibl_filepath:
@@ -332,7 +336,7 @@ def build_parser() -> argparse.ArgumentParser:
     p = settings_subs.add_parser("get", help="Read export settings")
     p.add_argument("blend_file", help="Path to .blend file")
     p.add_argument("--keys", nargs="+", help="Return only these keys")
-    p.add_argument("--group", help="Return settings from a group: general, objects, geometry, rigging, bake")
+    p.add_argument("--group", help="Return settings from a group: general, objects, geometry, rigging, texture, bake, diagnostics")
     p.set_defaults(func=cmd_settings_get)
 
     # settings set
@@ -353,6 +357,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("-o", "--output", required=True, help="Output file path")
     p.add_argument("--format", choices=["USDA", "USDC", "USDZ"], help="Export format")
     p.add_argument("--selected-only", action="store_true", help="Export selected objects only")
+    p.add_argument("--diagnostics", action="store_true", help="Write diagnostics JSON sidecar")
     p.add_argument("--no-diagnostics", action="store_true", help="Skip diagnostics")
     p.add_argument("overrides", nargs="*", metavar="--key=value", help="Setting overrides")
     p.set_defaults(func=cmd_export)
@@ -367,6 +372,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--image-format", choices=["AVIF", "PNG"], help="Baked texture format")
     p.add_argument("--margin", type=int, help="Bake padding in pixels")
     p.add_argument("--selected-only", action="store_true", help="Only bake/export selected objects")
+    p.add_argument("--diagnostics", action="store_true", help="Write diagnostics JSON sidecar")
     p.add_argument("--no-diagnostics", action="store_true", help="Skip diagnostics")
     # Lighting source options for LIT_IBL mode.
     p.add_argument("--ibl-source", choices=["SCENE_WORLD", "HDRI_FILE"], help="Lighting source for LIT_IBL mode")

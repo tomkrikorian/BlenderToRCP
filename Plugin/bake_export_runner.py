@@ -239,7 +239,7 @@ def main() -> int:
     status_path = job_dir / "status.json"
     log_path = job_dir / "log.txt"
 
-    diagnostics_path = str(Path(payload.get("export_path")).with_suffix(".diagnostics.json")) if payload.get("export_path") else None
+    diagnostics_path = payload.get("diagnostics_path")
 
     _update_status(
         status_path,
@@ -385,10 +385,7 @@ def main() -> int:
         bake_ops._ensure_object_mode(bpy.context)
         bake_ops._set_render_engine(bpy.context.scene, 'CYCLES')
 
-        if scene_settings.export_format == "USDZ":
-            texture_dir = blender_usd_export.get_usdz_staging_dir(export_path) / "textures"
-        else:
-            texture_dir = Path(export_path).parent / "textures"
+        texture_dir = blender_usd_export.get_export_staging_dir(export_path) / "textures"
         progress_reporter = _BakeProgressReporter(
             status_path,
             payload.get("export_path"),
@@ -455,7 +452,7 @@ def main() -> int:
                 status_path,
                 "error",
                 1.0,
-                "Postprocess failed; see diagnostics",
+                "Postprocess failed; see diagnostics" if diagnostics_path else "Postprocess failed",
                 str(log_path),
                 export_path=payload.get("export_path"),
                 diagnostics_path=diagnostics_path,
@@ -472,9 +469,8 @@ def main() -> int:
                 diag
             )
         else:
-            import shutil
             if temp_usd_path != export_path:
-                shutil.move(temp_usd_path, export_path)
+                blender_usd_export.publish_unpacked_export(temp_usd_path, export_path, diag)
 
         progress_reporter.stop()
         _save_diagnostics(diag, diagnostics_path)

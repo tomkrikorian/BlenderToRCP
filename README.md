@@ -74,6 +74,7 @@ blendertorcp bake-export scene.blend -o output.usdz --resolution 2048
 
 # Read and modify settings
 blendertorcp settings get scene.blend --group bake
+blendertorcp settings get scene.blend --group texture
 blendertorcp settings set scene.blend export_format=USDZ --dry-run
 ```
 
@@ -168,7 +169,6 @@ The add-on preferences expose:
 - `USDZ Packager Path`: optional path to `usdzip`. If empty, the add-on uses the built-in Python packager.
 - `MaterialX Library Path`: optional override for MaterialX definitions. If empty, the add-on uses the bundled references.
 - `Default Export Format`
-- `Enable Diagnostics`
 
 The add-on also persists the last-used export settings and remembers export paths per `.blend` file. That state lives in Blender preferences, not in the repository.
 
@@ -178,8 +178,10 @@ The main export operator validates every scene material in strict mode before wr
 - Name, path, Unicode, orientation, units, and transform-op controls.
 - Object-type toggles for meshes, lights, cameras, curves, points, volumes, hair, and world dome light conversion.
 - Geometry and rigging controls such as UV export, `st` renaming, normals, triangulation, subdivision, armatures, deform bones, and shape keys.
+- `Export Texture Settings` can be enabled to resize and transcode textures during `Export Scene` and `Bake Textures & Export`; when disabled, those settings are ignored by both paths.
+- `Diagnostics` can be enabled to write `<output>.diagnostics.json` and expose diagnostics/support-bundle actions.
 
-Exports write support-oriented diagnostics as `<output>.diagnostics.json` when diagnostics are enabled. Failure paths also try to persist that file so users can share validation, asset dependencies, traceback, environment, timing, and artifact context. The main panel exposes `Show Diagnostics` and `Create Support Bundle` actions.
+Exports write support-oriented diagnostics as `<output>.diagnostics.json` only when diagnostics are enabled for the export. Failure paths also persist that file only when diagnostics are enabled, so normal exports do not create diagnostics sidecars. The Diagnostics panel exposes `Show Diagnostics` and `Create Support Bundle` actions when enabled.
 
 ## Background Bake Textures & Export
 `Bake Textures & Export` is a background-only workflow. The add-on launches a second Blender process, bakes textures, runs the same USD export pipeline, and updates live job status in the panel.
@@ -206,7 +208,7 @@ Bake modes:
 - `Material Color Only` (`UNLIT_ALBEDO`): bakes light-independent material color and rewrites the exported materials as RealityKit Unlit materials. Use this when Reality Composer Pro or RealityKit should light the scene.
 - `Lighting & Shadows` (`LIT_IBL`, default): bakes the appearance under the selected lighting source, then still exports the final materials as RealityKit Unlit materials with lighting and shadows encoded into textures. Use this when the USDZ should match the Blender preview.
 - `Isolate Meshes for Shadows`: hides non-target meshes during lighting-and-shadows bakes to avoid cross-mesh shadow contribution.
-- `Image Format`: baked textures can be written as `.png` or `.avif`; AVIF support requires Blender 5.1+, and older builds warn and fall back to PNG.
+- `Export Texture Settings`: opt in to applying the shared texture resolution, image format, and bake margin settings. AVIF support requires Blender 5.1+, and older builds warn and fall back to PNG.
 
 ## Material authoring and diagnostics
 BlenderToRCP is not export-only. The Shader Editor integration also supports:
@@ -216,7 +218,7 @@ BlenderToRCP is not export-only. The Shader Editor integration also supports:
 - Browsing the generated RealityKit node catalog through `Add > RealityKit Nodes`.
 
 Diagnostics workflow:
-- Export-time diagnostics are gated by the `Enable Diagnostics` preference.
+- Export-time diagnostics are gated by the scene export setting `Enable Diagnostics` in the Diagnostics panel.
 - The diagnostics dialog summarizes converted and failed materials, copied and converted textures, fallback nodes, KTX-required nodes, omitted nodes, and truncated warning/error lists.
 - Diagnostics JSON can be inspected directly or opened in Blender's Text Editor for troubleshooting.
 - Support bundles are redacted ZIP files created from the Blender UI or with `blendertorcp support-bundle scene.blend -o output.usdz --diagnostics output.diagnostics.json`.

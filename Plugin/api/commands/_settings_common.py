@@ -60,6 +60,13 @@ SETTING_GROUPS: dict[str, set[str]] = {
         "only_deform_bones",
         "export_shapekeys",
     },
+    "texture": {
+        "export_texture_settings_enabled",
+        "bake_resolution",
+        "bake_resolution_custom",
+        "bake_image_format",
+        "bake_margin",
+    },
     "bake": {
         "bake_mode",
         "bake_ibl_source",
@@ -67,14 +74,13 @@ SETTING_GROUPS: dict[str, set[str]] = {
         "bake_ibl_strength",
         "bake_ibl_rotation",
         "bake_isolate_meshes_lit",
-        "bake_resolution",
-        "bake_resolution_custom",
-        "bake_image_format",
-        "bake_margin",
         "bake_base_color",
         "bake_opacity",
         "bake_keep_materials",
         "bake_step_timeout_seconds",
+    },
+    "diagnostics": {
+        "diagnostics_enabled",
     },
 }
 

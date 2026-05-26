@@ -19,10 +19,10 @@ from bpy.props import StringProperty
 from bpy.types import Operator
 from bpy_extras.io_utils import ExportHelper
 
-from .. import prefs as addon_prefs
 from .export_operator import (
     BLENDERTORCP_OT_export,
     _apply_persisted_settings,
+    _resolve_output_path_from_settings,
     _store_last_export_settings,
 )
 
@@ -54,44 +54,35 @@ class BLENDERTORCP_OT_bake_export_background(Operator, ExportHelper):
 
     def invoke(self, context, event):
         settings = context.scene.blender_to_rcp_export_settings
+        _apply_persisted_settings(context, settings)
         export_format = BLENDERTORCP_OT_export._normalize_export_format(settings.export_format)
         settings.export_format = export_format
-        extension = BLENDERTORCP_OT_export._format_extension(export_format)
-        self.filename_ext = extension
-        self.filter_glob = f"*{extension}"
-
-        blend_path = Path(context.blend_data.filepath) if context.blend_data.filepath else None
-        blend_name = blend_path.stem if blend_path else "untitled"
-        blend_dir = blend_path.parent if blend_path else None
-        last_path = addon_prefs.get_last_export_path(context, blend_path)
-
-        if last_path:
-            self.filepath = BLENDERTORCP_OT_export._enforce_extension(str(last_path), export_format)
-        elif blend_dir:
-            suggested = blend_dir / f"{blend_name}{extension}"
-            self.filepath = BLENDERTORCP_OT_export._enforce_extension(str(suggested), export_format)
-        else:
-            self.filepath = ""
-
-        context.window_manager.fileselect_add(self)
-        return {'RUNNING_MODAL'}
+        self.filepath = _resolve_output_path_from_settings(context, settings, export_format)
+        if not self.filepath:
+            self.report({'ERROR'}, "Set Output Path before baking and exporting.")
+            return {'CANCELLED'}
+        return self.execute(context)
 
     def execute(self, context):
-        if not self.filepath:
-            self.report({'ERROR'}, "No file path specified")
-            return {'CANCELLED'}
-
-        if not context.blend_data.filepath:
-            self.report({'ERROR'}, "Save the .blend file before running background export.")
-            return {'CANCELLED'}
-
         settings = context.scene.blender_to_rcp_export_settings
         _apply_persisted_settings(context, settings)
 
         export_format = BLENDERTORCP_OT_export._normalize_export_format(settings.export_format)
         settings.export_format = export_format
-        self.filepath = BLENDERTORCP_OT_export._enforce_extension(self.filepath, export_format)
+        self.filepath = _resolve_output_path_from_settings(
+            context,
+            settings,
+            export_format,
+            fallback=getattr(self, "filepath", ""),
+        )
+        if not self.filepath:
+            self.report({'ERROR'}, "Set Output Path before baking and exporting.")
+            return {'CANCELLED'}
         settings.filepath = self.filepath
+
+        if not context.blend_data.filepath:
+            self.report({'ERROR'}, "Save the .blend file before running background export.")
+            return {'CANCELLED'}
 
         if getattr(settings, "background_job_dir", ""):
             status = _read_job_status(settings.background_job_dir)
@@ -108,7 +99,10 @@ class BLENDERTORCP_OT_bake_export_background(Operator, ExportHelper):
         job_dir = _create_job_dir(export_dir)
         status_path = job_dir / "status.json"
         log_path = job_dir / "log.txt"
-        diagnostics_path = Path(self.filepath).with_suffix(".diagnostics.json")
+        diagnostics_enabled = bool(getattr(settings, "diagnostics_enabled", False))
+        diagnostics_path = str(Path(self.filepath).with_suffix(".diagnostics.json")) if diagnostics_enabled else None
+        if not diagnostics_enabled:
+            settings.last_diagnostics_path = ""
 
         selection_names = []
         if getattr(settings, "selected_objects_only", False):
@@ -121,6 +115,7 @@ class BLENDERTORCP_OT_bake_export_background(Operator, ExportHelper):
             "export_settings": _serialize_settings(settings),
             "selected_only": bool(getattr(settings, "selected_objects_only", False)),
             "selection": selection_names,
+            "diagnostics_path": diagnostics_path,
         }
         settings_path = job_dir / "settings.json"
         settings_path.write_text(json.dumps(payload, indent=2))
@@ -132,7 +127,7 @@ class BLENDERTORCP_OT_bake_export_background(Operator, ExportHelper):
             message="Queued background export",
             log_path=str(log_path),
             export_path=self.filepath,
-            diagnostics_path=str(diagnostics_path),
+            diagnostics_path=diagnostics_path,
         )
 
         blender_bin = bpy.app.binary_path
@@ -164,7 +159,7 @@ class BLENDERTORCP_OT_bake_export_background(Operator, ExportHelper):
             message="Queued background export",
             log_path=str(log_path),
             export_path=self.filepath,
-            diagnostics_path=str(diagnostics_path),
+            diagnostics_path=diagnostics_path,
             pid=proc.pid,
         )
         settings.background_job_dir = str(job_dir)

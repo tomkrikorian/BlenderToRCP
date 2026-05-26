@@ -26,12 +26,25 @@ class TestSettingsGet:
         assert isinstance(result.json["bake_mode"], str)
         # Should NOT contain keys from other groups
         assert "export_format" not in result.json
+        assert "bake_resolution" not in result.json
+
+    def test_group_filter_texture(self, run_cli, blend_file):
+        result = run_cli("settings", "get", str(blend_file), "--group", "texture")
+        assert result.ok
+        assert "export_texture_settings_enabled" in result.json
+        assert "bake_resolution" in result.json
+        assert "bake_mode" not in result.json
 
     def test_group_filter_general(self, run_cli, blend_file):
         result = run_cli("settings", "get", str(blend_file), "--group", "general")
         assert result.ok
         assert "export_format" in result.json
         assert "bake_mode" not in result.json
+
+    def test_group_filter_diagnostics(self, run_cli, blend_file):
+        result = run_cli("settings", "get", str(blend_file), "--group", "diagnostics")
+        assert result.ok
+        assert result.json == {"diagnostics_enabled": False}
 
     def test_keys_filter(self, run_cli, blend_file):
         result = run_cli("settings", "get", str(blend_file), "--keys", "export_format")
@@ -78,3 +91,4 @@ class TestSettingsList:
         result = run_cli("settings", "list")
         keys = [entry["key"] for entry in result.json]
         assert "export_format" in keys
+        assert "diagnostics_enabled" in keys

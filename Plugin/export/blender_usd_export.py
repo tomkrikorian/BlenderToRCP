@@ -7,6 +7,7 @@ which will then be post-processed for RealityKit compatibility.
 
 import os
 import bpy
+import shutil
 from pathlib import Path
 from typing import Optional
 
@@ -72,10 +73,15 @@ def _ngon_method_for_usd_export(value: str) -> str:
     return value
 
 
-def get_usdz_staging_dir(final_path: str | Path) -> Path:
-    """Return the per-export staging directory used for USDZ packaging."""
+def get_export_staging_dir(final_path: str | Path) -> Path:
+    """Return the per-export staging directory used for intermediate USD contents."""
     final_path = Path(final_path)
     return final_path.parent / ".blendertorcp_temp" / final_path.stem
+
+
+def get_usdz_staging_dir(final_path: str | Path) -> Path:
+    """Return the per-export staging directory used for USDZ packaging."""
+    return get_export_staging_dir(final_path)
 
 
 def export_blender_scene(context, settings, final_path: str, diagnostics=None) -> Optional[str]:
@@ -93,16 +99,17 @@ def export_blender_scene(context, settings, final_path: str, diagnostics=None) -
     if export_format == 'USD':
         export_format = 'USDC'
 
-    # Determine output path
-    if export_format == 'USDZ':
-        # Stage USDZ contents in an export-specific temp directory so they can be
-        # packaged and then removed without leaving sidecar assets behind.
-        temp_dir = get_usdz_staging_dir(final_path)
-        temp_dir.mkdir(parents=True, exist_ok=True)
-        temp_usd = temp_dir / f"{Path(final_path).stem}.usdc"
-        output_path = str(temp_usd)
-    else:
-        output_path = final_path
+    # Stage all exports in an export-specific temp directory. This prevents
+    # Blender's USD exporter from resolving relative texture paths against an
+    # existing destination `textures/` directory and reusing stale sidecars from
+    # previous exports.
+    temp_dir = get_export_staging_dir(final_path)
+    temp_dir.mkdir(parents=True, exist_ok=True)
+    temp_ext = ".usdc" if export_format == "USDZ" else Path(final_path).suffix
+    if not temp_ext:
+        temp_ext = ".usdc" if export_format == "USDC" else ".usda"
+    temp_usd = temp_dir / f"{Path(final_path).stem}{temp_ext}"
+    output_path = str(temp_usd)
     
     # Ensure directory exists
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
@@ -225,6 +232,110 @@ def export_blender_scene(context, settings, final_path: str, diagnostics=None) -
                 context.view_layer.objects.active = original_active
             except Exception:
                 pass
+
+
+def publish_unpacked_export(staged_usd_path: str | Path, final_path: str | Path, diagnostics=None) -> None:
+    """Publish a staged USDA/USDC export and its sidecar assets to the final directory."""
+    staged_usd = Path(staged_usd_path)
+    final = Path(final_path)
+    final.parent.mkdir(parents=True, exist_ok=True)
+
+    _remove_output_scoped_sidecars(final, "textures", diagnostics)
+
+    if final.exists():
+        final.unlink()
+    shutil.move(str(staged_usd), str(final))
+    if diagnostics:
+        diagnostics.add_generated_file("export", str(final), source=str(staged_usd))
+
+    staged_dir = staged_usd.parent
+    for dirname in ("textures", "assets"):
+        _publish_sidecar_directory(staged_dir / dirname, final.parent / dirname, diagnostics)
+
+    cleanup_export_staging_dir(staged_usd, diagnostics)
+
+
+def cleanup_export_staging_dir(staged_path: str | Path, diagnostics=None) -> None:
+    """Remove an export staging directory if the path is inside `.blendertorcp_temp`."""
+    staging_dir = Path(staged_path).resolve().parent
+    if staging_dir.name != ".blendertorcp_temp":
+        if staging_dir.parent.name != ".blendertorcp_temp":
+            return
+        temp_root = staging_dir.parent
+        target_dir = staging_dir
+    else:
+        temp_root = staging_dir
+        target_dir = staging_dir
+
+    try:
+        shutil.rmtree(target_dir)
+    except Exception as exc:
+        if diagnostics:
+            diagnostics.add_warning(
+                f"Failed to remove export staging directory '{target_dir}': {exc}"
+            )
+        return
+
+    if temp_root.name == ".blendertorcp_temp":
+        try:
+            temp_root.rmdir()
+        except OSError:
+            pass
+
+
+def _publish_sidecar_directory(source_dir: Path, dest_dir: Path, diagnostics=None) -> None:
+    if not source_dir.exists():
+        return
+    for source in source_dir.rglob("*"):
+        if not source.is_file():
+            continue
+        relative = source.relative_to(source_dir)
+        dest = dest_dir / relative
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        if dest.exists():
+            dest.unlink()
+        shutil.move(str(source), str(dest))
+        if diagnostics:
+            diagnostics.add_generated_file(
+                "sidecar_asset",
+                str(dest),
+                source=str(source),
+            )
+
+
+def _remove_output_scoped_sidecars(final_path: Path, dirname: str, diagnostics=None) -> None:
+    directory = final_path.parent / dirname
+    if not directory.exists():
+        return
+    prefix = _safe_filename_stem(final_path.stem)
+    if not prefix:
+        return
+    for path in directory.rglob(f"{prefix}-*"):
+        if not path.is_file():
+            continue
+        try:
+            path.unlink()
+            if diagnostics:
+                diagnostics.add_generated_file(
+                    "removed_stale_sidecar",
+                    str(path),
+                )
+        except Exception as exc:
+            if diagnostics:
+                diagnostics.add_warning(f"Failed to remove stale sidecar '{path}': {exc}")
+
+
+def _safe_filename_stem(name: str) -> str:
+    cleaned = []
+    previous_separator = False
+    for char in str(name or ""):
+        if char.isalnum() or char in {"-", "_"}:
+            cleaned.append(char)
+            previous_separator = False
+        elif not previous_separator:
+            cleaned.append("-")
+            previous_separator = True
+    return "".join(cleaned).strip("-_")
 
 
 def get_export_settings(context, settings) -> dict:

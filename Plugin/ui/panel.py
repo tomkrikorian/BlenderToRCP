@@ -21,6 +21,11 @@ _STALE_BACKGROUND_STATUS_MESSAGE = (
     "Background job is no longer attached to this Blender session. Clear stale job state."
 )
 _ACTIVE_BACKGROUND_JOB_STATES = {"queued", "running"}
+_EXPORT_FORMAT_EXTENSIONS = {
+    "USDA": ".usda",
+    "USDC": ".usdc",
+    "USDZ": ".usdz",
+}
 
 
 def _bake_result_summary(settings) -> str:
@@ -65,10 +70,49 @@ def _persist_settings(context, settings) -> None:
         addon_prefs.set_last_export_path(context, getattr(settings, "filepath", ""))
 
 
+def _normalize_export_format(export_format: str) -> str:
+    if export_format == "USD":
+        return "USDC"
+    return export_format
+
+
+def _output_path_with_format_extension(filepath: str, export_format: str) -> str:
+    filepath = str(filepath or "").strip()
+    if not filepath:
+        return ""
+
+    extension = _EXPORT_FORMAT_EXTENSIONS.get(_normalize_export_format(export_format), ".usdz")
+    try:
+        return str(Path(filepath).with_suffix(extension))
+    except ValueError:
+        return filepath
+
+
+def _sync_output_path_extension(settings) -> bool:
+    filepath = getattr(settings, "filepath", "")
+    if not filepath:
+        return False
+
+    updated = _output_path_with_format_extension(
+        filepath,
+        getattr(settings, "export_format", "USDZ"),
+    )
+    if not updated or updated == filepath:
+        return False
+
+    settings.persist_suspended = True
+    try:
+        settings.filepath = updated
+    finally:
+        settings.persist_suspended = False
+    return True
+
+
 def _on_settings_changed(self, context) -> None:
     """Update callback for export settings."""
     if getattr(self, "persist_suspended", False):
         return
+    _sync_output_path_extension(self)
     _persist_settings(context, self)
 
 
@@ -457,14 +501,21 @@ class BlenderToRCPExportSettings(PropertyGroup):
         update=_on_settings_changed,
     )
 
+    export_texture_settings_enabled: BoolProperty(
+        name="Override Textures",
+        description="Resize and transcode exported textures with the Export Texture Settings panel",
+        default=False,
+        update=_on_settings_changed,
+    )
+
     bake_resolution: EnumProperty(
-        name="Bake Resolution",
-        description="Resolution for baked textures",
+        name="Texture Resolution",
+        description="Resolution for baked textures and opt-in exported texture overrides",
         items=[
-            ('512', "512", "512x512"),
-            ('1024', "1024", "1024x1024"),
-            ('2048', "2048", "2048x2048"),
-            ('4096', "4096", "4096x4096"),
+            ('512', "512", "512 px"),
+            ('1024', "1024", "1024 px"),
+            ('2048', "2048", "2048 px"),
+            ('4096', "4096", "4096 px"),
             ('CUSTOM', "Custom", "Use a custom resolution"),
         ],
         default='2048',
@@ -524,6 +575,13 @@ class BlenderToRCPExportSettings(PropertyGroup):
         description="Force rewrite to RealityKit Unlit materials",
         default=False,
         options={'HIDDEN'},
+        update=_on_settings_changed,
+    )
+
+    diagnostics_enabled: BoolProperty(
+        name="Enable Diagnostics",
+        description="Write an export diagnostics JSON sidecar next to the output file",
+        default=False,
         update=_on_settings_changed,
     )
     
@@ -656,10 +714,6 @@ class BLENDERTORCP_PT_export_panel(Panel):
                         icon='TRASH',
                         text="Clear Background Job"
                     )
-            prefs = addon_prefs.get_preferences(context)
-            if prefs and prefs.enable_diagnostics:
-                actions_box.operator("blendertorcp.show_diagnostics", icon='INFO', text="Show Diagnostics")
-            actions_box.operator("blendertorcp.create_support_bundle", icon='FILE_FOLDER', text="Create Support Bundle")
         except Exception as exc:
             layout.label(text=f"UI error: {exc}")
             layout.operator("blendertorcp.export", icon='EXPORT', text="Export Scene")
@@ -674,7 +728,7 @@ class BLENDERTORCP_PT_export_usd_root(Panel):
     bl_region_type = 'UI'
     bl_category = "RCP Exporter"
     bl_options = {'DEFAULT_CLOSED'}
-    bl_order = 1
+    bl_order = 3
 
     def draw(self, context):
         layout = self.layout
@@ -808,6 +862,69 @@ class BLENDERTORCP_PT_export_usd_rigging(Panel):
         layout.prop(settings, "only_deform_bones")
 
 
+class BLENDERTORCP_PT_export_texture_settings(Panel):
+    """Shared export texture override settings."""
+    bl_label = "Export Texture Settings"
+    bl_idname = "BLENDERTORCP_PT_export_texture_settings"
+    bl_parent_id = "BLENDERTORCP_PT_export_panel"
+    bl_space_type = 'VIEW_3D'
+    bl_region_type = 'UI'
+    bl_category = "RCP Exporter"
+    bl_options = {'DEFAULT_CLOSED'}
+    bl_order = 0
+
+    def draw(self, context):
+        layout = self.layout
+        layout.use_property_split = True
+        layout.use_property_decorate = False
+
+        settings = context.scene.blender_to_rcp_export_settings
+        layout.enabled = not _is_job_running(settings)
+        layout.prop(settings, "export_texture_settings_enabled")
+
+        settings_box = layout.box()
+        settings_box.enabled = bool(settings.export_texture_settings_enabled)
+        settings_box.prop(settings, "bake_resolution")
+        settings_box.prop(settings, "bake_image_format")
+        if settings.bake_resolution == 'CUSTOM':
+            settings_box.prop(settings, "bake_resolution_custom")
+        settings_box.prop(settings, "bake_margin")
+
+
+class BLENDERTORCP_PT_export_diagnostics(Panel):
+    """Diagnostics and support actions."""
+    bl_label = "Diagnostics"
+    bl_idname = "BLENDERTORCP_PT_export_diagnostics"
+    bl_parent_id = "BLENDERTORCP_PT_export_panel"
+    bl_space_type = 'VIEW_3D'
+    bl_region_type = 'UI'
+    bl_category = "RCP Exporter"
+    bl_options = {'DEFAULT_CLOSED'}
+    bl_order = 2
+
+    def draw(self, context):
+        layout = self.layout
+        layout.use_property_split = True
+        layout.use_property_decorate = False
+
+        settings = context.scene.blender_to_rcp_export_settings
+        job_running = _is_job_running(settings)
+        toggle_row = layout.row()
+        toggle_row.enabled = not job_running
+        toggle_row.prop(settings, "diagnostics_enabled")
+
+        if not settings.diagnostics_enabled:
+            return
+
+        diag_path = _diagnostics_output_path(settings)
+        if diag_path:
+            layout.label(text=f"Path: {diag_path}", icon='FILE')
+
+        actions = layout.row(align=True)
+        actions.operator("blendertorcp.show_diagnostics", icon='INFO', text="Show Diagnostics")
+        actions.operator("blendertorcp.create_support_bundle", icon='FILE_FOLDER', text="Create Support Bundle")
+
+
 class BLENDERTORCP_PT_export_bake_settings(Panel):
     """Bake Textures & Export settings"""
     bl_label = "Bake Texture Settings"
@@ -817,7 +934,7 @@ class BLENDERTORCP_PT_export_bake_settings(Panel):
     bl_region_type = 'UI'
     bl_category = "RCP Exporter"
     bl_options = {'DEFAULT_CLOSED'}
-    bl_order = 0
+    bl_order = 1
 
     def draw(self, context):
         layout = self.layout
@@ -844,14 +961,6 @@ class BLENDERTORCP_PT_export_bake_settings(Panel):
                 lighting_box.prop(settings, "bake_ibl_rotation")
             lighting_box.prop(settings, "bake_isolate_meshes_lit")
 
-        texture_box = layout.box()
-        texture_box.label(text="Texture Output")
-        texture_box.prop(settings, "bake_resolution")
-        texture_box.prop(settings, "bake_image_format")
-        if settings.bake_resolution == 'CUSTOM':
-            texture_box.prop(settings, "bake_resolution_custom")
-        texture_box.prop(settings, "bake_margin")
-
 
 class BLENDERTORCP_PT_export_bake_advanced(Panel):
     """Advanced Bake Textures & Export settings"""
@@ -877,6 +986,19 @@ class BLENDERTORCP_PT_export_bake_advanced(Panel):
 
 
 
+def _diagnostics_output_path(settings) -> str:
+    status = _read_background_job_status(settings)
+    if status and status.get("diagnostics_path"):
+        return str(status.get("diagnostics_path"))
+    filepath = str(getattr(settings, "filepath", "") or "").strip()
+    if not filepath:
+        return ""
+    try:
+        return str(Path(filepath).with_suffix(".diagnostics.json"))
+    except Exception:
+        return ""
+
+
 def register():
     """Register UI classes"""
     bpy.utils.register_class(BlenderToRCPExportSettings)
@@ -886,6 +1008,8 @@ def register():
     bpy.utils.register_class(BLENDERTORCP_PT_export_usd_object_types)
     bpy.utils.register_class(BLENDERTORCP_PT_export_usd_geometry)
     bpy.utils.register_class(BLENDERTORCP_PT_export_usd_rigging)
+    bpy.utils.register_class(BLENDERTORCP_PT_export_texture_settings)
+    bpy.utils.register_class(BLENDERTORCP_PT_export_diagnostics)
     bpy.utils.register_class(BLENDERTORCP_PT_export_bake_settings)
     bpy.utils.register_class(BLENDERTORCP_PT_export_bake_advanced)
     
@@ -904,6 +1028,8 @@ def unregister():
     del bpy.types.Scene.blender_to_rcp_export_settings
     bpy.utils.unregister_class(BLENDERTORCP_PT_export_bake_advanced)
     bpy.utils.unregister_class(BLENDERTORCP_PT_export_bake_settings)
+    bpy.utils.unregister_class(BLENDERTORCP_PT_export_diagnostics)
+    bpy.utils.unregister_class(BLENDERTORCP_PT_export_texture_settings)
     bpy.utils.unregister_class(BLENDERTORCP_PT_export_usd_rigging)
     bpy.utils.unregister_class(BLENDERTORCP_PT_export_usd_geometry)
     bpy.utils.unregister_class(BLENDERTORCP_PT_export_usd_object_types)
@@ -945,6 +1071,9 @@ def _apply_persisted_settings_now(context, settings) -> None:
         addon_prefs.apply_last_export_path(context, settings)
     finally:
         settings.persist_suspended = False
+
+    if _sync_output_path_extension(settings):
+        _persist_settings(context, settings)
 
     settings.history_applied = True
 
