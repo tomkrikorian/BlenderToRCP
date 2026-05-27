@@ -37,7 +37,7 @@ def test_cli_entrypoint_works_when_extension_folder_is_named_blendertorcp(tmp_pa
     )
 
     assert proc.returncode == 0, proc.stderr
-    assert json.loads(proc.stdout)["plugin"] == "1.1.0"
+    assert json.loads(proc.stdout)["plugin"] == "1.2.0"
 
 
 # ---------------------------------------------------------------------------
