@@ -225,11 +225,20 @@ def _create_texture_connection(
             )
             current_type = 'vector3'
 
-        normalmap_nodedef = select_nodedef_name_for_node(
-            manifest,
-            "normal_map_decode",
-            output_type="vector3",
+        strength_value = _normal_map_strength_value(texture_spec.get("scale"))
+        space = _normal_map_space(texture_spec)
+        can_use_realitykit_decode = _can_use_realitykit_normal_map_decode(
+            strength_value,
+            space,
         )
+
+        normalmap_nodedef = None
+        if can_use_realitykit_decode:
+            normalmap_nodedef = select_nodedef_name_for_node(
+                manifest,
+                "normal_map_decode",
+                output_type="vector3",
+            )
         normalmap_supports_only_input = bool(normalmap_nodedef)
         if not normalmap_nodedef:
             normalmap_nodedef = select_nodedef_name_for_node(
@@ -237,7 +246,9 @@ def _create_texture_connection(
                 "normalmap",
                 output_type="vector3",
             )
-        normalmap_nodedef = normalmap_nodedef or "ND_normal_map_decode"
+        normalmap_nodedef = normalmap_nodedef or (
+            "ND_normal_map_decode" if can_use_realitykit_decode else "ND_normalmap"
+        )
 
         normalmap_name = _sanitize_name(f"NormalMap_{input_name}")
         normalmap_prim = stage.DefinePrim(f"{nodegraph_path}/{normalmap_name}", "Shader")
@@ -251,17 +262,10 @@ def _create_texture_connection(
             return normalmap_shader.CreateOutput("out", Sdf.ValueTypeNames.Float3)
 
         # Optional strength hook for stdlib normalmap fallback.
-        strength = texture_spec.get("scale")
-        if strength is not None:
-            try:
-                strength_value = float(strength)
-            except Exception:
-                strength_value = None
-            if strength_value is not None and abs(strength_value - 1.0) > 1e-6:
-                normalmap_shader.CreateInput("scale", Sdf.ValueTypeNames.Float).Set(strength_value)
+        if strength_value is not None and abs(strength_value - 1.0) > 1e-6:
+            normalmap_shader.CreateInput("scale", Sdf.ValueTypeNames.Float).Set(strength_value)
 
         # Optional space override for stdlib normalmap fallback.
-        space = (texture_spec.get("space") or "").strip().lower()
         if space in {"tangent", "object"}:
             normalmap_shader.CreateInput("space", Sdf.ValueTypeNames.String).Set(space)
 
@@ -560,6 +564,25 @@ def _image_output_hint(output_type: str, channel: str, texture_kind: Optional[st
     if output_type == 'float':
         return 'color3'
     return 'color3'
+
+
+def _normal_map_strength_value(value: Any) -> Optional[float]:
+    if value is None:
+        return None
+    try:
+        return float(value)
+    except Exception:
+        return None
+
+
+def _normal_map_space(texture_spec: Dict[str, Any]) -> str:
+    return (texture_spec.get("space") or "").strip().lower()
+
+
+def _can_use_realitykit_normal_map_decode(strength_value: Optional[float], space: str) -> bool:
+    strength_is_default = strength_value is None or abs(strength_value - 1.0) <= 1e-6
+    space_is_default = space in {"", "tangent"}
+    return strength_is_default and space_is_default
 
 
 def _resolve_texture_output(

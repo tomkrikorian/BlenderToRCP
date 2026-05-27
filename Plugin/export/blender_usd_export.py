@@ -5,6 +5,8 @@ Uses Blender's native USD exporter to create initial USD file,
 which will then be post-processed for RealityKit compatibility.
 """
 
+from __future__ import annotations
+
 import os
 import bpy
 import shutil
@@ -104,7 +106,7 @@ def export_blender_scene(context, settings, final_path: str, diagnostics=None) -
     # existing destination `textures/` directory and reusing stale sidecars from
     # previous exports.
     temp_dir = get_export_staging_dir(final_path)
-    temp_dir.mkdir(parents=True, exist_ok=True)
+    _reset_export_staging_dir(temp_dir, diagnostics)
     temp_ext = ".usdc" if export_format == "USDZ" else Path(final_path).suffix
     if not temp_ext:
         temp_ext = ".usdc" if export_format == "USDC" else ".usda"
@@ -281,6 +283,26 @@ def cleanup_export_staging_dir(staged_path: str | Path, diagnostics=None) -> Non
             temp_root.rmdir()
         except OSError:
             pass
+
+
+def _reset_export_staging_dir(staging_dir: str | Path, diagnostics=None) -> None:
+    """Create an empty per-export staging directory."""
+    staging_dir = Path(staging_dir)
+    if staging_dir.parent.name != ".blendertorcp_temp" or staging_dir.name in {"", ".", ".."}:
+        raise RuntimeError(f"Refusing to reset unsafe export staging directory: {staging_dir}")
+
+    try:
+        if staging_dir.is_symlink():
+            staging_dir.unlink()
+        elif staging_dir.exists():
+            shutil.rmtree(staging_dir)
+        staging_dir.mkdir(parents=True, exist_ok=True)
+    except Exception as exc:
+        if diagnostics:
+            diagnostics.add_warning(
+                f"Failed to reset export staging directory '{staging_dir}': {exc}"
+            )
+        raise RuntimeError(f"Failed to reset export staging directory: {staging_dir}") from exc
 
 
 def _publish_sidecar_directory(source_dir: Path, dest_dir: Path, diagnostics=None) -> None:
