@@ -503,7 +503,7 @@ class BlenderToRCPExportSettings(PropertyGroup):
 
     export_texture_settings_enabled: BoolProperty(
         name="Override Textures",
-        description="Resize and transcode exported textures with the Export Texture Settings panel",
+        description="Resize and transcode exported textures with the USD Export: Texture panel",
         default=False,
         update=_on_settings_changed,
     )
@@ -669,7 +669,6 @@ class BLENDERTORCP_PT_export_panel(Panel):
                 icon='RENDER_STILL',
                 text="Bake Textures & Export"
             )
-            actions_box.label(text=_bake_result_summary(settings), icon='INFO')
 
             if status:
                 monitor = actions_box.box()
@@ -866,14 +865,14 @@ class BLENDERTORCP_PT_export_usd_rigging(Panel):
 
 class BLENDERTORCP_PT_export_texture_settings(Panel):
     """Shared export texture override settings."""
-    bl_label = "Export Texture Settings"
+    bl_label = "USD Export: Texture"
     bl_idname = "BLENDERTORCP_PT_export_texture_settings"
-    bl_parent_id = "BLENDERTORCP_PT_export_panel"
+    bl_parent_id = "BLENDERTORCP_PT_export_usd_root"
     bl_space_type = 'VIEW_3D'
     bl_region_type = 'UI'
     bl_category = "RCP Exporter"
     bl_options = {'DEFAULT_CLOSED'}
-    bl_order = 0
+    bl_order = 4
 
     def draw(self, context):
         layout = self.layout
@@ -929,14 +928,14 @@ class BLENDERTORCP_PT_export_diagnostics(Panel):
 
 class BLENDERTORCP_PT_export_bake_settings(Panel):
     """Bake Textures & Export settings"""
-    bl_label = "Bake Texture Settings"
+    bl_label = "USD Export: Baking"
     bl_idname = "BLENDERTORCP_PT_export_bake_settings"
-    bl_parent_id = "BLENDERTORCP_PT_export_panel"
+    bl_parent_id = "BLENDERTORCP_PT_export_usd_root"
     bl_space_type = 'VIEW_3D'
     bl_region_type = 'UI'
     bl_category = "RCP Exporter"
     bl_options = {'DEFAULT_CLOSED'}
-    bl_order = 1
+    bl_order = 5
 
     def draw(self, context):
         layout = self.layout

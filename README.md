@@ -178,7 +178,7 @@ The main export operator validates every scene material in strict mode before wr
 - Name, path, Unicode, orientation, units, and transform-op controls.
 - Object-type toggles for meshes, lights, cameras, curves, points, volumes, hair, and world dome light conversion.
 - Geometry and rigging controls such as UV export, `st` renaming, normals, triangulation, subdivision, armatures, deform bones, and shape keys.
-- `Export Texture Settings` can be enabled to resize textures, transcode them to AVIF/PNG, or keep the original source format and/or dimensions during `Export Scene`; when disabled, those settings are ignored by both paths.
+- `USD Export: Texture` can be enabled to resize textures, transcode them to AVIF/PNG, or keep the original source format and/or dimensions during `Export Scene`; when disabled, those settings are ignored by both paths.
 - `Diagnostics` can be enabled to write `<output>.diagnostics.json` and expose diagnostics/support-bundle actions.
 
 Exports write support-oriented diagnostics as `<output>.diagnostics.json` only when diagnostics are enabled for the export. Failure paths also persist that file only when diagnostics are enabled, so normal exports do not create diagnostics sidecars. The Diagnostics panel exposes `Show Diagnostics` and `Create Support Bundle` actions when enabled.
@@ -208,7 +208,7 @@ Bake modes:
 - `Material Color Only` (`UNLIT_ALBEDO`): bakes light-independent material color and rewrites the exported materials as RealityKit Unlit materials. Use this when Reality Composer Pro or RealityKit should light the scene.
 - `Lighting & Shadows` (`LIT_IBL`, default): bakes the appearance under the selected lighting source, then still exports the final materials as RealityKit Unlit materials with lighting and shadows encoded into textures. Use this when the USDZ should match the Blender preview.
 - `Isolate Meshes for Shadows`: hides non-target meshes during lighting-and-shadows bakes to avoid cross-mesh shadow contribution.
-- `Export Texture Settings`: opt in to applying the shared texture resolution, image format, and bake margin settings. For `Export Scene`, `Original` keeps each source texture format and `Keep Original` leaves source dimensions untouched. AVIF support requires Blender 5.1+, and older builds warn and fall back to PNG.
+- `USD Export: Texture`: opt in to applying the shared texture resolution, image format, and bake margin settings. For `Export Scene`, `Original` keeps each source texture format and `Keep Original` leaves source dimensions untouched. AVIF support requires Blender 5.1+, and older builds warn and fall back to PNG.
 
 ## Material authoring and diagnostics
 BlenderToRCP is not export-only. The Shader Editor integration also supports:
