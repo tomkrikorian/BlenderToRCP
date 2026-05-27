@@ -305,3 +305,81 @@ def test_prepare_textures_writes_resized_png_when_avif_encoder_is_unavailable(tm
     assert fallback.read_bytes() == b"resized png"
     assert saved_sizes == [(32, 16)]
     assert attr.set_value.path == "textures/scene-source.png"
+
+
+def test_prepare_textures_original_format_and_resolution_copies_source(tmp_path, monkeypatch):
+    monkeypatch.setattr(usd_textures, "Sdf", _FakeSdf)
+
+    source = tmp_path / "photo.jpg"
+    source.write_bytes(b"original jpg")
+
+    usd_path = tmp_path / "scene.usda"
+    usd_path.write_text("#usda 1.0\n")
+    attr = _FakeAttr(str(source))
+    stage = _FakeStage([attr])
+    settings = SimpleNamespace(
+        export_texture_settings_enabled=True,
+        bake_image_format="ORIGINAL",
+        bake_resolution="ORIGINAL",
+        bake_resolution_custom=32,
+    )
+
+    usd_textures.prepare_textures(stage, str(usd_path), settings)
+
+    copied = tmp_path / "textures" / "scene-photo.jpg"
+    assert copied.read_bytes() == b"original jpg"
+    assert attr.set_value.path == "textures/scene-photo.jpg"
+
+
+def test_prepare_textures_resizes_with_original_source_format(tmp_path, monkeypatch):
+    monkeypatch.setattr(usd_textures, "Sdf", _FakeSdf)
+
+    source = tmp_path / "photo.jpg"
+    source.write_bytes(b"source jpg")
+    saved_sizes = []
+
+    class _FakeImage:
+        def __init__(self):
+            self.size = [128, 64]
+            self.users = 0
+            self.filepath_raw = ""
+            self.file_format = ""
+
+        def scale(self, width, height):
+            self.size = [width, height]
+            saved_sizes.append((width, height))
+
+        def save(self):
+            assert self.file_format == "JPEG"
+            Path(self.filepath_raw).write_bytes(b"resized jpg")
+
+    class _FakeImages:
+        def load(self, *_args, **_kwargs):
+            return _FakeImage()
+
+        def remove(self, _image):
+            pass
+
+    fake_bpy = SimpleNamespace(
+        app=SimpleNamespace(background=False),
+        data=SimpleNamespace(images=_FakeImages()),
+    )
+    monkeypatch.setitem(sys.modules, "bpy", fake_bpy)
+
+    usd_path = tmp_path / "scene.usda"
+    usd_path.write_text("#usda 1.0\n")
+    attr = _FakeAttr(str(source))
+    stage = _FakeStage([attr])
+    settings = SimpleNamespace(
+        export_texture_settings_enabled=True,
+        bake_image_format="ORIGINAL",
+        bake_resolution="32",
+        bake_resolution_custom=32,
+    )
+
+    usd_textures.prepare_textures(stage, str(usd_path), settings)
+
+    resized = tmp_path / "textures" / "scene-photo.jpg"
+    assert resized.read_bytes() == b"resized jpg"
+    assert saved_sizes == [(32, 16)]
+    assert attr.set_value.path == "textures/scene-photo.jpg"

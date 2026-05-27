@@ -533,8 +533,8 @@ blendertorcp bake-export <file.blend> -o <output_path> [options]
 |------|---------|-------------|
 | `--format <FORMAT>` | from settings | Export format: `USDA`, `USDC`, `USDZ` |
 | `--bake-mode <MODE>` | from settings (`LIT_IBL` for fresh scenes) | `UNLIT_ALBEDO` for Material Color Only, `LIT_IBL` for Lighting & Shadows |
-| `--resolution <RES>` | `2048` | Enables texture overrides for this run and sets bake resolution: `512`, `1024`, `2048`, `4096`, or any integer for custom |
-| `--image-format <FMT>` | `AVIF` | Enables texture overrides for this run and sets baked texture format: `AVIF` (requires Blender 5.1+) or `PNG` |
+| `--resolution <RES>` | `2048` | Enables texture overrides for this run and sets bake/export texture resolution: `ORIGINAL`, `512`, `1024`, `2048`, `4096`, or any integer for custom |
+| `--image-format <FMT>` | `AVIF` | Enables texture overrides for this run and sets baked/exported texture format: `ORIGINAL`, `AVIF` (requires Blender 5.1+), or `PNG` |
 | `--margin <PX>` | `8` | Enables texture overrides for this run and sets bake padding in pixels |
 | `--selected-only` | off | Only bake and export selected objects |
 | `--diagnostics` | off | Write `<output>.diagnostics.json` |
@@ -793,12 +793,12 @@ Complete list of every export setting that can be read with `settings get`, writ
 | Key | Type | Values | Default |
 |-----|------|--------|---------|
 | `export_texture_settings_enabled` | bool | `true`, `false` | `false` |
-| `bake_resolution` | enum | `512`, `1024`, `2048`, `4096`, `CUSTOM` | `2048` |
+| `bake_resolution` | enum | `ORIGINAL`, `512`, `1024`, `2048`, `4096`, `CUSTOM` | `2048` |
 | `bake_resolution_custom` | int | 32+ | `2048` |
-| `bake_image_format` | enum | `AVIF`, `PNG` | `AVIF` |
+| `bake_image_format` | enum | `ORIGINAL`, `AVIF`, `PNG` | `AVIF` |
 | `bake_margin` | int | 0+ | `8` |
 
-When `export_texture_settings_enabled` is `false`, `Export Scene` preserves source texture files and `Bake Textures & Export` uses its internal defaults. When it is `true`, both export paths use this section to transcode to AVIF/PNG and apply the configured texture resolution.
+When `export_texture_settings_enabled` is `false`, `Export Scene` preserves source texture files and `Bake Textures & Export` uses its internal defaults. When it is `true`, `Export Scene` can transcode to AVIF/PNG, keep each source texture's original format, resize to the configured maximum resolution, or keep original dimensions. `Bake Textures & Export` uses concrete bake outputs; `ORIGINAL` format/resolution falls back to PNG/2048 for newly baked images because there is no source image to preserve.
 
 ### Diagnostics
 

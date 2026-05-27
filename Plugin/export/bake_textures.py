@@ -22,6 +22,10 @@ _BAKE_IMAGE_FORMATS = {
         "file_format": "PNG",
         "extension": ".png",
     },
+    "ORIGINAL": {
+        "file_format": "ORIGINAL",
+        "extension": "",
+    },
 }
 
 _DEFAULT_BAKE_RESOLUTION = 2048
@@ -436,6 +440,23 @@ def _resolve_bake_resolution(settings) -> int:
         return _DEFAULT_BAKE_RESOLUTION
 
     value = getattr(settings, "bake_resolution", "2048")
+    if str(value).upper() == "ORIGINAL":
+        return _DEFAULT_BAKE_RESOLUTION
+    if value == 'CUSTOM':
+        return int(getattr(settings, "bake_resolution_custom", _DEFAULT_BAKE_RESOLUTION))
+    try:
+        return int(value)
+    except Exception:
+        return _DEFAULT_BAKE_RESOLUTION
+
+
+def _resolve_texture_override_resolution(settings) -> int:
+    if not _export_texture_settings_enabled(settings):
+        return _DEFAULT_BAKE_RESOLUTION
+
+    value = getattr(settings, "bake_resolution", "2048")
+    if str(value).upper() == "ORIGINAL":
+        return 0
     if value == 'CUSTOM':
         return int(getattr(settings, "bake_resolution_custom", _DEFAULT_BAKE_RESOLUTION))
     try:
@@ -451,6 +472,19 @@ def _resolve_bake_image_format(settings, diagnostics=None, *, safe_for_blender_s
         requested = _DEFAULT_BAKE_IMAGE_FORMAT
     if requested not in _BAKE_IMAGE_FORMATS:
         requested = _DEFAULT_BAKE_IMAGE_FORMAT
+
+    if requested == "ORIGINAL":
+        if safe_for_blender_save:
+            message = (
+                "Original texture format is only available for existing texture staging; "
+                "baked textures are saved as PNG."
+            )
+            print(f"Warning: {message}")
+            if diagnostics:
+                diagnostics.add_warning(message)
+            requested = "PNG"
+        else:
+            return dict(_BAKE_IMAGE_FORMATS["ORIGINAL"])
 
     if safe_for_blender_save and requested == "AVIF":
         fallback = "PNG"

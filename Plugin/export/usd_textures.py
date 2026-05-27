@@ -44,6 +44,18 @@ _CONVERTIBLE_TEXTURE_EXTENSIONS = {
     ".webp",
 }
 
+_ORIGINAL_FORMAT_BY_EXTENSION = {
+    ".avif": "AVIF",
+    ".png": "PNG",
+    ".jpg": "JPEG",
+    ".jpeg": "JPEG",
+    ".tif": "TIFF",
+    ".tiff": "TIFF",
+    ".tga": "TARGA",
+    ".bmp": "BMP",
+    ".webp": "WEBP",
+}
+
 _AVIFENC_CANDIDATE_PATHS = (
     "/opt/homebrew/bin/avifenc",
     "/usr/local/bin/avifenc",
@@ -208,10 +220,13 @@ def _texture_override_settings(settings, diagnostics=None):
         from . import bake_textures
 
         image_format = bake_textures._resolve_bake_image_format(settings, diagnostics)
-        resolution = bake_textures._resolve_bake_resolution(settings)
+        resolution = bake_textures._resolve_texture_override_resolution(settings)
     except Exception as exc:
         if diagnostics:
             diagnostics.add_warning(f"Export texture overrides disabled: {exc}")
+        return None
+
+    if image_format["file_format"] == "ORIGINAL" and int(resolution) <= 0:
         return None
 
     return {
@@ -312,10 +327,25 @@ def _convert_texture(source_path: Path, dest_path: Path, texture_override, diagn
         return False
 
     file_format = str(texture_override.get("file_format") or "").upper()
+    if file_format == "ORIGINAL":
+        file_format = _original_file_format_for_source(source_path)
+        if not file_format:
+            if diagnostics:
+                diagnostics.add_warning(
+                    f"Could not resize texture '{source_path}' in its original format; copied the original instead."
+                )
+            return False
+        texture_override = dict(texture_override)
+        texture_override["file_format"] = file_format
+
     if file_format == "AVIF":
         return _convert_texture_to_avif(source_path, dest_path, texture_override, bpy, diagnostics)
 
     return _convert_texture_in_current_process(source_path, dest_path, texture_override, bpy, diagnostics)
+
+
+def _original_file_format_for_source(source_path: Path) -> str | None:
+    return _ORIGINAL_FORMAT_BY_EXTENSION.get(source_path.suffix.lower())
 
 
 def _convert_texture_in_current_process(

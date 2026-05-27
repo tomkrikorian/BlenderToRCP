@@ -512,6 +512,7 @@ class BlenderToRCPExportSettings(PropertyGroup):
         name="Texture Resolution",
         description="Resolution for baked textures and opt-in exported texture overrides",
         items=[
+            ('ORIGINAL', "Keep Original", "Do not resize existing exported textures"),
             ('512', "512", "512 px"),
             ('1024', "1024", "1024 px"),
             ('2048', "2048", "2048 px"),
@@ -524,8 +525,9 @@ class BlenderToRCPExportSettings(PropertyGroup):
 
     bake_image_format: EnumProperty(
         name="Image Format",
-        description="File format for baked textures (AVIF requires Blender 5.1+)",
+        description="File format for texture overrides (Original keeps each source texture format)",
         items=[
+            ('ORIGINAL', "Original", "Keep each existing exported texture's source file format"),
             ('AVIF', ".avif", "Bake textures as AVIF with alpha (Blender 5.1+)"),
             ('PNG', ".png", "Bake textures as PNG with alpha"),
         ],

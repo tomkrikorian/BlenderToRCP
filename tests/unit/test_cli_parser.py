@@ -192,6 +192,10 @@ class TestBakeExportCommand:
         args = parser.parse_args(["bake-export", "scene.blend", "-o", "out.usdz", "--image-format", "PNG"])
         assert args.image_format == "PNG"
 
+    def test_original_image_format(self, parser):
+        args = parser.parse_args(["bake-export", "scene.blend", "-o", "out.usdz", "--image-format", "ORIGINAL"])
+        assert args.image_format == "ORIGINAL"
+
     def test_margin_is_int(self, parser):
         args = parser.parse_args(["bake-export", "scene.blend", "-o", "out.usdz", "--margin", "16"])
         assert args.margin == 16

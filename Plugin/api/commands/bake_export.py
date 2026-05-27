@@ -87,7 +87,9 @@ def handle(args: dict) -> dict:
         settings.export_texture_settings_enabled = True
         res = args["resolution"]
         res_str = str(res)
-        if res_str in ("512", "1024", "2048", "4096"):
+        if res_str.upper().replace("-", "_") in {"ORIGINAL", "KEEP_ORIGINAL"}:
+            settings.bake_resolution = "ORIGINAL"
+        elif res_str in ("512", "1024", "2048", "4096"):
             settings.bake_resolution = res_str
         else:
             settings.bake_resolution = "CUSTOM"
