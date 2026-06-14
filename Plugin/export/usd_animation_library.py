@@ -27,6 +27,14 @@ def author_animation_library(stage, settings, diagnostics=None) -> None:
     segments = list(anim.get("segments") or [])
     if not segments:
         return
+    if not bool(getattr(settings, "author_animation_library", False)):
+        _remove_existing_animation_library(stage)
+        diagnostics.add_warning(
+            "Skipped RCP AnimationLibrary clip metadata. "
+            "Enable author_animation_library only for RCP-editor workflows; "
+            "RealityKit runtime exports should play/trim imported animations directly."
+        )
+        return
 
     default_prim = stage.GetDefaultPrim()
     if not default_prim:
@@ -64,7 +72,6 @@ def author_animation_library(stage, settings, diagnostics=None) -> None:
     _set_uniform_attr(lib_prim, "info:id", Sdf.ValueTypeNames.Token, "RealityKit.AnimationLibrary")
 
     source_names = _pick_source_animation_names(stage)
-    primary_source = source_names[0] if source_names else DEFAULT_SOURCE_ANIMATION_NAME
 
     for source_name in source_names:
         clip_def_name = _clip_definition_name(source_name)
@@ -106,6 +113,18 @@ def _set_uniform_attr(prim, name: str, type_name, value):
     attr.Set(value)
 
 
+def _remove_existing_animation_library(stage) -> None:
+    try:
+        default_prim = stage.GetDefaultPrim()
+        if not default_prim:
+            return
+        lib_path = default_prim.GetPath().AppendChild("AnimationLibrary")
+        if stage.GetPrimAtPath(str(lib_path)):
+            stage.RemovePrim(str(lib_path))
+    except Exception:
+        pass
+
+
 def _pick_source_animation_name(stage) -> str:
     """
     Reality Composer Pro presents different animation "sources" depending on how
@@ -129,36 +148,14 @@ def _pick_source_animation_name(stage) -> str:
 
 def _pick_source_animation_names(stage) -> list[str]:
     """
-    Return a prioritized list of possible Reality Composer Pro animation source names.
+    Return the single source name to author into RCP clip metadata.
 
-    RCP naming isn't fully documented and can vary based on the kind of animation
-    authored in the USD. To avoid missing clips when the "sourceAnimationName"
-    doesn't match what RCP generated, we author multiple clip definitions (same
-    clip names/start times) keyed to likely sources.
+    Do not emit fallback/guessed source names. RealityKit may try to compile
+    every RealityKitClipDefinition; orphan sources can produce invalid
+    compiledanimationscene assets at runtime.
     """
-    primary = _pick_source_animation_name(stage)
-    out: list[str] = []
-
-    def add(name: str) -> None:
-        if name and name not in out:
-            out.append(name)
-
-    add(primary)
-
-    # Always include the classic subtree name as a fallback, since many RCP files use it.
-    add(DEFAULT_SOURCE_ANIMATION_NAME)
-
-    # For transform-only exports, RCP often exposes "transform animation".
-    try:
-        if _stage_has_timesampled_xform_ops(stage):
-            add(DEFAULT_TRANSFORM_ANIMATION_NAME)
-    except Exception:
-        pass
-
-    # Leave room for future: default scene animation, blendshape animation, etc.
-    # add(DEFAULT_SCENE_ANIMATION_NAME)
-
-    return out
+    source_name = _pick_source_animation_name(stage)
+    return [source_name] if source_name else []
 
 
 def _clip_definition_name(source_animation_name: str) -> str:

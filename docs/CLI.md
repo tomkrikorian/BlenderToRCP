@@ -311,7 +311,7 @@ blendertorcp settings get <file.blend> [options]
 
 | Group | Settings included |
 |-------|-------------------|
-| `general` | `filepath`, `export_format`, `root_prim_name`, `export_animation`, `selected_objects_only`, `export_custom_properties`, `custom_properties_namespace`, `author_blender_name`, `allow_unicode`, `relative_paths`, `convert_orientation`, `forward_axis`, `up_axis`, `convert_scene_units`, `meters_per_unit`, `xform_op_mode`, `evaluation_mode`, `use_instancing` |
+| `general` | `filepath`, `export_format`, `root_prim_name`, `export_animation`, `author_animation_library`, `selected_objects_only`, `export_custom_properties`, `custom_properties_namespace`, `author_blender_name`, `allow_unicode`, `relative_paths`, `convert_orientation`, `forward_axis`, `up_axis`, `convert_scene_units`, `meters_per_unit`, `xform_op_mode`, `evaluation_mode`, `use_instancing` |
 | `objects` | `export_meshes`, `export_lights`, `convert_world_material`, `export_cameras`, `export_curves`, `export_points`, `export_volumes`, `export_hair` |
 | `geometry` | `export_uvmaps`, `rename_uvmaps`, `export_normals`, `merge_parent_xform`, `triangulate_meshes`, `quad_method`, `ngon_method`, `export_subdivision` |
 | `rigging` | `export_armatures`, `only_deform_bones`, `export_shapekeys` |
@@ -729,6 +729,7 @@ Complete list of every export setting that can be read with `settings get`, writ
 | Key | Type | Values | Default |
 |-----|------|--------|---------|
 | `export_animation` | bool | `true`, `false` | `false` |
+| `author_animation_library` | bool | `true`, `false` | `false` |
 | `selected_objects_only` | bool | `true`, `false` | `false` |
 | `export_custom_properties` | bool | `true`, `false` | `true` |
 | `custom_properties_namespace` | string | any | `userProperties` |

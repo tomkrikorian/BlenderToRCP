@@ -20,6 +20,7 @@ SETTING_GROUPS: dict[str, set[str]] = {
         "export_format",
         "root_prim_name",
         "export_animation",
+        "author_animation_library",
         "selected_objects_only",
         "export_custom_properties",
         "custom_properties_namespace",

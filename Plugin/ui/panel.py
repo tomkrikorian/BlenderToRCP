@@ -156,6 +156,16 @@ class BlenderToRCPExportSettings(PropertyGroup):
         update=_on_settings_changed,
     )
 
+    author_animation_library: BoolProperty(
+        name="RCP Clip Library",
+        description=(
+            "Author Reality Composer Pro AnimationLibrary clip metadata. "
+            "Leave off for RealityKit runtime exports; split imported animations in app code."
+        ),
+        default=False,
+        update=_on_settings_changed,
+    )
+
     selected_objects_only: BoolProperty(
         name="Selection Only",
         description="Only export selected objects",
@@ -763,6 +773,8 @@ class BLENDERTORCP_PT_export_usd_general(Panel):
         include_row.label(text="Include")
         include_row.prop(settings, "selected_objects_only", text="Selection Only")
         include_row.prop(settings, "export_animation", text="Animation")
+        if settings.export_animation:
+            layout.prop(settings, "author_animation_library")
 
         layout.prop(settings, "export_custom_properties")
         if settings.export_custom_properties:

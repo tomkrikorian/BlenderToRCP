@@ -9,7 +9,7 @@ Blender add-on to export USD/USDZ and rewrite Blender materials into Reality Com
 - Strict material validation: unsupported nodes fail export with copy/pasteable errors instead of silently degrading.
 - RealityKit material rewrite: supported Blender shader graphs are rewritten into MaterialX graphs that Reality Composer Pro can edit.
 - Portable exports: textures and auxiliary assets are staged next to the USD and rewritten to relative paths.
-- Animation compatibility: actions can be concatenated for export and authored into a Reality Composer Pro animation library.
+- Animation compatibility: actions can be concatenated for export; Reality Composer Pro clip-library metadata is opt-in for editor workflows.
 - Background Bake Textures & Export: runs baking and export in a second Blender process, writes status/log files, and keeps the UI responsive.
 - Shader authoring helpers: insert RealityKit PBR or Unlit node groups, browse a generated RealityKit node menu, and validate active materials in the Shader Editor.
 

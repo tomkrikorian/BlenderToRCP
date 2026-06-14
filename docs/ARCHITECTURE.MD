@@ -93,7 +93,7 @@ Pipeline entry point: `Plugin/export/postprocess_usd.py`
 Sub-steps:
 - `normalize_scene(stage, settings)` from `Plugin/export/usd_scene.py`
 - `rewrite_materials(stage, settings, context, diagnostics)` from `Plugin/export/materials/rewrite.py`
-- `author_animation_library(stage, settings, diagnostics)` from `Plugin/export/usd_animation_library.py`
+- `author_animation_library(stage, settings, diagnostics)` from `Plugin/export/usd_animation_library.py`; this is opt-in via `author_animation_library=true` because RealityKit runtime exports should usually play or trim imported animation resources directly.
 - `prepare_textures(stage, usd_path, settings, diagnostics)` from `Plugin/export/usd_textures.py`
 - `prepare_assets(stage, usd_path, diagnostics)` from `Plugin/export/usd_assets.py`
 
