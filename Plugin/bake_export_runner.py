@@ -410,9 +410,53 @@ def main() -> int:
             progress_callback=_bake_progress,
         )
 
-        # Bake Textures & Export always authors Unlit materials.
-        scene_settings.force_unlit_materials = True
+        # "Lighting & Shadows" bakes lighting into the albedo, so it must stay Unlit.
+        # "Material Color Only" bakes color only -> honor the Unlit/Lit-PBR dropdown
+        # (default Unlit = original behavior; Lit PBR = RealityKit lights the baked color).
+        if str(getattr(scene_settings, "bake_mode", "LIT_IBL")) == "UNLIT_ALBEDO":
+            scene_settings.force_unlit_materials = (
+                str(getattr(scene_settings, "bake_unlit_mode", "UNLIT")) == "UNLIT"
+            )
+        else:
+            scene_settings.force_unlit_materials = True
 
+        if getattr(scene_settings, "apply_yup_geometry", False):
+            import math
+            from mathutils import Matrix
+
+            bake_ops._ensure_object_mode(bpy.context)
+            ## Rigidly rotate the whole scene about the world origin (−90° X)
+            ## by pre-multiplying each root object's world matrix.
+            Rg = Matrix.Rotation(math.radians(-90), 4, 'X')
+            for obj in bpy.context.scene.objects:
+                if obj.parent is None:
+                    obj.matrix_world = Rg @ obj.matrix_world
+            bpy.context.view_layer.update()
+
+            ## Bake the rotation into mesh data so meshes end up with identity rotation.
+            for obj in bpy.context.view_layer.objects:
+                try:
+                    obj.select_set(False)
+                except Exception:
+                    pass
+            mesh_active = None
+            for obj in bpy.context.scene.objects:
+                if obj.type == 'MESH':
+                    try:
+                        obj.select_set(True)
+                        if mesh_active is None:
+                            mesh_active = obj
+                    except Exception:
+                        continue
+            if mesh_active is not None:
+                bpy.context.view_layer.objects.active = mesh_active
+                bpy.ops.object.transform_apply(location=False, rotation=True, scale=False)
+
+            ## Geometry is now natively Y-up; don't let the exporter add its own root −90°.
+            scene_settings.convert_orientation = False
+
+        ## Set the export selection last so the Y-up bake's mesh-selection churn
+        ## above can't clobber a selected-objects-only export.
         if getattr(scene_settings, "selected_objects_only", False):
             bake_ops._set_selection(bpy.context, objects_to_export)
 
@@ -458,6 +502,17 @@ def main() -> int:
                 diagnostics_path=diagnostics_path,
             )
             return 1
+
+        if getattr(scene_settings, "apply_yup_geometry", False):
+            ## With convert_orientation=False the exporter won't author an up-axis,
+            ## so force the stage to Y since geometry was baked Y-up.
+            try:
+                from pxr import Usd, UsdGeom
+                _stage = Usd.Stage.Open(str(temp_usd_path))
+                UsdGeom.SetStageUpAxis(_stage, UsdGeom.Tokens.y)
+                _stage.GetRootLayer().Save()
+            except Exception as _e:
+                print("apply_yup_geometry: failed to set upAxis:", _e)
 
         if scene_settings.export_format == "USDZ":
             _set_running_stage(0.85, "Packaging USDZ")

@@ -582,6 +582,24 @@ class BlenderToRCPExportSettings(PropertyGroup):
         update=_on_settings_changed,
     )
 
+    bake_unlit_mode: EnumProperty(
+        name="Surface Lighting",
+        description="How baked materials respond to lighting. Only applies to 'Material Color Only' — 'Lighting & Shadows' is always Unlit (its lighting is already baked in)",
+        items=[
+            ('UNLIT', "Unlit", "Author baked materials as RealityKit Unlit — shown as-is, ignoring scene lighting (original behavior)."),
+            ('LIT_PBR', "Lit PBR", "Author baked materials as Lit PBR so RealityKit lights the baked material color."),
+        ],
+        default='UNLIT',
+        update=_on_settings_changed,
+    )
+
+    apply_yup_geometry: BoolProperty(
+        name="Apply Y-Up to Geometry",
+        description="Bake a −90° X rotation (about the scene origin) into the mesh data and export as a native Y-up USD with no root orientation.",
+        default=False,
+        update=_on_settings_changed,
+    )
+
     force_unlit_materials: BoolProperty(
         name="Force Unlit Materials",
         description="Force rewrite to RealityKit Unlit materials",
@@ -788,6 +806,7 @@ class BLENDERTORCP_PT_export_usd_general(Panel):
         layout.prop(settings, "relative_paths")
         layout.prop(settings, "convert_orientation")
         if settings.convert_orientation:
+            layout.prop(settings, "apply_yup_geometry")
             layout.prop(settings, "forward_axis")
             layout.prop(settings, "up_axis")
         layout.prop(settings, "convert_scene_units")
@@ -959,6 +978,8 @@ class BLENDERTORCP_PT_export_bake_settings(Panel):
 
         mode_box = layout.box()
         mode_box.prop(settings, "bake_mode")
+        if settings.bake_mode == 'UNLIT_ALBEDO':
+            mode_box.prop(settings, "bake_unlit_mode")
         for line in _bake_mode_help_lines(settings):
             mode_box.label(text=line)
         mode_box.separator()
