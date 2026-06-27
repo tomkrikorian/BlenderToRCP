@@ -66,7 +66,12 @@ def bake_materials_for_objects(
     margin = _resolve_bake_margin(settings)
     bake_base = bool(getattr(settings, "bake_base_color", True))
     bake_opacity = bool(getattr(settings, "bake_opacity", True))
+    bake_roughness_map = (
+        str(getattr(settings, "bake_mode", "LIT_IBL")) == "UNLIT_ALBEDO"
+        and str(getattr(settings, "bake_unlit_mode", "UNLIT")) == "LIT_PBR"
+    )
     isolate_meshes_lit = bool(getattr(settings, "bake_isolate_meshes_lit", False))
+    roughness_single = (str(getattr(settings, "bake_roughness_mode", "TEXTURE")) == "AVERAGE")
 
     mesh_objects = [obj for obj in objects if getattr(obj, "type", None) == 'MESH']
     total_steps = 0
@@ -76,6 +81,8 @@ def bake_materials_for_objects(
             if not has_materials:
                 continue
             if bake_base:
+                total_steps += 1
+            if bake_roughness_map:
                 total_steps += 1
             if bake_opacity:
                 total_steps += 1
@@ -141,6 +148,8 @@ def bake_materials_for_objects(
                     "base_image": None,
                     "opacity_image": None,
                     "merged_opacity_image": None,
+                    "roughness_image": None,
+                    "roughness_value": None,
                     "use_opacity": _material_needs_opacity(source_mat),
                     "uv_layer": uv_layer_name,
                 }
@@ -195,6 +204,93 @@ def bake_materials_for_objects(
                                 object=obj.name,
                                 material=entry["source_material"].name,
                             )
+                    _finish_step(step_message)
+
+                if bake_roughness_map and has_materials:
+                    step_message = f"Baking roughness [{mesh_index}/{mesh_count}] - {obj.name}"
+                    _start_step(step_message)
+                    if roughness_single:
+                        small_res = min(resolution, 64)
+                        for entry in baked_entries:
+                            if not entry:
+                                continue
+                            baked_mat = entry["material"]
+                            rough_image = _create_bake_image(
+                                name=f"{obj.name}_{baked_mat.name}_roughness",
+                                filepath=Path(""),
+                                width=small_res,
+                                height=small_res,
+                                colorspace="Non-Color",
+                                file_format=image_format["file_format"],
+                            )
+                            entry["roughness_image"] = rough_image
+                            _set_active_image_node(baked_mat, rough_image, entry["uv_layer"])
+
+                        _select_object(context, obj)
+                        _bake_object_pass(
+                            context,
+                            obj,
+                            bake_type='ROUGHNESS',
+                            pass_filter=None,
+                            margin=margin,
+                        )
+                        for entry in baked_entries:
+                            if not entry or not entry.get("roughness_image"):
+                                continue
+                            rough_image = entry["roughness_image"]
+                            entry["roughness_value"] = _average_image_value(rough_image)
+                            entry["roughness_image"] = None
+                            ## Force-remove the throwaway roughness bake image. A texture
+                            ## node still references it here, so the old users==0 guard never
+                            ## fired and leaked images with an empty ("." ) filepath into
+                            ## bpy.data, which breaks downstream texture staging.
+                            try:
+                                bpy.data.images.remove(rough_image, do_unlink=True)
+                            except Exception:
+                                pass
+                    else:
+                        for entry in baked_entries:
+                            if not entry:
+                                continue
+                            baked_mat = entry["material"]
+                            rough_image_path = _make_image_path(
+                                output_dir,
+                                obj.name,
+                                baked_mat.name,
+                                "roughness",
+                                image_format["extension"],
+                            )
+                            rough_image = _create_bake_image(
+                                name=f"{obj.name}_{baked_mat.name}_roughness",
+                                filepath=rough_image_path,
+                                width=resolution,
+                                height=resolution,
+                                colorspace="Non-Color",
+                                file_format=image_format["file_format"],
+                            )
+                            entry["roughness_image"] = rough_image
+                            result.baked_images.append(rough_image)
+                            _set_active_image_node(baked_mat, rough_image, entry["uv_layer"])
+
+                        _select_object(context, obj)
+                        _bake_object_pass(
+                            context,
+                            obj,
+                            bake_type='ROUGHNESS',
+                            pass_filter=None,
+                            margin=margin,
+                        )
+                        for entry in baked_entries:
+                            if not entry or not entry.get("roughness_image"):
+                                continue
+                            entry["roughness_image"].save()
+                            if diagnostics:
+                                diagnostics.add_generated_file(
+                                    "baked_roughness",
+                                    getattr(entry["roughness_image"], "filepath_raw", ""),
+                                    object=obj.name,
+                                    material=entry["source_material"].name,
+                                )
                     _finish_step(step_message)
 
                 if bake_opacity and has_materials:
@@ -267,6 +363,8 @@ def bake_materials_for_objects(
                     entry.get("opacity_image") if entry.get("use_opacity") else None,
                     entry.get("use_opacity", False),
                     uv_layer=entry.get("uv_layer"),
+                    roughness_image=entry.get("roughness_image"),
+                    roughness_value=entry.get("roughness_value"),
                 )
                 merged_opacity_image = entry.get("merged_opacity_image")
                 if merged_opacity_image is not None and getattr(merged_opacity_image, "users", 0) == 0:
@@ -626,6 +724,23 @@ def _configure_emission_for_alpha(material) -> None:
     links.new(emission_node.outputs['Emission'], output_node.inputs['Surface'])
 
 
+def _average_image_value(image) -> float:
+    try:
+        px = image.pixels[:]
+    except Exception:
+        return 0.5
+    count = len(px) // 4
+    if count <= 0:
+        return 0.5
+    step = max(1, count // 4096)
+    total = 0.0
+    n = 0
+    for i in range(0, count, step):
+        total += px[i * 4]
+        n += 1
+    return (total / n) if n else 0.5
+
+
 def _new_combine_color_node(nodes):
     """Create a shader color-combine node across Blender versions."""
     try:
@@ -641,6 +756,8 @@ def _build_baked_material(
     use_opacity: bool,
     *,
     uv_layer: Optional[str] = None,
+    roughness_image=None,
+    roughness_value=None,
 ) -> None:
     material.use_nodes = True
     nodes = material.node_tree.nodes
@@ -650,6 +767,17 @@ def _build_baked_material(
     output_node = nodes.new("ShaderNodeOutputMaterial")
     principled = nodes.new("ShaderNodeBsdfPrincipled")
     links.new(principled.outputs['BSDF'], output_node.inputs['Surface'])
+    if roughness_image is not None:
+        rough_node = nodes.new("ShaderNodeTexImage")
+        rough_node.image = roughness_image
+        if uv_layer and hasattr(rough_node, "uv_map"):
+            rough_node.uv_map = uv_layer
+        links.new(rough_node.outputs['Color'], principled.inputs['Roughness'])
+    elif roughness_value is not None:
+        try:
+            principled.inputs['Roughness'].default_value = float(roughness_value)
+        except Exception:
+            pass
 
     if base_image:
         base_node = nodes.new("ShaderNodeTexImage")

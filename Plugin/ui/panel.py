@@ -593,6 +593,17 @@ class BlenderToRCPExportSettings(PropertyGroup):
         update=_on_settings_changed,
     )
 
+    bake_roughness_mode: EnumProperty(
+        name="Roughness",
+        description="How Lit PBR roughness is exported (Lit PBR only)",
+        items=[
+            ('TEXTURE', "Bake Roughness Maps", "Bake a per-texel roughness texture (accurate, larger file)."),
+            ('AVERAGE', "Average to Single Value", "Use one averaged roughness constant — no roughness texture exported (smaller file)."),
+        ],
+        default='TEXTURE',
+        update=_on_settings_changed,
+    )
+
     apply_yup_geometry: BoolProperty(
         name="Apply Y-Up to Geometry",
         description="Bake a −90° X rotation (about the scene origin) into the mesh data and export as a native Y-up USD with no root orientation.",
@@ -980,6 +991,8 @@ class BLENDERTORCP_PT_export_bake_settings(Panel):
         mode_box.prop(settings, "bake_mode")
         if settings.bake_mode == 'UNLIT_ALBEDO':
             mode_box.prop(settings, "bake_unlit_mode")
+            if settings.bake_unlit_mode == 'LIT_PBR':
+                mode_box.prop(settings, "bake_roughness_mode")
         for line in _bake_mode_help_lines(settings):
             mode_box.label(text=line)
         mode_box.separator()
