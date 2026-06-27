@@ -13,6 +13,8 @@ from contextlib import contextmanager
 
 import bpy
 
+from .materials.extract.core import material_has_transparency
+
 _BAKE_IMAGE_FORMATS = {
     "AVIF": {
         "file_format": "AVIF",
@@ -551,32 +553,10 @@ def _get_active_uv(obj) -> Optional[str]:
 
 
 def _material_needs_opacity(material) -> bool:
-    if not material:
-        return False
-    if getattr(material, "blend_method", "OPAQUE") != "OPAQUE":
-        return True
-    if not material.use_nodes:
-        color = getattr(material, "diffuse_color", None)
-        if color and len(color) > 3:
-            try:
-                if float(color[3]) < 0.999:
-                    return True
-            except Exception:
-                pass
-    if material.use_nodes and material.node_tree:
-        for node in material.node_tree.nodes:
-            if node.type == 'BSDF_PRINCIPLED':
-                alpha_socket = node.inputs.get('Alpha')
-                if not alpha_socket:
-                    continue
-                if alpha_socket.is_linked:
-                    return True
-                try:
-                    if float(alpha_socket.default_value) < 0.999:
-                        return True
-                except Exception:
-                    continue
-    return False
+    # Detect transparency from the real Alpha input. ``blend_method`` is a
+    # deprecated alias on Blender 4.2+/5.x that never reports OPAQUE, so it
+    # cannot be used to decide whether a material actually needs an opacity bake.
+    return material_has_transparency(material)
 
 
 def _set_active_image_node(material, image, uv_layer: Optional[str]) -> None:

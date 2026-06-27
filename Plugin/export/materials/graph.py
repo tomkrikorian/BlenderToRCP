@@ -303,9 +303,9 @@ class MaterialXGraphBuilder:
             strength = material_data['emission_strength']
             inputs['emissiveColor'] = [c * strength for c in base_color]
 
-        blend_method = material_data.get('blend_method', 'OPAQUE')
+        is_transparent = material_data.get('is_transparent', False)
 
-        if blend_method != 'OPAQUE' and 'alpha_texture' in material_data:
+        if is_transparent and 'alpha_texture' in material_data:
             inputs['opacity'] = self._create_texture_input(
                 material_data['alpha_texture'],
                 'float',
@@ -315,7 +315,7 @@ class MaterialXGraphBuilder:
                 colorspace=material_data.get('alpha_texture_colorspace'),
                 alpha_mode=material_data.get('alpha_texture_alpha_mode'),
             )
-        elif blend_method != 'OPAQUE' and 'alpha' in material_data:
+        elif is_transparent and 'alpha' in material_data:
             inputs['opacity'] = material_data['alpha']
 
         if 'alpha_threshold' in material_data:
@@ -373,9 +373,9 @@ class MaterialXGraphBuilder:
         elif 'base_color' in material_data:
             inputs['color'] = self._convert_color(material_data['base_color'])
 
-        blend_method = material_data.get('blend_method', 'OPAQUE')
+        is_transparent = material_data.get('is_transparent', False)
 
-        if blend_method != 'OPAQUE' and 'alpha_texture' in material_data:
+        if is_transparent and 'alpha_texture' in material_data:
             inputs['opacity'] = self._create_texture_input(
                 material_data['alpha_texture'],
                 'float',
@@ -385,7 +385,7 @@ class MaterialXGraphBuilder:
                 colorspace=material_data.get('alpha_texture_colorspace'),
                 alpha_mode=material_data.get('alpha_texture_alpha_mode'),
             )
-        elif blend_method != 'OPAQUE' and 'alpha' in material_data:
+        elif is_transparent and 'alpha' in material_data:
             inputs['opacity'] = material_data['alpha']
 
         if 'alpha_threshold' in material_data:

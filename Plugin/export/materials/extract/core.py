@@ -48,6 +48,43 @@ _EXTENSION_TO_FORMAT = {
 }
 
 
+def material_has_transparency(material) -> bool:
+    """True when a material's alpha actually produces transparency.
+
+    Blender 4.2+/5.x removed the per-material OPAQUE blend mode: ``blend_method``
+    is now a deprecated alias that only ever reports ``HASHED``/``BLEND``, so it
+    can never be used to tell an opaque material apart from a transparent one.
+    Transparency must be read from the real Alpha input instead.
+    """
+    if not material:
+        return False
+    if not getattr(material, "use_nodes", False):
+        color = getattr(material, "diffuse_color", None)
+        if color is not None and len(color) > 3:
+            try:
+                return float(color[3]) < 0.999
+            except (TypeError, ValueError):
+                return False
+        return False
+    node_tree = getattr(material, "node_tree", None)
+    if not node_tree:
+        return False
+    for node in node_tree.nodes:
+        if node.type != 'BSDF_PRINCIPLED':
+            continue
+        alpha_socket = node.inputs.get('Alpha')
+        if not alpha_socket:
+            continue
+        if alpha_socket.is_linked:
+            return True
+        try:
+            if float(alpha_socket.default_value) < 0.999:
+                return True
+        except (TypeError, ValueError):
+            continue
+    return False
+
+
 def extract_blender_material_data(material) -> Dict[str, Any]:
     """Extract supported material parameters from a Blender material."""
     data = {
@@ -55,6 +92,7 @@ def extract_blender_material_data(material) -> Dict[str, Any]:
         'type': 'unknown',
     }
     data['blend_method'] = getattr(material, "blend_method", "OPAQUE")
+    data['is_transparent'] = material_has_transparency(material)
 
     if not material.use_nodes:
         data['type'] = 'simple'
@@ -141,7 +179,7 @@ def extract_blender_material_data(material) -> Dict[str, Any]:
         if clearcoat_roughness_socket:
             data['clearcoat_roughness'] = clearcoat_roughness_socket.default_value
 
-        if material.blend_method in {'CLIP', 'HASHED'}:
+        if data['is_transparent']:
             data['alpha_threshold'] = material.alpha_threshold
 
         # Bake Textures & Export can author AO as a baked texture without wiring it into the
