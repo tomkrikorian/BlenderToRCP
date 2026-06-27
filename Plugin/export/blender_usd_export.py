@@ -86,14 +86,18 @@ def get_usdz_staging_dir(final_path: str | Path) -> Path:
     return get_export_staging_dir(final_path)
 
 
-def export_blender_scene(context, settings, final_path: str, diagnostics=None) -> Optional[str]:
+def export_blender_scene(context, settings, final_path: str, diagnostics=None, *, reset_staging: bool = True) -> Optional[str]:
     """Export Blender scene to USD using Blender's native exporter
-    
+
     Args:
         context: Blender context
         settings: Export settings
         final_path: Final output path
-        
+        reset_staging: Wipe and recreate the staging dir before exporting. The
+            bake-export flow bakes textures into the staging dir *before* calling
+            this, so it resets the dir itself beforehand and passes False here to
+            avoid deleting those freshly baked textures.
+
     Returns:
         Path to exported USD file (temporary if USDZ is requested)
     """
@@ -106,7 +110,10 @@ def export_blender_scene(context, settings, final_path: str, diagnostics=None) -
     # existing destination `textures/` directory and reusing stale sidecars from
     # previous exports.
     temp_dir = get_export_staging_dir(final_path)
-    _reset_export_staging_dir(temp_dir, diagnostics)
+    if reset_staging:
+        _reset_export_staging_dir(temp_dir, diagnostics)
+    else:
+        temp_dir.mkdir(parents=True, exist_ok=True)
     temp_ext = ".usdc" if export_format == "USDZ" else Path(final_path).suffix
     if not temp_ext:
         temp_ext = ".usdc" if export_format == "USDC" else ".usda"

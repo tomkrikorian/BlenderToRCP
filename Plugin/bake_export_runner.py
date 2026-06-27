@@ -385,6 +385,12 @@ def main() -> int:
         bake_ops._ensure_object_mode(bpy.context)
         bake_ops._set_render_engine(bpy.context.scene, 'CYCLES')
 
+        ## Reset the staging dir ONCE up front, before baking textures into it.
+        ## export_blender_scene must not reset it again (reset_staging=False below),
+        ## or it would delete the textures we are about to bake here.
+        blender_usd_export._reset_export_staging_dir(
+            blender_usd_export.get_export_staging_dir(export_path), diag
+        )
         texture_dir = blender_usd_export.get_export_staging_dir(export_path) / "textures"
         progress_reporter = _BakeProgressReporter(
             status_path,
@@ -466,6 +472,7 @@ def main() -> int:
             scene_settings,
             export_path,
             diag,
+            reset_staging=False,
         )
         if not temp_usd_path or not Path(temp_usd_path).exists():
             progress_reporter.stop()

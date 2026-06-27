@@ -176,6 +176,11 @@ def handle(args: dict) -> dict:
         bake_ops._ensure_object_mode(bpy.context)
         bake_ops._set_render_engine(bpy.context.scene, "CYCLES")
 
+        ## Reset the staging dir ONCE before baking textures into it; the export
+        ## below passes reset_staging=False so it won't delete the baked textures.
+        blender_usd_export._reset_export_staging_dir(
+            blender_usd_export.get_export_staging_dir(filepath), diag
+        )
         texture_dir = blender_usd_export.get_export_staging_dir(filepath) / "textures"
         resolved_image_format = bake_textures._resolve_bake_image_format(settings, diag, safe_for_blender_save=True)
         diag.data["bake"] = {
@@ -207,7 +212,7 @@ def handle(args: dict) -> dict:
         # Export
         diag.begin_phase("blender_usd_export", {"output_path": filepath})
         temp_usd_path = blender_usd_export.export_blender_scene(
-            bpy.context, settings, filepath, diag
+            bpy.context, settings, filepath, diag, reset_staging=False
         )
         if not temp_usd_path or not Path(temp_usd_path).exists():
             raise CommandError(
