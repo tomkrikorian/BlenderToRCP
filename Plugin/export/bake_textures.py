@@ -142,7 +142,15 @@ def bake_materials_for_objects(
                 slot.material = baked_mat
                 result.baked_materials.append(baked_mat)
 
-                flat_constants = _flat_material_constants(source_mat)
+                # Only short-circuit flat materials in UNLIT_ALBEDO, where the
+                # baked texture would just be the constant color. In LIT_IBL the
+                # bake captures lighting/shadows/AO onto every surface - including
+                # flat-colored ones - so they must still be baked normally.
+                flat_constants = (
+                    _flat_material_constants(source_mat)
+                    if bake_mode == "UNLIT_ALBEDO"
+                    else None
+                )
                 mat_resolution = (
                     resolution
                     if resolution > 0
@@ -654,26 +662,53 @@ def _resolve_bake_resolution(settings) -> int:
         return _DEFAULT_BAKE_RESOLUTION
 
 
+_BAKED_CHANNEL_INPUTS = ("Base Color", "Roughness", "Alpha")
+
+
 def _material_source_resolution(material, fallback: int = _DEFAULT_BAKE_RESOLUTION) -> int:
-    """Largest source-texture dimension used by *material*, or *fallback*.
+    """Largest source-texture dimension feeding the baked channels, or *fallback*.
 
     Used when baking at "original" resolution so each material's baked maps
     match the size of the textures it was authored with, rather than a global
-    default. Falls back when the material has no usable image textures (e.g. a
-    procedural-only material) or their sizes are unknown.
+    default. Only images that actually drive the channels we bake (base color,
+    roughness, alpha) are considered - traced upstream from those Principled
+    inputs. Maps we do not bake (e.g. a high-res normal map) and disconnected
+    texture nodes are ignored, so a 1K albedo is not upscaled just because some
+    other input uses a 4K texture. Falls back when no such image is found or
+    its size is unknown (e.g. a procedural-only or unloaded texture).
     """
     if not getattr(material, "use_nodes", False) or material.node_tree is None:
         return fallback
 
+    principled = next(
+        (node for node in material.node_tree.nodes if node.type == 'BSDF_PRINCIPLED'),
+        None,
+    )
+    if principled is None:
+        return fallback
+
+    stack = [
+        principled.inputs[name]
+        for name in _BAKED_CHANNEL_INPUTS
+        if principled.inputs.get(name) is not None and principled.inputs[name].is_linked
+    ]
+    visited = set()
     largest = 0
-    for node in material.node_tree.nodes:
-        if node.type != 'TEX_IMAGE':
-            continue
-        image = getattr(node, "image", None)
-        size = tuple(getattr(image, "size", ()) or ())
-        for dimension in size[:2]:
-            if dimension and dimension > largest:
-                largest = int(dimension)
+    while stack:
+        socket = stack.pop()
+        for link in socket.links:
+            node = link.from_node
+            if node in visited:
+                continue
+            visited.add(node)
+            if node.type == 'TEX_IMAGE':
+                image = getattr(node, "image", None)
+                size = tuple(getattr(image, "size", ()) or ())
+                for dimension in size[:2]:
+                    if dimension and dimension > largest:
+                        largest = int(dimension)
+            else:
+                stack.extend(inp for inp in node.inputs if inp.is_linked)
     return largest if largest > 0 else fallback
 
 
