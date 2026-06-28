@@ -133,6 +133,20 @@ def bake_materials_for_objects(
     # material color and can safely share.
     cache_enabled = bake_mode != "LIT_IBL"
 
+    # Snapshot every object's source materials BEFORE any baking begins. Material
+    # slots are DATA-linked by default, so assigning a baked material to one
+    # object writes it onto the *shared mesh datablock* - which instantly changes
+    # the "source" material seen by every sibling instance still to be processed.
+    # Reading the source per-object inside the loop would therefore key later
+    # pawns off an already-baked material, miss the reuse cache, and re-bake a
+    # private texture each (also defeating the exporter's instancing). Keying off
+    # this pre-bake snapshot keeps every instance resolving to the same original
+    # material -> same cache key -> one shared bake. It also keeps
+    # ``result.original_materials`` pointing at the true originals for restore.
+    original_slot_materials: Dict[object, List[Optional[object]]] = {
+        obj: [slot.material for slot in obj.material_slots] for obj in mesh_objects
+    }
+
     with _temporary_ibl_world(context, settings, diagnostics, enabled=(bake_mode == "LIT_IBL")):
         mesh_count = len(mesh_objects)
         for mesh_index, obj in enumerate(mesh_objects, start=1):
@@ -145,7 +159,7 @@ def bake_materials_for_objects(
 
             _report_progress(f"Preparing bake targets [{mesh_index}/{mesh_count}] - {obj.name}")
 
-            original_mats = [slot.material for slot in obj.material_slots]
+            original_mats = original_slot_materials[obj]
             result.original_materials[obj] = original_mats
 
             # Identity (not name) of the mesh datablock: a baked texture is tied
@@ -161,8 +175,7 @@ def bake_materials_for_objects(
             # binding is what lets the USD exporter emit instanceable references
             # (use_instancing) for e.g. all 8 pawns of a chess set.
             slot_keys = []
-            for slot in obj.material_slots:
-                src = slot.material
+            for src in original_mats:
                 if not src:
                     slot_keys.append(None)
                     continue
@@ -205,7 +218,10 @@ def bake_materials_for_objects(
 
             baked_entries = []
             for slot_idx, slot in enumerate(obj.material_slots):
-                source_mat = slot.material
+                # Use the pre-bake snapshot, not slot.material: an earlier sibling
+                # sharing this DATA-linked mesh may have already overwritten the
+                # slot with its baked material.
+                source_mat = original_mats[slot_idx]
                 if not source_mat:
                     baked_entries.append(None)
                     continue
