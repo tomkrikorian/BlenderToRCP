@@ -142,6 +142,8 @@ def bake_materials_for_objects(
                 slot.material = baked_mat
                 result.baked_materials.append(baked_mat)
 
+                flat_constants = _flat_material_constants(source_mat)
+
                 entry = {
                     "source_material": source_mat,
                     "material": baked_mat,
@@ -152,9 +154,32 @@ def bake_materials_for_objects(
                     "roughness_value": None,
                     "use_opacity": _material_needs_opacity(source_mat),
                     "uv_layer": uv_layer_name,
+                    "flat": flat_constants,
+                    "throwaway_image": None,
                 }
 
-                if bake_base:
+                if flat_constants is not None:
+                    # Flat-color material: there is nothing texture-varying to bake,
+                    # so skip baking entirely. Baking it would render a constant into
+                    # a full-resolution texture (wasted file size) and, when the flat
+                    # material's faces have no real UV unwrap, produce an all-black
+                    # texture. The constant is authored directly in _build_baked_material.
+                    #
+                    # A whole-object bake still touches these faces when the object also
+                    # has textured materials, and bpy.ops.object.bake errors on any slot
+                    # without an active image node. Attach a tiny throwaway target to
+                    # satisfy that requirement; it is never saved and is removed below.
+                    throwaway = _create_bake_image(
+                        name=f"{obj.name}_{baked_mat.name}_skipflat",
+                        filepath=Path(""),
+                        width=4,
+                        height=4,
+                        colorspace="sRGB",
+                        file_format=image_format["file_format"],
+                    )
+                    entry["throwaway_image"] = throwaway
+                    _set_active_image_node(baked_mat, throwaway, uv_layer_name)
+                elif bake_base:
                     base_image_path = _make_image_path(
                         output_dir,
                         obj.name,
@@ -212,7 +237,7 @@ def bake_materials_for_objects(
                     if roughness_single:
                         small_res = min(resolution, 64)
                         for entry in baked_entries:
-                            if not entry:
+                            if not entry or entry.get("flat"):
                                 continue
                             baked_mat = entry["material"]
                             rough_image = _create_bake_image(
@@ -250,7 +275,7 @@ def bake_materials_for_objects(
                                 pass
                     else:
                         for entry in baked_entries:
-                            if not entry:
+                            if not entry or entry.get("flat"):
                                 continue
                             baked_mat = entry["material"]
                             rough_image_path = _make_image_path(
@@ -297,7 +322,7 @@ def bake_materials_for_objects(
                     step_message = f"Baking opacity [{mesh_index}/{mesh_count}] - {obj.name}"
                     _start_step(step_message)
                     for entry in baked_entries:
-                        if not entry:
+                        if not entry or entry.get("flat"):
                             continue
                         baked_mat = entry["material"]
                         opacity_image_path = _make_image_path(
@@ -342,7 +367,7 @@ def bake_materials_for_objects(
                     _finish_step(step_message)
 
                     for entry in baked_entries:
-                        if not entry:
+                        if not entry or entry.get("flat"):
                             continue
                         if not entry.get("use_opacity"):
                             continue
@@ -365,7 +390,14 @@ def bake_materials_for_objects(
                     uv_layer=entry.get("uv_layer"),
                     roughness_image=entry.get("roughness_image"),
                     roughness_value=entry.get("roughness_value"),
+                    flat=entry.get("flat"),
                 )
+                throwaway_image = entry.get("throwaway_image")
+                if throwaway_image is not None:
+                    try:
+                        bpy.data.images.remove(throwaway_image, do_unlink=True)
+                    except Exception:
+                        pass
                 merged_opacity_image = entry.get("merged_opacity_image")
                 if merged_opacity_image is not None and getattr(merged_opacity_image, "users", 0) == 0:
                     try:
@@ -650,6 +682,66 @@ def _get_active_uv(obj) -> Optional[str]:
     return None
 
 
+def _flat_material_constants(material) -> Optional[Dict[str, object]]:
+    """Return constant PBR values when *material* is a flat-color material.
+
+    A material is "flat" when nothing texture-varying feeds its surface: it has
+    no image-texture nodes and its Principled Base Color is an unlinked constant.
+    Such materials must not be baked - baking would burn a single color into a
+    full-resolution texture (wasted file size) and, when the faces have no real
+    UV unwrap, yields an all-black texture. Instead the returned constants are
+    authored directly so apps like Reality Composer Pro show the exact color.
+
+    Returns ``None`` for any material that genuinely needs a texture bake.
+    """
+    if not getattr(material, "use_nodes", False) or material.node_tree is None:
+        # Non-node material: its only color is the legacy diffuse_color.
+        color = getattr(material, "diffuse_color", (0.8, 0.8, 0.8, 1.0))
+        alpha = float(color[3]) if len(color) > 3 else 1.0
+        return {
+            "base_color": (color[0], color[1], color[2], alpha),
+            "roughness": float(getattr(material, "roughness", 0.5)),
+            "metallic": float(getattr(material, "metallic", 0.0)),
+            "alpha": alpha,
+        }
+
+    node_tree = material.node_tree
+    # Any image texture means there is something worth baking.
+    if any(node.type == 'TEX_IMAGE' for node in node_tree.nodes):
+        return None
+
+    principled = next(
+        (node for node in node_tree.nodes if node.type == 'BSDF_PRINCIPLED'),
+        None,
+    )
+    if principled is None:
+        return None
+
+    base_color = principled.inputs.get('Base Color')
+    if base_color is None or base_color.is_linked:
+        return None
+
+    base = tuple(base_color.default_value)
+    base_rgba = (base[0], base[1], base[2], base[3] if len(base) > 3 else 1.0)
+
+    roughness = principled.inputs.get('Roughness')
+    metallic = principled.inputs.get('Metallic')
+    alpha = principled.inputs.get('Alpha')
+
+    return {
+        "base_color": base_rgba,
+        "roughness": float(roughness.default_value)
+        if roughness is not None and not roughness.is_linked
+        else None,
+        "metallic": float(metallic.default_value)
+        if metallic is not None and not metallic.is_linked
+        else None,
+        "alpha": float(alpha.default_value)
+        if alpha is not None and not alpha.is_linked
+        else 1.0,
+    }
+
+
 def _material_needs_opacity(material) -> bool:
     # Detect transparency from the real Alpha input. ``blend_method`` is a
     # deprecated alias on Blender 4.2+/5.x that never reports OPAQUE, so it
@@ -758,6 +850,7 @@ def _build_baked_material(
     uv_layer: Optional[str] = None,
     roughness_image=None,
     roughness_value=None,
+    flat: Optional[Dict[str, object]] = None,
 ) -> None:
     material.use_nodes = True
     nodes = material.node_tree.nodes
@@ -767,6 +860,33 @@ def _build_baked_material(
     output_node = nodes.new("ShaderNodeOutputMaterial")
     principled = nodes.new("ShaderNodeBsdfPrincipled")
     links.new(principled.outputs['BSDF'], output_node.inputs['Surface'])
+
+    if flat is not None:
+        # Flat-color material: author the captured constants directly (no textures),
+        # so the exported USD carries the exact color/roughness/metallic.
+        base = flat.get("base_color", (0.8, 0.8, 0.8, 1.0))
+        try:
+            principled.inputs['Base Color'].default_value = (base[0], base[1], base[2], 1.0)
+        except Exception:
+            pass
+        if flat.get("roughness") is not None:
+            try:
+                principled.inputs['Roughness'].default_value = float(flat["roughness"])
+            except Exception:
+                pass
+        if flat.get("metallic") is not None:
+            try:
+                principled.inputs['Metallic'].default_value = float(flat["metallic"])
+            except Exception:
+                pass
+        alpha_value = float(flat.get("alpha", 1.0))
+        try:
+            principled.inputs['Alpha'].default_value = alpha_value
+        except Exception:
+            pass
+        material.blend_method = 'BLEND' if (use_opacity and alpha_value < 1.0) else 'OPAQUE'
+        return
+
     if roughness_image is not None:
         rough_node = nodes.new("ShaderNodeTexImage")
         rough_node.image = roughness_image
