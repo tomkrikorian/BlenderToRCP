@@ -143,6 +143,11 @@ def bake_materials_for_objects(
                 result.baked_materials.append(baked_mat)
 
                 flat_constants = _flat_material_constants(source_mat)
+                mat_resolution = (
+                    resolution
+                    if resolution > 0
+                    else _material_source_resolution(source_mat)
+                )
 
                 entry = {
                     "source_material": source_mat,
@@ -156,6 +161,7 @@ def bake_materials_for_objects(
                     "uv_layer": uv_layer_name,
                     "flat": flat_constants,
                     "throwaway_image": None,
+                    "resolution": mat_resolution,
                 }
 
                 if flat_constants is not None:
@@ -190,8 +196,8 @@ def bake_materials_for_objects(
                     base_image = _create_bake_image(
                         name=f"{obj.name}_{baked_mat.name}_baseColor",
                         filepath=base_image_path,
-                        width=resolution,
-                        height=resolution,
+                        width=mat_resolution,
+                        height=mat_resolution,
                         colorspace="sRGB",
                         file_format=image_format["file_format"],
                     )
@@ -211,13 +217,17 @@ def bake_materials_for_objects(
                     step_message = f"{label} [{mesh_index}/{mesh_count}] - {obj.name}"
                     _start_step(step_message)
                     _select_object(context, obj)
-                    _bake_object_pass(
-                        context,
-                        obj,
-                        bake_type=color_bake_type,
-                        pass_filter=color_pass_filter,
-                        margin=margin,
-                    )
+                    # COMBINED (LIT_IBL) bakes real lighting and needs the user's
+                    # samples; the albedo-only DIFFUSE/COLOR pass does not.
+                    base_samples = None if bake_mode == "LIT_IBL" else 1
+                    with _temporary_cycles_samples(context, base_samples):
+                        _bake_object_pass(
+                            context,
+                            obj,
+                            bake_type=color_bake_type,
+                            pass_filter=color_pass_filter,
+                            margin=margin,
+                        )
                     for entry in baked_entries:
                         if not entry or not entry.get("base_image"):
                             continue
@@ -235,7 +245,9 @@ def bake_materials_for_objects(
                     step_message = f"Baking roughness [{mesh_index}/{mesh_count}] - {obj.name}"
                     _start_step(step_message)
                     if roughness_single:
-                        small_res = min(resolution, 64)
+                        # Averaged roughness only needs a tiny bake; cap at 64px.
+                        # (resolution may be 0 here, the "use source resolution" sentinel.)
+                        small_res = min(resolution, 64) if resolution > 0 else 64
                         for entry in baked_entries:
                             if not entry or entry.get("flat"):
                                 continue
@@ -252,13 +264,14 @@ def bake_materials_for_objects(
                             _set_active_image_node(baked_mat, rough_image, entry["uv_layer"])
 
                         _select_object(context, obj)
-                        _bake_object_pass(
-                            context,
-                            obj,
-                            bake_type='ROUGHNESS',
-                            pass_filter=None,
-                            margin=margin,
-                        )
+                        with _temporary_cycles_samples(context, 1):
+                            _bake_object_pass(
+                                context,
+                                obj,
+                                bake_type='ROUGHNESS',
+                                pass_filter=None,
+                                margin=margin,
+                            )
                         for entry in baked_entries:
                             if not entry or not entry.get("roughness_image"):
                                 continue
@@ -288,8 +301,8 @@ def bake_materials_for_objects(
                             rough_image = _create_bake_image(
                                 name=f"{obj.name}_{baked_mat.name}_roughness",
                                 filepath=rough_image_path,
-                                width=resolution,
-                                height=resolution,
+                                width=entry["resolution"],
+                                height=entry["resolution"],
                                 colorspace="Non-Color",
                                 file_format=image_format["file_format"],
                             )
@@ -298,13 +311,14 @@ def bake_materials_for_objects(
                             _set_active_image_node(baked_mat, rough_image, entry["uv_layer"])
 
                         _select_object(context, obj)
-                        _bake_object_pass(
-                            context,
-                            obj,
-                            bake_type='ROUGHNESS',
-                            pass_filter=None,
-                            margin=margin,
-                        )
+                        with _temporary_cycles_samples(context, 1):
+                            _bake_object_pass(
+                                context,
+                                obj,
+                                bake_type='ROUGHNESS',
+                                pass_filter=None,
+                                margin=margin,
+                            )
                         for entry in baked_entries:
                             if not entry or not entry.get("roughness_image"):
                                 continue
@@ -335,8 +349,9 @@ def bake_materials_for_objects(
                         opacity_image = _create_bake_image(
                             name=f"{obj.name}_{baked_mat.name}_opacity",
                             filepath=opacity_image_path,
-                            width=resolution,
-                            height=resolution,
+                            # Must match the base image so opacity can be merged into its alpha.
+                            width=entry["resolution"],
+                            height=entry["resolution"],
                             colorspace="Non-Color",
                             file_format=image_format["file_format"],
                         )
@@ -346,13 +361,14 @@ def bake_materials_for_objects(
                         _configure_emission_for_alpha(baked_mat)
 
                     _select_object(context, obj)
-                    _bake_object_pass(
-                        context,
-                        obj,
-                        bake_type='EMIT',
-                        pass_filter=None,
-                        margin=margin,
-                    )
+                    with _temporary_cycles_samples(context, 1):
+                        _bake_object_pass(
+                            context,
+                            obj,
+                            bake_type='EMIT',
+                            pass_filter=None,
+                            margin=margin,
+                        )
                     for entry in baked_entries:
                         if not entry or not entry.get("opacity_image"):
                             continue
@@ -382,6 +398,17 @@ def bake_materials_for_objects(
             for entry in baked_entries:
                 if not entry:
                     continue
+                # Remove the flat-slot throwaway target before authoring the final
+                # material. It is only needed to satisfy the whole-object bake (now
+                # finished) and is not tracked in result.baked_images, so doing this
+                # first guarantees it can't leak if _build_baked_material raises.
+                throwaway_image = entry.get("throwaway_image")
+                if throwaway_image is not None:
+                    try:
+                        bpy.data.images.remove(throwaway_image, do_unlink=True)
+                    except Exception:
+                        pass
+                    entry["throwaway_image"] = None
                 _build_baked_material(
                     entry["material"],
                     entry.get("base_image"),
@@ -392,12 +419,6 @@ def bake_materials_for_objects(
                     roughness_value=entry.get("roughness_value"),
                     flat=entry.get("flat"),
                 )
-                throwaway_image = entry.get("throwaway_image")
-                if throwaway_image is not None:
-                    try:
-                        bpy.data.images.remove(throwaway_image, do_unlink=True)
-                    except Exception:
-                        pass
                 merged_opacity_image = entry.get("merged_opacity_image")
                 if merged_opacity_image is not None and getattr(merged_opacity_image, "users", 0) == 0:
                     try:
@@ -452,6 +473,50 @@ def _temporary_ibl_world(context, settings, diagnostics=None, enabled: bool = Tr
         if temp_world is not None:
             try:
                 bpy.data.worlds.remove(temp_world)
+            except Exception:
+                pass
+
+
+@contextmanager
+def _temporary_cycles_samples(context, samples: Optional[int]):
+    """Temporarily override Cycles bake sample count (and denoising).
+
+    Property bakes - albedo (DIFFUSE/COLOR), roughness and opacity (EMIT) - are
+    deterministic: their result is identical at 1 sample as at 64, so the scene's
+    sample count is pure wasted render time on those passes. Only the LIT_IBL
+    COMBINED pass bakes path-traced lighting and genuinely needs samples, so it
+    passes ``samples=None`` to leave the user's setting untouched.
+    """
+    if samples is None:
+        yield
+        return
+
+    cycles = getattr(context.scene, "cycles", None)
+    if cycles is None:
+        yield
+        return
+
+    original_samples = getattr(cycles, "samples", None)
+    original_denoising = getattr(cycles, "use_denoising", None)
+    try:
+        try:
+            cycles.samples = int(samples)
+        except Exception:
+            pass
+        try:
+            cycles.use_denoising = False
+        except Exception:
+            pass
+        yield
+    finally:
+        if original_samples is not None:
+            try:
+                cycles.samples = original_samples
+            except Exception:
+                pass
+        if original_denoising is not None:
+            try:
+                cycles.use_denoising = original_denoising
             except Exception:
                 pass
 
@@ -568,18 +633,48 @@ def restore_baked_materials(result: BakeResult, keep_baked_materials: bool) -> N
 
 
 def _resolve_bake_resolution(settings) -> int:
+    # Returns a fixed bake resolution in pixels, or 0 meaning "use each
+    # material's own source-texture resolution" (resolved per material at
+    # bake time by _material_source_resolution).
+    #
+    # When texture overrides are off (the default), we bake at the source
+    # resolution rather than forcing 2048 - a 1K material should stay 1K
+    # instead of being upscaled to 2K (slower bakes, 4x larger files).
     if not _export_texture_settings_enabled(settings):
-        return _DEFAULT_BAKE_RESOLUTION
+        return 0
 
     value = getattr(settings, "bake_resolution", "2048")
     if str(value).upper() == "ORIGINAL":
-        return _DEFAULT_BAKE_RESOLUTION
+        return 0
     if value == 'CUSTOM':
         return int(getattr(settings, "bake_resolution_custom", _DEFAULT_BAKE_RESOLUTION))
     try:
         return int(value)
     except Exception:
         return _DEFAULT_BAKE_RESOLUTION
+
+
+def _material_source_resolution(material, fallback: int = _DEFAULT_BAKE_RESOLUTION) -> int:
+    """Largest source-texture dimension used by *material*, or *fallback*.
+
+    Used when baking at "original" resolution so each material's baked maps
+    match the size of the textures it was authored with, rather than a global
+    default. Falls back when the material has no usable image textures (e.g. a
+    procedural-only material) or their sizes are unknown.
+    """
+    if not getattr(material, "use_nodes", False) or material.node_tree is None:
+        return fallback
+
+    largest = 0
+    for node in material.node_tree.nodes:
+        if node.type != 'TEX_IMAGE':
+            continue
+        image = getattr(node, "image", None)
+        size = tuple(getattr(image, "size", ()) or ())
+        for dimension in size[:2]:
+            if dimension and dimension > largest:
+                largest = int(dimension)
+    return largest if largest > 0 else fallback
 
 
 def _resolve_texture_override_resolution(settings) -> int:
