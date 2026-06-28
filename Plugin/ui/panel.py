@@ -602,7 +602,7 @@ class BlenderToRCPExportSettings(PropertyGroup):
     )
 
     apply_yup_geometry: BoolProperty(
-        name="Apply Y-Up to Geometry",
+        name="Apply RealityKit (Y-Up) to Geometry",
         description="Bake a −90° X rotation (about the scene origin) into the mesh data and export as a native Y-up USD with no root orientation.",
         default=False,
         update=_on_settings_changed,
@@ -815,8 +815,12 @@ class BLENDERTORCP_PT_export_usd_general(Panel):
         layout.prop(settings, "convert_orientation")
         if settings.convert_orientation:
             layout.prop(settings, "apply_yup_geometry")
-            layout.prop(settings, "forward_axis")
-            layout.prop(settings, "up_axis")
+            # Y-up geometry bake forces a native Y-up export and disables the
+            # exporter's own orientation conversion, so the forward/up axis
+            # dropdowns no longer apply — hide them while it is enabled.
+            if not settings.apply_yup_geometry:
+                layout.prop(settings, "forward_axis")
+                layout.prop(settings, "up_axis")
         layout.prop(settings, "convert_scene_units")
         if settings.convert_scene_units == 'CUSTOM':
             layout.prop(settings, "meters_per_unit")
