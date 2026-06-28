@@ -24,7 +24,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 # module imports under plain pytest; the key function never touches bpy.
 sys.modules.setdefault("bpy", types.ModuleType("bpy"))
 
-from Plugin.export.bake_textures import _make_cache_key  # noqa: E402
+from Plugin.export.bake_textures import _make_cache_key, _strip_baked_suffix  # noqa: E402
 
 
 def _key(**overrides):
@@ -91,3 +91,57 @@ def test_resolution_compared_as_int():
 def test_uv_layer_none_and_empty_collapse():
     # ``_get_active_uv`` can hand back None vs ""; both mean "no named layer".
     assert _key(uv_layer=None) == _key(uv_layer="")
+
+
+# --- _strip_baked_suffix: keep re-bakes from compounding names ---------------
+
+def test_strip_no_suffix_is_unchanged():
+    assert _strip_baked_suffix("_1___Default") == "_1___Default"
+
+
+def test_strip_single_baked():
+    assert _strip_baked_suffix("Marble_Baked") == "Marble"
+
+
+def test_strip_compounded_baked_chain():
+    name = "_1___Default_Baked_3_Baked_Baked_Baked_Baked_Baked_Baked_Baked"
+    assert _strip_baked_suffix(name) == "_1___Default"
+
+
+def test_strip_preserves_non_baked_numeric_suffix():
+    # A real name component ending in digits is not a _Baked run.
+    assert _strip_baked_suffix("_2___Default_001") == "_2___Default_001"
+    assert _strip_baked_suffix("_2___Default_001_Baked") == "_2___Default_001"
+
+
+def test_strip_idempotent_basename():
+    # Re-baking any of these yields the same stable base -> "<base>_Baked".
+    base = "Marble"
+    for n in ("Marble", "Marble_Baked", "Marble_Baked_Baked", "Marble_Baked_2_Baked"):
+        assert _strip_baked_suffix(n) == base
+
+
+def test_strip_never_returns_empty():
+    assert _strip_baked_suffix("_Baked") == "_Baked"
+
+
+def test_strip_does_not_eat_real_names():
+    # The fragile direction: only a trailing "_Baked"/"_Baked_<n>" run is a bake
+    # product. Names that merely contain "baked" must survive untouched, so a
+    # future regex tweak can't silently start eating real material names.
+    for name in (
+        "Baked",          # no leading underscore
+        "Rebaked",        # "baked" mid-word
+        "Baked_Clay",     # "_Baked" not at the end
+        "Wood_Baked_v2",  # trailing _v2 breaks the anchor
+        "Marble_Baked01",  # no underscore before digits
+        "Clay_baked",     # case-sensitive: lowercase is not our suffix
+    ):
+        assert _strip_baked_suffix(name) == name, name
+
+
+def test_cache_key_does_not_strip_baked():
+    # Intentional asymmetry: the reuse key keys on the raw source name, NOT the
+    # stripped one. Two genuinely different sources "Foo" and "Foo_Baked" must
+    # stay distinct so they never wrongly share a bake.
+    assert _key(source_material_name="Foo") != _key(source_material_name="Foo_Baked")

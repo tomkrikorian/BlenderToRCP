@@ -201,7 +201,13 @@ def bake_materials_for_objects(
 
                 baked_mat = source_mat.copy()
                 baked_mat.use_nodes = True
-                baked_mat.name = _unique_name(f"{source_mat.name}_Baked", bpy.data.materials)
+                # Strip any existing _Baked chain before re-appending, so a baked
+                # material that gets fed back in as a source (e.g. a prior bake
+                # was saved into the slot, or "keep baked materials" was on) does
+                # not compound into names like "Marble_Baked_Baked_Baked".
+                baked_mat.name = _unique_name(
+                    f"{_strip_baked_suffix(source_mat.name)}_Baked", bpy.data.materials
+                )
                 if not source_mat.use_nodes:
                     _initialize_simple_material(baked_mat, source_mat)
                 slot.material = baked_mat
@@ -1314,3 +1320,21 @@ def _unique_name(name: str, collection) -> str:
     while f"{name}_{idx}" in collection:
         idx += 1
     return f"{name}_{idx}"
+
+
+# A trailing run of "_Baked" suffixes, each optionally carrying a _unique_name
+# collision counter (e.g. "_Baked", "_Baked_3", "_Baked_3_Baked_Baked").
+_BAKED_SUFFIX_RE = re.compile(r"(?:_Baked(?:_\d+)?)+$")
+
+
+def _strip_baked_suffix(name: str) -> str:
+    """Remove a trailing _Baked(_N) chain from a material name.
+
+    Keeps the bake idempotent on its own output: re-baking a material that is
+    already a baked product yields "<base>_Baked" instead of compounding into
+    "<base>_Baked_Baked_Baked...". A genuine name component that ends in digits
+    (e.g. "Marble_001") is untouched because it is not part of a _Baked run.
+    """
+    stripped = _BAKED_SUFFIX_RE.sub("", name)
+    # Never return empty (e.g. a material literally named "_Baked").
+    return stripped or name
