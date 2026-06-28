@@ -81,7 +81,18 @@ def bake_materials_for_objects(
                 total_steps += 1
             if bake_roughness_map:
                 total_steps += 1
-            if bake_opacity:
+            # Opacity is only baked for materials that are actually transparent
+            # (see the gated pass below), so only count the step for objects that
+            # have one. Counting it unconditionally would leave progress short of
+            # 100% on every opaque object. Must mirror the runtime gate exactly,
+            # including the flat-material skip (flat materials are short-circuited
+            # in the material-color-only modes, never in LIT_IBL).
+            if bake_opacity and any(
+                slot.material
+                and _material_needs_opacity(slot.material)
+                and (bake_mode == "LIT_IBL" or _flat_material_constants(slot.material) is None)
+                for slot in obj.material_slots
+            ):
                 total_steps += 1
     if total_steps <= 0:
         total_steps = 1
@@ -413,13 +424,43 @@ def bake_materials_for_objects(
                                 )
                     _finish_step(step_message)
 
-                if bake_opacity and has_materials:
+                # Only materials that are actually transparent get an opacity
+                # bake. An opaque material's alpha is a constant 1.0, so a baked
+                # opacity map would be a flat-white texture that is never wired
+                # into the material (see _build_baked_material) - pure wasted
+                # bake time plus an orphan file left in the export's textures
+                # dir. So gate the whole pass on real transparency.
+                opacity_targets = [
+                    entry
+                    for entry in baked_entries
+                    if entry and not entry.get("flat") and entry.get("use_opacity")
+                ]
+                if bake_opacity and opacity_targets:
                     step_message = f"Baking opacity [{mesh_index}/{mesh_count}] - {obj.name}"
                     _start_step(step_message)
+                    # The EMIT pass bakes the whole object, so every non-flat slot
+                    # needs an active bake target - otherwise the pass overwrites
+                    # the just-baked base color of opaque slots. Slots that aren't
+                    # getting an opacity map get a tiny throwaway target instead,
+                    # removed right after the bake. (Flat slots are already pointed
+                    # at their own throwaway from the base-color pass.)
+                    emit_throwaways = []
                     for entry in baked_entries:
                         if not entry or entry.get("flat"):
                             continue
                         baked_mat = entry["material"]
+                        if not entry.get("use_opacity"):
+                            throwaway = _create_bake_image(
+                                name=f"{obj.name}_{baked_mat.name}_skipopacity",
+                                filepath=Path(""),
+                                width=4,
+                                height=4,
+                                colorspace="Non-Color",
+                                file_format=image_format["file_format"],
+                            )
+                            emit_throwaways.append(throwaway)
+                            _set_active_image_node(baked_mat, throwaway, entry["uv_layer"])
+                            continue
                         opacity_image_path = _make_image_path(
                             output_dir,
                             obj.name,
@@ -461,13 +502,14 @@ def bake_materials_for_objects(
                                 object=obj.name,
                                 material=entry["source_material"].name,
                             )
+                    for throwaway in emit_throwaways:
+                        try:
+                            bpy.data.images.remove(throwaway, do_unlink=True)
+                        except Exception:
+                            pass
                     _finish_step(step_message)
 
-                    for entry in baked_entries:
-                        if not entry or entry.get("flat"):
-                            continue
-                        if not entry.get("use_opacity"):
-                            continue
+                    for entry in opacity_targets:
                         merged = _merge_opacity_into_base_image(
                             entry.get("base_image"),
                             entry.get("opacity_image"),
