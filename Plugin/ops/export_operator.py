@@ -215,7 +215,15 @@ class BLENDERTORCP_OT_export(Operator, ExportHelper):
             self.report({'ERROR'}, f"Export failed: {str(e)}")
             traceback.print_exc()
             return {'CANCELLED'}
-    
+        finally:
+            # Guarantee the .blendertorcp_temp staging tree is gone, even if the
+            # export failed above (publish/pack only clean it on success).
+            try:
+                from ..export import blender_usd_export
+                blender_usd_export.remove_export_staging_dir(self.filepath, diag)
+            except Exception:
+                pass
+
 class BLENDERTORCP_OT_show_diagnostics(Operator):
     """Show export diagnostics"""
     bl_idname = "blendertorcp.show_diagnostics"

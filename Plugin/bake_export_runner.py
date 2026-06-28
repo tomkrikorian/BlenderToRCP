@@ -544,6 +544,13 @@ def main() -> int:
             )
         bake_ops._restore_selection(bpy.context, original_selection, original_active)
         bake_ops._restore_mode(bpy.context, original_active, original_mode)
+        # Guarantee the .blendertorcp_temp staging tree is gone, even if the
+        # export failed or returned early above (publish/pack only clean it on
+        # the success path).
+        try:
+            blender_usd_export.remove_export_staging_dir(export_path, diag)
+        except Exception:
+            pass
 
 
 def _save_diagnostics(diag, diagnostics_path: str | None) -> None:

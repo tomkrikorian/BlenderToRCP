@@ -173,6 +173,13 @@ def handle(args: dict) -> dict:
             stage="export",
             artifacts=_artifacts(diagnostics_path, filepath, bpy.data.filepath),
         ) from exc
+    finally:
+        # Guarantee the .blendertorcp_temp staging tree is gone, even if the
+        # export raised above (publish/pack only clean it on success).
+        try:
+            blender_usd_export.remove_export_staging_dir(filepath, diag)
+        except Exception:
+            pass
 
     duration = time.time() - start_time
 

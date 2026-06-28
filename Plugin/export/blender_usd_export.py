@@ -292,6 +292,45 @@ def cleanup_export_staging_dir(staged_path: str | Path, diagnostics=None) -> Non
             pass
 
 
+def remove_export_staging_dir(final_path: str | Path, diagnostics=None) -> None:
+    """Guarantee the per-export staging tree for *final_path* is gone.
+
+    ``cleanup_export_staging_dir`` only runs on the success path (inside
+    publish/pack), so any early return or exception between staging and publish
+    leaves ``.blendertorcp_temp/<stem>`` behind in the user's export directory.
+    This is safe to call from a ``finally`` after every export attempt - success
+    OR failure - so the staging tree never lingers. Idempotent and best-effort:
+    a missing dir, an already-cleaned tree, or an rmtree error are all swallowed.
+    """
+    try:
+        staging_dir = get_export_staging_dir(final_path)
+    except Exception:
+        return
+    # Safety: only ever touch a ".blendertorcp_temp/<stem>" directory.
+    if staging_dir.parent.name != ".blendertorcp_temp" or staging_dir.name in {"", ".", ".."}:
+        return
+    temp_root = staging_dir.parent
+    if staging_dir.exists():
+        # Let rmtree raise so a genuine failure (locked file, permissions) is
+        # surfaced as a warning rather than silently swallowed - matching
+        # cleanup_export_staging_dir. The caller still wraps this in try/except,
+        # so a warning here never masks the original export error.
+        try:
+            shutil.rmtree(staging_dir)
+        except Exception as exc:
+            if diagnostics:
+                diagnostics.add_warning(
+                    f"Failed to remove export staging directory '{staging_dir}': {exc}"
+                )
+            return
+    # Drop the now-empty ".blendertorcp_temp" root too (no-op while other
+    # exports still have staging dirs inside it).
+    try:
+        temp_root.rmdir()
+    except OSError:
+        pass
+
+
 def _reset_export_staging_dir(staging_dir: str | Path, diagnostics=None) -> None:
     """Create an empty per-export staging directory."""
     staging_dir = Path(staging_dir)
