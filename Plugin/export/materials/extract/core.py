@@ -85,6 +85,22 @@ def material_has_transparency(material) -> bool:
     return False
 
 
+def should_author_opacity_threshold(material, is_transparent: bool) -> bool:
+    """Whether to author ``opacityThreshold`` (an alpha *cutout* control).
+
+    A non-zero threshold makes RealityKit hard-clip alpha below it, so it must
+    only apply to cutout/clip materials, never to smooth alpha blending (a
+    semi-transparent BLEND material would otherwise export as a broken cutout).
+    Only the legacy CLIP/HASHED (dithered) modes are cutout-style; BLEND is
+    smooth. ``blend_method`` is deprecated on Blender 4.2+/5.x but still
+    reliably distinguishes dithered (HASHED) from blended (BLEND), which is all
+    we need here.
+    """
+    if not is_transparent:
+        return False
+    return getattr(material, "blend_method", "OPAQUE") in {"CLIP", "HASHED"}
+
+
 def extract_blender_material_data(material) -> Dict[str, Any]:
     """Extract supported material parameters from a Blender material."""
     data = {
@@ -179,7 +195,7 @@ def extract_blender_material_data(material) -> Dict[str, Any]:
         if clearcoat_roughness_socket:
             data['clearcoat_roughness'] = clearcoat_roughness_socket.default_value
 
-        if data['is_transparent']:
+        if should_author_opacity_threshold(material, data['is_transparent']):
             data['alpha_threshold'] = material.alpha_threshold
 
         # Bake Textures & Export can author AO as a baked texture without wiring it into the

@@ -14,7 +14,13 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from Plugin.export.materials.graph import MaterialXGraphBuilder
+from Plugin.export.materials.extract.core import should_author_opacity_threshold
 from Plugin.manifest.materialx_nodes import load_manifest
+
+
+class _FakeMaterial:
+    def __init__(self, blend_method):
+        self.blend_method = blend_method
 
 
 def _builder() -> MaterialXGraphBuilder:
@@ -66,3 +72,21 @@ def test_missing_flag_defaults_to_opaque():
     }
 
     assert "opacity" not in builder._map_pbr_inputs(material_data)
+
+
+def test_opacity_threshold_only_for_cutout_transparency():
+    # Smooth alpha BLEND must NOT author opacityThreshold (the regression):
+    # a non-zero threshold would hard-clip the surface into a broken cutout.
+    assert should_author_opacity_threshold(_FakeMaterial("BLEND"), True) is False
+    # Cutout/dithered transparency should keep authoring it.
+    assert should_author_opacity_threshold(_FakeMaterial("HASHED"), True) is True
+    assert should_author_opacity_threshold(_FakeMaterial("CLIP"), True) is True
+    # Opaque materials never author a threshold, whatever the blend method.
+    assert should_author_opacity_threshold(_FakeMaterial("HASHED"), False) is False
+
+
+def test_opacity_threshold_missing_blend_method_is_safe():
+    class _NoBlend:
+        pass
+
+    assert should_author_opacity_threshold(_NoBlend(), True) is False
