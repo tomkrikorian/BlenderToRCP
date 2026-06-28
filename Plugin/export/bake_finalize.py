@@ -45,17 +45,21 @@ def should_apply_yup(settings) -> bool:
 def apply_yup_geometry_bake(context, settings, objects=None) -> None:
     """Bake a -90deg X rotation into geometry so the export is natively Y-up.
 
-    Rotates and applies the rotation on the top-level objects only — the
-    parentless "transform roots" (e.g. BB1, BB2 sitting directly under the
-    collection), found via ``obj.parent is None``. Their parented children
-    (e.g. a mesh parented to BB1) inherit the rotation through the parent, so we
-    don't recurse into them.
+    Every exported object's world geometry ends up rotated -90deg about X (Z-up
+    -> Y-up). The rotation is baked into each unique *mesh datablock* exactly
+    once (``mesh.transform``), and each object's transform is adjusted to hold
+    its world placement, so linked / instanced duplicates keep sharing a single
+    mesh. (The old approach rotated each object then called
+    ``bpy.ops.object.transform_apply``, which refuses multi-user data and, on its
+    ``make_single_user`` fallback, split shared meshes into per-object copies —
+    silently destroying instancing.)
 
-    When ``objects`` is given (a selected-objects-only export), the roots are
-    restricted to that set: an object is a root if its parent is ``None`` or its
-    parent is not itself being exported (so a child whose parent is out of scope
-    still gets rotated directly, and a child whose parent is in scope inherits
-    instead of being double-rotated).
+    Scope: a full-scene export rotates every object in the scene; a
+    selected-objects-only export (``objects`` given) rotates exactly that set.
+    Hierarchy-isolated objects (no in-scope parent or child) get their mesh
+    baked and their transform conjugated; parented sub-hierarchies are rotated
+    by left-multiplying their root only, so in-scope children inherit the
+    rotation cleanly instead of being set explicitly.
 
     Disables ``convert_orientation`` afterwards so the exporter doesn't author
     its own root -90deg on top.
@@ -68,53 +72,93 @@ def apply_yup_geometry_bake(context, settings, objects=None) -> None:
         except Exception:
             pass
 
-    if objects is not None:
-        export_set = set(objects)
-        roots = [
-            obj for obj in objects
-            if obj.parent is None or obj.parent not in export_set
-        ]
-    else:
-        ## Full-scene export: every parentless / top-level object is a root.
-        roots = [obj for obj in context.scene.objects if obj.parent is None]
+    scope = list(objects) if objects is not None else list(context.scene.objects)
+    if not scope:
+        settings.convert_orientation = False
+        return
+    scope_set = set(scope)
 
     Rg = Matrix.Rotation(math.radians(-90), 4, 'X')
-    for obj in roots:
-        obj.matrix_world = Rg @ obj.matrix_world
-    context.view_layer.update()
+    Rg_inv = Rg.inverted()
 
-    ## Bake the rotation into those same roots.
-    for obj in context.view_layer.objects:
-        try:
-            obj.select_set(False)
-        except Exception:
-            pass
-    active = None
-    for obj in roots:
-        try:
-            obj.select_set(True)
-            if active is None:
-                active = obj
-        except Exception:
+    ## Classify scope objects by their in-scope hierarchy. We only ever set a
+    ## child's world by inheritance, never explicitly: assigning a child's
+    ## matrix_world right after its parent moved is unreliable in Blender (the
+    ## next depsgraph update recomputes it from the basis and drifts it off).
+    def has_in_scope_ancestor(obj):
+        parent = obj.parent
+        while parent is not None:
+            if parent in scope_set:
+                return True
+            parent = parent.parent
+        return False
+
+    in_scope_ancestor = {obj: has_in_scope_ancestor(obj) for obj in scope}
+    has_in_scope_descendant = {obj: False for obj in scope}
+    for obj in scope:
+        if in_scope_ancestor[obj]:
+            parent = obj.parent
+            while parent is not None:
+                if parent in scope_set:
+                    has_in_scope_descendant[parent] = True
+                parent = parent.parent
+
+    def isolated(obj):
+        return not in_scope_ancestor[obj] and not has_in_scope_descendant[obj]
+
+    ## Bake Rg into a mesh only when every object using it is (a) in scope and
+    ## (b) hierarchy-isolated, so conjugating each user can't disturb a parented
+    ## relative. ``mesh.transform`` mutates the datablock globally, so the user
+    ## map is built from ``bpy.data.objects`` (not just this scene) to catch
+    ## linked / other-scene users. Meshes that don't qualify stay un-baked and
+    ## their objects rotate via the transform — instancing is preserved either
+    ## way (a shared mesh is simply touched zero or one time, never split).
+    mesh_users = {}
+    for obj in bpy.data.objects:
+        if obj.type == 'MESH' and obj.data is not None:
+            mesh_users.setdefault(obj.data, set()).add(obj)
+
+    baked_meshes = set()
+    for obj in scope:
+        if obj.type == 'MESH' and obj.data is not None:
+            mesh = obj.data
+            if mesh in baked_meshes:
+                continue
+            users = mesh_users.get(mesh, set())
+            if users <= scope_set and all(isolated(u) for u in users):
+                try:
+                    ## shape_keys=True so shape-key coordinates rotate with the
+                    ## base mesh; otherwise keyed meshes would deform wrongly.
+                    mesh.transform(Rg, shape_keys=True)
+                    mesh.update()
+                    baked_meshes.add(mesh)
+                except Exception as exc:
+                    print("apply_yup_geometry: mesh.transform failed:", exc)
+
+    ## Snapshot world matrices before moving anything.
+    old_world = {obj: obj.matrix_world.copy() for obj in scope}
+
+    ## Isolated objects whose mesh was baked: conjugate so the world result is
+    ## exactly Rg @ world (holds for any transform, incl. non-uniform scale)
+    ## while the shared mesh is touched only once. These have no in-scope
+    ## children, so nothing inherits this transform.
+    for obj in scope:
+        if obj.type == 'MESH' and obj.data in baked_meshes:
+            obj.matrix_world = Rg @ old_world[obj] @ Rg_inv
+
+    ## Everything else (lights/empties/cameras, un-baked meshes, and parented
+    ## sub-hierarchies): rotate by left-multiply, but only on the roots of these
+    ## sub-trees. In-scope children are skipped and inherit Rg through the
+    ## parent — left-multiplication propagates cleanly to descendants, whereas
+    ## conjugation does not.
+    for obj in scope:
+        if obj.type == 'MESH' and obj.data in baked_meshes:
             continue
-    if active is not None:
-        context.view_layer.objects.active = active
-        ## transform_apply refuses multi-user mesh data ("Cannot apply to a
-        ## multi user object"). Instanced/linked-duplicate meshes (Alt-D) are
-        ## common, so make the selected roots single-user on retry rather than
-        ## letting the whole export abort.
-        try:
-            bpy.ops.object.transform_apply(location=False, rotation=True, scale=False)
-        except RuntimeError:
-            try:
-                bpy.ops.object.make_single_user(
-                    type='SELECTED_OBJECTS', object=True, obdata=True
-                )
-                bpy.ops.object.transform_apply(
-                    location=False, rotation=True, scale=False
-                )
-            except Exception as exc:
-                print("apply_yup_geometry: transform_apply failed:", exc)
+        if obj.parent is not None and obj.parent in scope_set:
+            continue  # in-scope child: inherits from its rotated ancestor
+        obj.matrix_world = Rg @ old_world[obj]
+
+    context.view_layer.update()
 
     ## Geometry is now natively Y-up; don't let the exporter add its own root -90deg.
     settings.convert_orientation = False
