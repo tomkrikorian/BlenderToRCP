@@ -19,6 +19,7 @@ def handle(args: dict) -> dict:
     import bpy
     from Plugin.export import (
         asset_preflight,
+        bake_finalize,
         bake_textures,
         blender_usd_export,
         postprocess_usd,
@@ -203,8 +204,14 @@ def handle(args: dict) -> dict:
         )
         diag.end_phase("bake_textures")
 
-        # Bake Textures & Export always forces Unlit
-        settings.force_unlit_materials = True
+        # Honor the Unlit/Lit-PBR dropdown (Material Color Only) — same as the
+        # interactive path. Lighting & Shadows still forces Unlit.
+        bake_finalize.apply_force_unlit(settings)
+
+        # Capture BEFORE the Y-up bake, which clears convert_orientation.
+        apply_yup = bake_finalize.should_apply_yup(settings)
+        if apply_yup:
+            bake_finalize.apply_yup_geometry_bake(bpy.context, settings)
 
         if getattr(settings, "selected_objects_only", False):
             bake_ops._set_selection(bpy.context, objects_to_export)
@@ -246,6 +253,9 @@ def handle(args: dict) -> dict:
                 details=diag.data.get("material_issues"),
                 artifacts=_artifacts(diagnostics_path, filepath, bpy.data.filepath),
             )
+
+        if apply_yup:
+            bake_finalize.set_stage_up_axis_y(temp_usd_path)
 
         # Package
         if settings.export_format == "USDZ":
