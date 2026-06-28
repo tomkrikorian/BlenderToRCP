@@ -15,14 +15,12 @@ import bpy
 def resolve_force_unlit(settings) -> bool:
     """Whether baked materials should be authored as RealityKit Unlit.
 
-    "Lighting & Shadows" (LIT_IBL) bakes lighting into the albedo, so it must
-    stay Unlit. "Material Color Only" (UNLIT_ALBEDO) honors the Unlit/Lit-PBR
-    dropdown (default Unlit = original behavior; Lit PBR lets RealityKit light
-    the baked color).
+    "Material Color Only - Lit PBR" (LIT_ALBEDO) authors Lit PBR so
+    RealityKit lights the baked color. Every other mode stays Unlit:
+    "Material Color Only - Unlit" (UNLIT_ALBEDO) by design, and "Lighting &
+    Shadows" (LIT_IBL) because it bakes lighting into the albedo.
     """
-    if str(getattr(settings, "bake_mode", "LIT_IBL")) == "UNLIT_ALBEDO":
-        return str(getattr(settings, "bake_unlit_mode", "UNLIT")) == "UNLIT"
-    return True
+    return str(getattr(settings, "bake_mode", "LIT_IBL")) != "LIT_ALBEDO"
 
 
 def apply_force_unlit(settings) -> None:

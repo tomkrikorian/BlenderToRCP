@@ -79,7 +79,6 @@ SETTING_GROUPS: dict[str, set[str]] = {
         "bake_opacity",
         "bake_keep_materials",
         "bake_step_timeout_seconds",
-        "bake_unlit_mode",
         "bake_roughness_mode",
         "apply_yup_geometry",
     },

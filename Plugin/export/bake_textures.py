@@ -58,7 +58,7 @@ def bake_materials_for_objects(
     output_dir.mkdir(parents=True, exist_ok=True)
 
     bake_mode = str(getattr(settings, "bake_mode", "LIT_IBL") or "LIT_IBL")
-    if bake_mode not in {"UNLIT_ALBEDO", "LIT_IBL"}:
+    if bake_mode not in {"UNLIT_ALBEDO", "LIT_ALBEDO", "LIT_IBL"}:
         bake_mode = "LIT_IBL"
 
     resolution = _resolve_bake_resolution(settings)
@@ -66,10 +66,7 @@ def bake_materials_for_objects(
     margin = _resolve_bake_margin(settings)
     bake_base = bool(getattr(settings, "bake_base_color", True))
     bake_opacity = bool(getattr(settings, "bake_opacity", True))
-    bake_roughness_map = (
-        str(getattr(settings, "bake_mode", "LIT_IBL")) == "UNLIT_ALBEDO"
-        and str(getattr(settings, "bake_unlit_mode", "UNLIT")) == "LIT_PBR"
-    )
+    bake_roughness_map = bake_mode == "LIT_ALBEDO"
     isolate_meshes_lit = bool(getattr(settings, "bake_isolate_meshes_lit", False))
     roughness_single = (str(getattr(settings, "bake_roughness_mode", "TEXTURE")) == "AVERAGE")
 
@@ -142,13 +139,14 @@ def bake_materials_for_objects(
                 slot.material = baked_mat
                 result.baked_materials.append(baked_mat)
 
-                # Only short-circuit flat materials in UNLIT_ALBEDO, where the
-                # baked texture would just be the constant color. In LIT_IBL the
-                # bake captures lighting/shadows/AO onto every surface - including
-                # flat-colored ones - so they must still be baked normally.
+                # Only short-circuit flat materials in the material-color-only
+                # modes (Unlit / Lit PBR), where the baked texture would just be
+                # the constant color. In LIT_IBL the bake captures
+                # lighting/shadows/AO onto every surface - including flat-colored
+                # ones - so they must still be baked normally.
                 flat_constants = (
                     _flat_material_constants(source_mat)
-                    if bake_mode == "UNLIT_ALBEDO"
+                    if bake_mode != "LIT_IBL"
                     else None
                 )
                 mat_resolution = (
@@ -221,7 +219,7 @@ def bake_materials_for_objects(
 
             with _temporary_mesh_isolation(context, obj, enabled=isolate_meshes):
                 if bake_base and has_base_targets:
-                    label = "Baking material color" if bake_mode == "UNLIT_ALBEDO" else "Baking lighting and shadows"
+                    label = "Baking lighting and shadows" if bake_mode == "LIT_IBL" else "Baking material color"
                     step_message = f"{label} [{mesh_index}/{mesh_count}] - {obj.name}"
                     _start_step(step_message)
                     _select_object(context, obj)

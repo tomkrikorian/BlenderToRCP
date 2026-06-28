@@ -509,10 +509,10 @@ Which option should I choose?
 | Goal | Use |
 |------|-----|
 | Quick USDZ export without baking textures | `blendertorcp export` / `Export Scene` |
-| Reusable baked textures that Reality Composer Pro or RealityKit can light | `bake-export --bake-mode UNLIT_ALBEDO` / `Material Color Only` |
+| Reusable baked textures that Reality Composer Pro or RealityKit can light | `bake-export --bake-mode UNLIT_ALBEDO` / `Material Color Only - Unlit`, or `--bake-mode LIT_ALBEDO` / `Material Color Only - Lit PBR` |
 | Export that preserves Blender-looking lighting and shadows | `bake-export` default / `Lighting & Shadows` |
 
-Both bake modes export the final baked result as RealityKit Unlit materials. The difference is what gets written into the texture: material color only, or lighting and shadows baked in.
+All three bake modes bake material color or lighting into the texture. `UNLIT_ALBEDO` and `LIT_IBL` export the final result as RealityKit Unlit materials; `LIT_ALBEDO` exports Lit PBR materials so Reality Composer Pro or RealityKit lights the baked color.
 
 Bake/export preflights external image files used by exported objects. Missing, unpacked textures fail before baking with `MISSING_EXTERNAL_TEXTURES`; pack or relink those files in Blender before retrying. Bake/export intentionally skips source material graph validation because unsupported Blender node groups are resolved by baking. Strict graph validation remains part of `blendertorcp export` and `blendertorcp validate`.
 
@@ -532,7 +532,7 @@ blendertorcp bake-export <file.blend> -o <output_path> [options]
 | Flag | Default | Description |
 |------|---------|-------------|
 | `--format <FORMAT>` | from settings | Export format: `USDA`, `USDC`, `USDZ` |
-| `--bake-mode <MODE>` | from settings (`LIT_IBL` for fresh scenes) | `UNLIT_ALBEDO` for Material Color Only, `LIT_IBL` for Lighting & Shadows |
+| `--bake-mode <MODE>` | from settings (`LIT_IBL` for fresh scenes) | `UNLIT_ALBEDO` for Material Color Only - Unlit, `LIT_ALBEDO` for Material Color Only - Lit PBR, `LIT_IBL` for Lighting & Shadows |
 | `--resolution <RES>` | `2048` | Enables texture overrides for this run and sets bake/export texture resolution: `ORIGINAL`, `512`, `1024`, `2048`, `4096`, or any integer for custom |
 | `--image-format <FMT>` | `AVIF` | Enables texture overrides for this run and sets baked/exported texture format: `ORIGINAL`, `AVIF` (requires Blender 5.1+), or `PNG` |
 | `--margin <PX>` | `8` | Enables texture overrides for this run and sets bake padding in pixels |
@@ -570,9 +570,13 @@ blendertorcp bake-export <file.blend> -o <output_path> [options]
 # Lighting & Shadows bake at default settings
 blendertorcp bake-export scene.blend -o /output/scene.usdz
 
-# Material Color Only bake
+# Material Color Only - Unlit bake
 blendertorcp bake-export scene.blend -o /output/scene.usdz \
   --bake-mode UNLIT_ALBEDO
+
+# Material Color Only - Lit PBR bake (RealityKit lights the baked color)
+blendertorcp bake-export scene.blend -o /output/scene.usdz \
+  --bake-mode LIT_ALBEDO
 
 # High-res bake with PNG textures
 blendertorcp bake-export scene.blend -o /output/scene.usdz \
@@ -813,7 +817,7 @@ When `diagnostics_enabled` is `false`, exports do not write `<output>.diagnostic
 
 | Key | Type | Values | Default |
 |-----|------|--------|---------|
-| `bake_mode` | enum | `UNLIT_ALBEDO`, `LIT_IBL` | `LIT_IBL` |
+| `bake_mode` | enum | `UNLIT_ALBEDO`, `LIT_ALBEDO`, `LIT_IBL` | `LIT_IBL` |
 | `bake_ibl_source` | enum | `SCENE_WORLD`, `HDRI_FILE` | `SCENE_WORLD` |
 | `bake_ibl_filepath` | string | file path | `""` |
 | `bake_ibl_strength` | float | 0.0+ | `1.0` |
@@ -823,9 +827,13 @@ When `diagnostics_enabled` is `false`, exports do not write `<output>.diagnostic
 | `bake_opacity` | bool | `true`, `false` | `true` |
 | `bake_keep_materials` | bool | `true`, `false` | `false` |
 | `bake_step_timeout_seconds` | int | 0+ (0 = disabled) | `0` |
+| `bake_roughness_mode` | enum | `TEXTURE`, `AVERAGE` | `TEXTURE` |
+
+`bake_roughness_mode` only applies to `LIT_ALBEDO`: `TEXTURE` bakes a per-texel roughness map, `AVERAGE` uses one averaged roughness constant (no roughness texture exported).
 
 User-facing bake mode names in the Blender UI:
-- `UNLIT_ALBEDO` appears as `Material Color Only`.
+- `UNLIT_ALBEDO` appears as `Material Color Only - Unlit`.
+- `LIT_ALBEDO` appears as `Material Color Only - Lit PBR`.
 - `LIT_IBL` appears as `Lighting & Shadows`.
 
 ---

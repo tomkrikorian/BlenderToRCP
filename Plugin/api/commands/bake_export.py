@@ -204,8 +204,8 @@ def handle(args: dict) -> dict:
         )
         diag.end_phase("bake_textures")
 
-        # Honor the Unlit/Lit-PBR dropdown (Material Color Only) — same as the
-        # interactive path. Lighting & Shadows still forces Unlit.
+        # Author Lit PBR only for "Material Color Only - Lit PBR"; every other
+        # bake mode stays Unlit — same as the interactive path.
         bake_finalize.apply_force_unlit(settings)
 
         # Capture BEFORE the Y-up bake, which clears convert_orientation.
