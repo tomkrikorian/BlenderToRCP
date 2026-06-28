@@ -42,12 +42,21 @@ def should_apply_yup(settings) -> bool:
     )
 
 
-def apply_yup_geometry_bake(context, settings) -> None:
+def apply_yup_geometry_bake(context, settings, objects=None) -> None:
     """Bake a -90deg X rotation into geometry so the export is natively Y-up.
 
-    Rotates and applies the rotation on the collection's direct children
-    (top-level / unparented objects) only. Parented children inherit the
-    rotation through their parent, so we don't recurse into deeper layers.
+    Rotates and applies the rotation on the top-level objects only — the
+    parentless "transform roots" (e.g. BB1, BB2 sitting directly under the
+    collection), found via ``obj.parent is None``. Their parented children
+    (e.g. a mesh parented to BB1) inherit the rotation through the parent, so we
+    don't recurse into them.
+
+    When ``objects`` is given (a selected-objects-only export), the roots are
+    restricted to that set: an object is a root if its parent is ``None`` or its
+    parent is not itself being exported (so a child whose parent is out of scope
+    still gets rotated directly, and a child whose parent is in scope inherits
+    instead of being double-rotated).
+
     Disables ``convert_orientation`` afterwards so the exporter doesn't author
     its own root -90deg on top.
     """
@@ -59,15 +68,22 @@ def apply_yup_geometry_bake(context, settings) -> None:
         except Exception:
             pass
 
-    ## Direct children of the collection = top-level (unparented) objects.
-    roots = [obj for obj in context.scene.objects if obj.parent is None]
+    if objects is not None:
+        export_set = set(objects)
+        roots = [
+            obj for obj in objects
+            if obj.parent is None or obj.parent not in export_set
+        ]
+    else:
+        ## Full-scene export: every parentless / top-level object is a root.
+        roots = [obj for obj in context.scene.objects if obj.parent is None]
 
     Rg = Matrix.Rotation(math.radians(-90), 4, 'X')
     for obj in roots:
         obj.matrix_world = Rg @ obj.matrix_world
     context.view_layer.update()
 
-    ## Bake the rotation into those same direct children.
+    ## Bake the rotation into those same roots.
     for obj in context.view_layer.objects:
         try:
             obj.select_set(False)
@@ -83,17 +99,34 @@ def apply_yup_geometry_bake(context, settings) -> None:
             continue
     if active is not None:
         context.view_layer.objects.active = active
-        bpy.ops.object.transform_apply(location=False, rotation=True, scale=False)
+        ## transform_apply refuses multi-user mesh data ("Cannot apply to a
+        ## multi user object"). Instanced/linked-duplicate meshes (Alt-D) are
+        ## common, so make the selected roots single-user on retry rather than
+        ## letting the whole export abort.
+        try:
+            bpy.ops.object.transform_apply(location=False, rotation=True, scale=False)
+        except RuntimeError:
+            try:
+                bpy.ops.object.make_single_user(
+                    type='SELECTED_OBJECTS', object=True, obdata=True
+                )
+                bpy.ops.object.transform_apply(
+                    location=False, rotation=True, scale=False
+                )
+            except Exception as exc:
+                print("apply_yup_geometry: transform_apply failed:", exc)
 
     ## Geometry is now natively Y-up; don't let the exporter add its own root -90deg.
     settings.convert_orientation = False
 
 
-def set_stage_up_axis_y(usd_path) -> None:
+def set_stage_up_axis_y(usd_path, diagnostics=None) -> None:
     """Force the exported stage's upAxis to Y (geometry was baked Y-up).
 
     With ``convert_orientation=False`` the exporter won't author an up-axis, so
-    set it explicitly to match the baked geometry.
+    set it explicitly to match the baked geometry. This is the linchpin of the
+    Y-up feature, so a failure is surfaced through diagnostics (not just stdout)
+    — otherwise the USD would silently ship mis-oriented.
     """
     try:
         from pxr import Usd, UsdGeom
@@ -102,4 +135,10 @@ def set_stage_up_axis_y(usd_path) -> None:
         UsdGeom.SetStageUpAxis(stage, UsdGeom.Tokens.y)
         stage.GetRootLayer().Save()
     except Exception as exc:
-        print("apply_yup_geometry: failed to set upAxis:", exc)
+        message = f"apply_yup_geometry: failed to set upAxis: {exc}"
+        print(message)
+        if diagnostics is not None:
+            try:
+                diagnostics.add_warning(message)
+            except Exception:
+                pass

@@ -422,7 +422,14 @@ def main() -> int:
         ## Capture this BEFORE the Y-up bake, which clears convert_orientation.
         apply_yup = bake_finalize.should_apply_yup(scene_settings)
         if apply_yup:
-            bake_finalize.apply_yup_geometry_bake(bpy.context, scene_settings)
+            yup_objects = (
+                objects_to_export
+                if getattr(scene_settings, "selected_objects_only", False)
+                else None
+            )
+            bake_finalize.apply_yup_geometry_bake(
+                bpy.context, scene_settings, yup_objects
+            )
 
         ## Set the export selection last so the Y-up bake's mesh-selection churn
         ## above can't clobber a selected-objects-only export.
@@ -474,7 +481,7 @@ def main() -> int:
             return 1
 
         if apply_yup:
-            bake_finalize.set_stage_up_axis_y(temp_usd_path)
+            bake_finalize.set_stage_up_axis_y(temp_usd_path, diag)
 
         if scene_settings.export_format == "USDZ":
             _set_running_stage(0.85, "Packaging USDZ")

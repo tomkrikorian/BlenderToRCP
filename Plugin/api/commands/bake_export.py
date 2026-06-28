@@ -211,7 +211,12 @@ def handle(args: dict) -> dict:
         # Capture BEFORE the Y-up bake, which clears convert_orientation.
         apply_yup = bake_finalize.should_apply_yup(settings)
         if apply_yup:
-            bake_finalize.apply_yup_geometry_bake(bpy.context, settings)
+            yup_objects = (
+                objects_to_export
+                if getattr(settings, "selected_objects_only", False)
+                else None
+            )
+            bake_finalize.apply_yup_geometry_bake(bpy.context, settings, yup_objects)
 
         if getattr(settings, "selected_objects_only", False):
             bake_ops._set_selection(bpy.context, objects_to_export)
@@ -255,7 +260,7 @@ def handle(args: dict) -> dict:
             )
 
         if apply_yup:
-            bake_finalize.set_stage_up_axis_y(temp_usd_path)
+            bake_finalize.set_stage_up_axis_y(temp_usd_path, diag)
 
         # Package
         if settings.export_format == "USDZ":
