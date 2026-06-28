@@ -109,6 +109,19 @@ def bake_materials_for_objects(
         color_bake_type = 'COMBINED'
         color_pass_filter = None
 
+    # Maps a per-slot reuse key -> the baked material already produced for it.
+    # Lets objects that share a source material + mesh under identical bake
+    # parameters share one baked material instead of each getting a private
+    # copy+bake, so the USD exporter can emit instanceable references.
+    bake_cache: Dict[tuple, object] = {}
+    # Reuse is only sound when the bake is position-independent. The LIT_IBL
+    # COMBINED pass bakes path-traced lighting/shadows/AO in world space, so two
+    # instances at different transforms genuinely differ - sharing one bake would
+    # paint the first piece's lighting onto all of them. So in LIT_IBL every
+    # instance bakes its own textures; the albedo/Lit-PBR modes bake pure
+    # material color and can safely share.
+    cache_enabled = bake_mode != "LIT_IBL"
+
     with _temporary_ibl_world(context, settings, diagnostics, enabled=(bake_mode == "LIT_IBL")):
         mesh_count = len(mesh_objects)
         for mesh_index, obj in enumerate(mesh_objects, start=1):
@@ -124,8 +137,63 @@ def bake_materials_for_objects(
             original_mats = [slot.material for slot in obj.material_slots]
             result.original_materials[obj] = original_mats
 
-            baked_entries = []
+            # Identity (not name) of the mesh datablock: a baked texture is tied
+            # to a specific UV layout, and distinct datablocks can share a name
+            # (e.g. across linked libraries). id() is stable for the lifetime of
+            # this run, which is all the cache needs.
+            mesh_id = id(obj.data)
+
+            # Pre-compute a reuse key for every slot. Objects that share a source
+            # material AND mesh datablock under identical bake parameters produce
+            # byte-identical baked materials/textures, so they can share one baked
+            # material instead of each getting its own copy+bake. That shared
+            # binding is what lets the USD exporter emit instanceable references
+            # (use_instancing) for e.g. all 8 pawns of a chess set.
+            slot_keys = []
             for slot in obj.material_slots:
+                src = slot.material
+                if not src:
+                    slot_keys.append(None)
+                    continue
+                is_flat = (
+                    _flat_material_constants(src) is not None
+                    if bake_mode != "LIT_IBL"
+                    else False
+                )
+                mat_res = (
+                    resolution if resolution > 0 else _material_source_resolution(src)
+                )
+                slot_keys.append(
+                    _make_cache_key(
+                        source_material_name=src.name,
+                        mesh_id=mesh_id,
+                        resolution=mat_res,
+                        uv_layer=uv_layer_name,
+                        bake_mode=bake_mode,
+                        bake_base=bake_base,
+                        use_opacity=_material_needs_opacity(src),
+                        bake_roughness_map=bake_roughness_map,
+                        roughness_single=roughness_single,
+                        is_flat=is_flat,
+                    )
+                )
+
+            present_keys = [k for k in slot_keys if k is not None]
+            if cache_enabled and present_keys and all(k in bake_cache for k in present_keys):
+                # Every slot was already baked for an earlier object under the same
+                # key: reuse those baked materials verbatim (no copy, no re-bake)
+                # so the objects stay instanceable.
+                for slot_idx, key in enumerate(slot_keys):
+                    if key is None:
+                        continue
+                    obj.material_slots[slot_idx].material = bake_cache[key]
+                _report_progress(
+                    f"Reusing baked materials [{mesh_index}/{mesh_count}] - {obj.name}"
+                )
+                continue
+
+            baked_entries = []
+            for slot_idx, slot in enumerate(obj.material_slots):
                 source_mat = slot.material
                 if not source_mat:
                     baked_entries.append(None)
@@ -168,6 +236,7 @@ def bake_materials_for_objects(
                     "flat": flat_constants,
                     "throwaway_image": None,
                     "resolution": mat_resolution,
+                    "cache_key": slot_keys[slot_idx],
                 }
 
                 if flat_constants is not None:
@@ -425,6 +494,13 @@ def bake_materials_for_objects(
                     roughness_value=entry.get("roughness_value"),
                     flat=entry.get("flat"),
                 )
+                # First object to bake this key owns the shared baked material;
+                # later objects with the same key reuse it (see the pre-pass
+                # above) so they export as instances. Disabled in LIT_IBL, where
+                # each instance must keep its own position-dependent lighting.
+                cache_key = entry.get("cache_key")
+                if cache_enabled and cache_key is not None:
+                    bake_cache.setdefault(cache_key, entry["material"])
                 merged_opacity_image = entry.get("merged_opacity_image")
                 if merged_opacity_image is not None and getattr(merged_opacity_image, "users", 0) == 0:
                     try:
@@ -661,6 +737,47 @@ def _resolve_bake_resolution(settings) -> int:
 
 
 _BAKED_CHANNEL_INPUTS = ("Base Color", "Roughness", "Alpha")
+
+
+def _make_cache_key(
+    *,
+    source_material_name: str,
+    mesh_id: object,
+    resolution: int,
+    uv_layer: Optional[str],
+    bake_mode: str,
+    bake_base: bool,
+    use_opacity: bool,
+    bake_roughness_map: bool,
+    roughness_single: bool,
+    is_flat: bool,
+) -> tuple:
+    """Identity of a baked-material result for reuse across objects.
+
+    Two slots that hash to the same key bake to byte-identical materials and
+    textures, so the second (and later) slots can reuse the first's baked
+    material instead of copying + re-baking. Reusing a shared binding is what
+    lets the USD exporter emit instanceable references.
+
+    The key deliberately includes the mesh datablock identity: a baked texture is
+    tied to a specific UV layout, so two objects sharing a source material but
+    different meshes (hence possibly different UVs) must NOT share a bake. It also
+    includes every parameter that changes the baked output - resolution, UV
+    layer, bake mode, and the base/opacity/roughness/flat flags - so a change in
+    any of them forces a fresh bake rather than an incorrect cache hit.
+    """
+    return (
+        source_material_name,
+        mesh_id,
+        int(resolution),
+        uv_layer or "",
+        bake_mode,
+        bool(bake_base),
+        bool(use_opacity),
+        bool(bake_roughness_map),
+        bool(roughness_single),
+        bool(is_flat),
+    )
 
 
 def _material_source_resolution(material, fallback: int = _DEFAULT_BAKE_RESOLUTION) -> int:
