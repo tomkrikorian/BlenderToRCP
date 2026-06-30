@@ -133,10 +133,25 @@ class BLENDERTORCP_OT_export(Operator, ExportHelper):
                     settings.last_diagnostics_path = str(diag_path)
                 return {'CANCELLED'}
 
+        yup_state = None
+        apply_yup = False
         try:
             # Import export modules
-            from ..export import blender_usd_export, postprocess_usd, pack_usdz
-            
+            from ..export import blender_usd_export, postprocess_usd, pack_usdz, bake_finalize
+
+            # Bake a -90deg X rotation into geometry for a native Y-up export when
+            # requested. The regular export runs in the live scene, so the bake is
+            # undone in the finally below (the bake runner skips that - its scene
+            # is a throwaway background process).
+            apply_yup = bake_finalize.should_apply_yup(settings)
+            if apply_yup:
+                yup_objects = (
+                    list(context.selected_objects)
+                    if getattr(settings, "selected_objects_only", False)
+                    else None
+                )
+                yup_state = bake_finalize.apply_yup_geometry_bake(context, settings, yup_objects)
+
             # Step 1: Export from Blender to USD
             self.report({'INFO'}, "Exporting from Blender...")
             temp_usd_path = blender_usd_export.export_blender_scene(
@@ -158,7 +173,12 @@ class BLENDERTORCP_OT_export(Operator, ExportHelper):
                 context,
                 diag
             )
-            
+
+            # Geometry was baked Y-up and convert_orientation cleared, so author
+            # the stage's upAxis explicitly (after postprocess, like the bake path).
+            if apply_yup:
+                bake_finalize.set_stage_up_axis_y(temp_usd_path, diag)
+
             # Fail fast on strict export errors before packaging.
             if diag.data.get('errors'):
                 _save_diagnostics(diag, diag_path)
@@ -216,6 +236,14 @@ class BLENDERTORCP_OT_export(Operator, ExportHelper):
             traceback.print_exc()
             return {'CANCELLED'}
         finally:
+            # Undo the Y-up geometry bake first, so the live scene is restored
+            # even if the export failed midway.
+            if yup_state is not None:
+                try:
+                    from ..export import bake_finalize
+                    bake_finalize.restore_yup_geometry_bake(context, settings, yup_state)
+                except Exception:
+                    pass
             # Guarantee the .blendertorcp_temp staging tree is gone, even if the
             # export failed above (publish/pack only clean it on success).
             try:

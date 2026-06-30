@@ -40,7 +40,7 @@ def should_apply_yup(settings) -> bool:
     )
 
 
-def apply_yup_geometry_bake(context, settings, objects=None) -> None:
+def apply_yup_geometry_bake(context, settings, objects=None) -> dict:
     """Bake a -90deg X rotation into geometry so the export is natively Y-up.
 
     Every exported object's world geometry ends up rotated -90deg about X (Z-up
@@ -61,6 +61,11 @@ def apply_yup_geometry_bake(context, settings, objects=None) -> None:
 
     Disables ``convert_orientation`` afterwards so the exporter doesn't author
     its own root -90deg on top.
+
+    Returns a restore-state dict (baked meshes, per-object local-transform
+    snapshot, the inverse rotation, and the original ``convert_orientation``)
+    that ``restore_yup_geometry_bake`` consumes to undo this for an in-process
+    export. The background bake runner ignores it (its scene is throwaway).
     """
     from mathutils import Matrix
 
@@ -70,14 +75,24 @@ def apply_yup_geometry_bake(context, settings, objects=None) -> None:
         except Exception:
             pass
 
+    orig_convert_orientation = bool(getattr(settings, "convert_orientation", False))
     scope = list(objects) if objects is not None else list(context.scene.objects)
     if not scope:
         settings.convert_orientation = False
-        return
+        return {
+            "baked_meshes": set(),
+            "orig_basis": {},
+            "rg_inv": None,
+            "orig_convert_orientation": orig_convert_orientation,
+        }
     scope_set = set(scope)
 
     Rg = Matrix.Rotation(math.radians(-90), 4, 'X')
     Rg_inv = Rg.inverted()
+
+    ## Snapshot each scope object's local transform (order-independent, unlike
+    ## matrix_world) so an in-process export can restore the scene exactly.
+    orig_basis = {obj: obj.matrix_basis.copy() for obj in scope}
 
     ## Classify scope objects by their in-scope hierarchy. We only ever set a
     ## child's world by inheritance, never explicitly: assigning a child's
@@ -140,9 +155,17 @@ def apply_yup_geometry_bake(context, settings, objects=None) -> None:
     ## exactly Rg @ world (holds for any transform, incl. non-uniform scale)
     ## while the shared mesh is touched only once. These have no in-scope
     ## children, so nothing inherits this transform.
+    ## Per-object guards: a single failing assignment (e.g. a library-linked or
+    ## locked object in scope) must not abort the function before it returns the
+    ## restore state - otherwise the caller's finally can't undo what was already
+    ## mutated, leaving the live scene partially rotated. A skipped object simply
+    ## isn't rotated (mis-oriented in the export, but the scene stays restorable).
     for obj in scope:
         if obj.type == 'MESH' and obj.data in baked_meshes:
-            obj.matrix_world = Rg @ old_world[obj] @ Rg_inv
+            try:
+                obj.matrix_world = Rg @ old_world[obj] @ Rg_inv
+            except Exception as exc:
+                print("apply_yup_geometry: matrix_world (baked) failed:", exc)
 
     ## Everything else (lights/empties/cameras, un-baked meshes, and parented
     ## sub-hierarchies): rotate by left-multiply, but only on the roots of these
@@ -154,12 +177,64 @@ def apply_yup_geometry_bake(context, settings, objects=None) -> None:
             continue
         if obj.parent is not None and obj.parent in scope_set:
             continue  # in-scope child: inherits from its rotated ancestor
-        obj.matrix_world = Rg @ old_world[obj]
+        try:
+            obj.matrix_world = Rg @ old_world[obj]
+        except Exception as exc:
+            print("apply_yup_geometry: matrix_world failed:", exc)
 
-    context.view_layer.update()
+    try:
+        context.view_layer.update()
+    except Exception as exc:
+        print("apply_yup_geometry: view_layer.update failed:", exc)
 
     ## Geometry is now natively Y-up; don't let the exporter add its own root -90deg.
     settings.convert_orientation = False
+
+    return {
+        "baked_meshes": baked_meshes,
+        "orig_basis": orig_basis,
+        "rg_inv": Rg_inv,
+        "orig_convert_orientation": orig_convert_orientation,
+    }
+
+
+def restore_yup_geometry_bake(context, settings, state) -> None:
+    """Undo ``apply_yup_geometry_bake`` so an in-process export leaves the live
+    scene exactly as it was.
+
+    Reverses the mesh rotation (``Rg_inv`` on each baked datablock, once),
+    restores every scope object's local transform from the snapshot, and puts
+    ``convert_orientation`` back. Run from a ``finally`` so a failed export can't
+    leave the user's scene rotated.
+    """
+    if not state:
+        return
+
+    rg_inv = state.get("rg_inv")
+    if rg_inv is not None:
+        for mesh in state.get("baked_meshes", set()):
+            try:
+                mesh.transform(rg_inv, shape_keys=True)
+                mesh.update()
+            except Exception as exc:
+                print("restore_yup_geometry_bake: mesh.transform failed:", exc)
+
+    for obj, basis in state.get("orig_basis", {}).items():
+        try:
+            obj.matrix_basis = basis
+        except Exception:
+            pass
+
+    if settings is not None and "orig_convert_orientation" in state:
+        try:
+            settings.convert_orientation = state["orig_convert_orientation"]
+        except Exception:
+            pass
+
+    try:
+        context.view_layer.update()
+    except Exception:
+        pass
 
 
 def set_stage_up_axis_y(usd_path, diagnostics=None) -> None:

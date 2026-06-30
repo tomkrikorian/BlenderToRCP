@@ -12,7 +12,7 @@ from Plugin.api.errors import CommandError
 
 def handle(args: dict) -> dict:
     import bpy
-    from Plugin.export import blender_usd_export, postprocess_usd, pack_usdz, diagnostics
+    from Plugin.export import blender_usd_export, postprocess_usd, pack_usdz, diagnostics, bake_finalize
     from Plugin.export.support_bundle import collect_environment, collect_scene_snapshot
     from Plugin.nodes import validate as rk_validate
 
@@ -107,7 +107,21 @@ def handle(args: dict) -> dict:
             )
 
     start_time = time.time()
+    yup_state = None
+    apply_yup = False
     try:
+        # Bake a -90deg X rotation into geometry for a native Y-up export when
+        # requested. This in-process export runs on the live scene, so it is
+        # undone in the finally below.
+        apply_yup = bake_finalize.should_apply_yup(settings)
+        if apply_yup:
+            yup_objects = (
+                list(bpy.context.selected_objects)
+                if getattr(settings, "selected_objects_only", False)
+                else None
+            )
+            yup_state = bake_finalize.apply_yup_geometry_bake(bpy.context, settings, yup_objects)
+
         # Step 1: Export from Blender to USD
         diag.begin_phase("blender_usd_export", {"output_path": filepath})
         temp_usd_path = blender_usd_export.export_blender_scene(
@@ -131,6 +145,11 @@ def handle(args: dict) -> dict:
         diag.begin_phase("postprocess_usd", {"usd_path": temp_usd_path})
         postprocess_usd.process_usd_stage(temp_usd_path, settings, bpy.context, diag)
         diag.end_phase("postprocess_usd")
+
+        # Geometry was baked Y-up and convert_orientation cleared, so author the
+        # stage's upAxis explicitly (after postprocess, like the bake path).
+        if apply_yup:
+            bake_finalize.set_stage_up_axis_y(temp_usd_path, diag)
 
         if diag.data.get("errors"):
             errors = diag.data["errors"][:5]
@@ -174,6 +193,13 @@ def handle(args: dict) -> dict:
             artifacts=_artifacts(diagnostics_path, filepath, bpy.data.filepath),
         ) from exc
     finally:
+        # Undo the Y-up geometry bake first so the live scene is restored even
+        # if the export raised midway.
+        if yup_state is not None:
+            try:
+                bake_finalize.restore_yup_geometry_bake(bpy.context, settings, yup_state)
+            except Exception:
+                pass
         # Guarantee the .blendertorcp_temp staging tree is gone, even if the
         # export raised above (publish/pack only clean it on success).
         try:
