@@ -270,6 +270,19 @@ def bake_materials_for_objects(
                     "throwaway_image": None,
                     "resolution": mat_resolution,
                     "cache_key": slot_keys[slot_idx],
+                    # Pass the source normal map through untouched - we never
+                    # bake a normal pass, and only LIT_ALBEDO authors a lit
+                    # material that uses it (Unlit output ignores normals).
+                    "normal": (
+                        _source_normal_passthrough(source_mat)
+                        if bake_mode == "LIT_ALBEDO"
+                        else None
+                    ),
+                    "metallic": (
+                        _source_metallic_passthrough(source_mat)
+                        if bake_mode == "LIT_ALBEDO"
+                        else None
+                    ),
                 }
 
                 if flat_constants is not None:
@@ -557,6 +570,8 @@ def bake_materials_for_objects(
                     roughness_image=entry.get("roughness_image"),
                     roughness_value=entry.get("roughness_value"),
                     flat=entry.get("flat"),
+                    normal=entry.get("normal"),
+                    metallic=entry.get("metallic"),
                 )
                 # First object to bake this key owns the shared baked material;
                 # later objects with the same key reuse it (see the pre-pass
@@ -1051,6 +1066,91 @@ def _flat_material_constants(material) -> Optional[Dict[str, object]]:
     }
 
 
+def _source_normal_passthrough(material) -> Optional[Dict[str, object]]:
+    """Capture the source material's normal map so the bake can pass it through.
+
+    The bake only renders base color / roughness / opacity - it never bakes a
+    normal pass. A normal map is already a clean, RCP-compatible image, so the
+    right thing is to carry it onto the baked material untouched rather than
+    drop it (which left baked surfaces looking flat and over-glossy). Returns
+    the source image, its UV layer and Normal Map strength, or ``None`` when the
+    Normal input is unlinked or not driven by an image.
+    """
+    if not getattr(material, "use_nodes", False) or material.node_tree is None:
+        return None
+    principled = next(
+        (node for node in material.node_tree.nodes if node.type == 'BSDF_PRINCIPLED'),
+        None,
+    )
+    if principled is None:
+        return None
+    normal_socket = principled.inputs.get('Normal')
+    if normal_socket is None or not normal_socket.is_linked:
+        return None
+
+    from_node = normal_socket.links[0].from_node
+    strength = 1.0
+    uv_layer = None
+    tex_node = None
+    if from_node.type == 'NORMAL_MAP':
+        strength_socket = from_node.inputs.get('Strength')
+        if strength_socket is not None and not strength_socket.is_linked:
+            try:
+                strength = float(strength_socket.default_value)
+            except Exception:
+                strength = 1.0
+        uv_layer = getattr(from_node, "uv_map", None) or None
+        color_socket = from_node.inputs.get('Color')
+        if color_socket is not None and color_socket.is_linked:
+            candidate = color_socket.links[0].from_node
+            if candidate.type == 'TEX_IMAGE':
+                tex_node = candidate
+    elif from_node.type == 'TEX_IMAGE':
+        tex_node = from_node
+
+    if tex_node is None or getattr(tex_node, "image", None) is None:
+        return None
+    if not uv_layer:
+        uv_layer = getattr(tex_node, "uv_map", None) or None
+    return {"image": tex_node.image, "uv_layer": uv_layer, "strength": strength}
+
+
+def _source_metallic_passthrough(material) -> Optional[Dict[str, object]]:
+    """Capture the source material's metallic input for passthrough.
+
+    Like the normal map, metallic is never baked, so a textured or non-default
+    constant metallic would otherwise be dropped (reset to 0) by the rebuilt
+    material. Returns ``{"image", "uv_layer"}`` for a directly-wired metallic
+    texture, ``{"value"}`` for a non-zero constant, or ``None`` when metallic is
+    the default 0 or driven by a chain we don't pass through.
+    """
+    if not getattr(material, "use_nodes", False) or material.node_tree is None:
+        return None
+    principled = next(
+        (node for node in material.node_tree.nodes if node.type == 'BSDF_PRINCIPLED'),
+        None,
+    )
+    if principled is None:
+        return None
+    metallic_socket = principled.inputs.get('Metallic')
+    if metallic_socket is None:
+        return None
+    if not metallic_socket.is_linked:
+        try:
+            value = float(metallic_socket.default_value)
+        except Exception:
+            return None
+        return {"value": value} if value else None
+
+    from_node = metallic_socket.links[0].from_node
+    if from_node.type == 'TEX_IMAGE' and getattr(from_node, "image", None) is not None:
+        return {
+            "image": from_node.image,
+            "uv_layer": getattr(from_node, "uv_map", None) or None,
+        }
+    return None
+
+
 def _material_needs_opacity(material) -> bool:
     # Detect transparency from the real Alpha input. ``blend_method`` is a
     # deprecated alias on Blender 4.2+/5.x that never reports OPAQUE, so it
@@ -1160,6 +1260,8 @@ def _build_baked_material(
     roughness_image=None,
     roughness_value=None,
     flat: Optional[Dict[str, object]] = None,
+    normal: Optional[Dict[str, object]] = None,
+    metallic: Optional[Dict[str, object]] = None,
 ) -> None:
     material.use_nodes = True
     nodes = material.node_tree.nodes
@@ -1195,6 +1297,47 @@ def _build_baked_material(
             pass
         material.blend_method = 'BLEND' if (use_opacity and alpha_value < 1.0) else 'OPAQUE'
         return
+
+    # Carry the source normal map through untouched (the bake never renders a
+    # normal pass). Done before the base/opacity wiring so the early returns in
+    # that block can't skip it.
+    if normal is not None and normal.get("image") is not None:
+        normal_map_node = nodes.new("ShaderNodeNormalMap")
+        try:
+            normal_map_node.inputs['Strength'].default_value = float(
+                normal.get("strength", 1.0)
+            )
+        except Exception:
+            pass
+        normal_uv = normal.get("uv_layer") or uv_layer
+        if normal_uv and hasattr(normal_map_node, "uv_map"):
+            normal_map_node.uv_map = normal_uv
+        normal_tex = nodes.new("ShaderNodeTexImage")
+        # Reference the source image as-is; it already carries its authored
+        # colorspace. Forcing it here would mutate the shared datablock for
+        # every other user of the image (and isn't restored).
+        normal_tex.image = normal["image"]
+        if normal_uv and hasattr(normal_tex, "uv_map"):
+            normal_tex.uv_map = normal_uv
+        links.new(normal_tex.outputs['Color'], normal_map_node.inputs['Color'])
+        links.new(normal_map_node.outputs['Normal'], principled.inputs['Normal'])
+
+    # Carry the source metallic through (texture or non-default constant); the
+    # bake never renders a metallic pass.
+    if metallic is not None:
+        if metallic.get("image") is not None:
+            metallic_tex = nodes.new("ShaderNodeTexImage")
+            # As-is: don't mutate the shared image's colorspace (see normal map).
+            metallic_tex.image = metallic["image"]
+            metallic_uv = metallic.get("uv_layer") or uv_layer
+            if metallic_uv and hasattr(metallic_tex, "uv_map"):
+                metallic_tex.uv_map = metallic_uv
+            links.new(metallic_tex.outputs['Color'], principled.inputs['Metallic'])
+        elif metallic.get("value") is not None:
+            try:
+                principled.inputs['Metallic'].default_value = float(metallic["value"])
+            except Exception:
+                pass
 
     if roughness_image is not None:
         rough_node = nodes.new("ShaderNodeTexImage")
