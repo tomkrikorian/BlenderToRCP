@@ -10,10 +10,50 @@ from __future__ import annotations
 import os
 import bpy
 import shutil
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Optional
 
 from . import animation_export
+
+
+@contextmanager
+def _packed_images_referencing_disk():
+    """Point packed images at their on-disk originals during the native export.
+
+    With ``export_textures=False`` Blender re-materializes each packed image to
+    its own copy for the UsdPreviewSurface network, which then differs (byte for
+    byte) from the on-disk file the MaterialX postprocess references via
+    ``_resolve_image_path`` - so the same texture ships twice and the
+    content-fingerprint dedup in ``prepare_textures`` can't collapse them.
+
+    Unpacking to the existing on-disk file (``USE_ORIGINAL``) makes both networks
+    reference one path, so the dedup keeps a single copy. Only images that are
+    packed *and* have a real file on disk are touched, and each is re-packed
+    afterward so the .blend's pack state is left exactly as it was.
+    """
+    unpacked = []
+    for image in list(bpy.data.images):
+        if not getattr(image, "packed_file", None):
+            continue
+        try:
+            abspath = bpy.path.abspath(image.filepath) if image.filepath else ""
+        except Exception:
+            abspath = ""
+        if abspath and os.path.isfile(abspath):
+            try:
+                image.unpack(method='USE_ORIGINAL')
+                unpacked.append(image)
+            except Exception:
+                pass
+    try:
+        yield
+    finally:
+        for image in unpacked:
+            try:
+                image.pack()
+            except Exception:
+                pass
 
 
 _AXIS_TO_USD_EXPORT_ENUM = {
@@ -205,7 +245,11 @@ def export_blender_scene(context, settings, final_path: str, diagnostics=None, *
         # Call Blender's USD exporter
         # Note: In Blender 5.0+, this is available as an operator
         export_kwargs = _filter_export_kwargs(bpy.ops.wm.usd_export, export_kwargs)
-        bpy.ops.wm.usd_export(**export_kwargs)
+        # Unpack packed images to their on-disk originals so the native
+        # UsdPreviewSurface network references the same files the MaterialX
+        # postprocess does - otherwise each packed texture ships twice.
+        with _packed_images_referencing_disk():
+            bpy.ops.wm.usd_export(**export_kwargs)
         
         if not os.path.exists(output_path):
             raise RuntimeError(f"USD export failed: {output_path} not created")
