@@ -31,10 +31,21 @@ def _packed_images_referencing_disk():
     reference one path, so the dedup keeps a single copy. Only images that are
     packed *and* have a real file on disk are touched, and each is re-packed
     afterward so the .blend's pack state is left exactly as it was.
+
+    Images with unsaved edits (``is_dirty``) are left alone: ``USE_ORIGINAL``
+    discards the packed pixel data in favor of the on-disk file without ever
+    writing the packed bytes out, so unpacking a dirty image would export stale
+    disk content and the re-pack below would permanently replace the user's
+    edits with it. Those images just keep materializing a private copy (the
+    pre-existing behavior); correctness beats dedup here. Note the residual
+    (undetectable) case: an image whose disk original changed *externally*
+    since packing still exports the disk version.
     """
     unpacked = []
     for image in list(bpy.data.images):
         if not getattr(image, "packed_file", None):
+            continue
+        if getattr(image, "is_dirty", False):
             continue
         try:
             abspath = bpy.path.abspath(image.filepath) if image.filepath else ""
