@@ -31,6 +31,9 @@ _BAKE_IMAGE_FORMATS = {
 }
 
 _DEFAULT_BAKE_RESOLUTION = 2048
+# Floor for source-keyed bake sizes: a tiled source texture flattens its
+# repetition into the bake, so tiny tiles must not force a tiny bake.
+_MIN_SOURCE_BAKE_RESOLUTION = 512
 _DEFAULT_BAKE_IMAGE_FORMAT = "AVIF"
 _DEFAULT_BAKE_MARGIN = 8
 
@@ -62,6 +65,13 @@ def bake_materials_for_objects(
         bake_mode = "LIT_IBL"
 
     resolution = _resolve_bake_resolution(settings)
+    if resolution <= 0 and bake_mode == "LIT_IBL":
+        # Source-keyed resolution only makes sense for material-color bakes.
+        # The LIT_IBL COMBINED pass bakes spatial lighting/shadow detail whose
+        # required resolution has nothing to do with the source texture sizes
+        # (a 256px tileable albedo says nothing about shadow gradients), so
+        # Lighting & Shadows always bakes at the fixed default.
+        resolution = _DEFAULT_BAKE_RESOLUTION
     image_format = _resolve_bake_image_format(settings, diagnostics, safe_for_blender_save=True)
     margin = _resolve_bake_margin(settings)
     bake_base = bool(getattr(settings, "bake_base_color", True))
@@ -71,29 +81,68 @@ def bake_materials_for_objects(
     roughness_single = (str(getattr(settings, "bake_roughness_mode", "TEXTURE")) == "AVERAGE")
 
     mesh_objects = [obj for obj in objects if getattr(obj, "type", None) == 'MESH']
+
+    # Snapshot every object's source materials BEFORE any baking begins. Material
+    # slots are DATA-linked by default, so assigning a baked material to one
+    # object writes it onto the *shared mesh datablock* - which instantly changes
+    # the "source" material seen by every sibling instance still to be processed.
+    # Reading the source per-object inside the loop would therefore key later
+    # pawns off an already-baked material, miss the reuse cache, and re-bake a
+    # private texture each (also defeating the exporter's instancing). Keying off
+    # this pre-bake snapshot keeps every instance resolving to the same original
+    # material -> same cache key -> one shared bake. It also keeps
+    # ``result.original_materials`` pointing at the true originals for restore.
+    original_slot_materials: Dict[object, List[Optional[object]]] = {
+        obj: [slot.material for slot in obj.material_slots] for obj in mesh_objects
+    }
+
+    # One analysis per unique source material, shared by the step pre-count, the
+    # cache-key pre-pass and the bake loop. A single source of truth is what
+    # keeps the progress total aligned with the passes that actually run (they
+    # can't drift apart when both derive from the same dict), and it avoids
+    # re-walking the same node tree once per object that shares the material.
+    material_analysis: Dict[object, Dict[str, object]] = {}
+
+    def _analyze_material(mat) -> Dict[str, object]:
+        info = material_analysis.get(mat)
+        if info is None:
+            info = {
+                # Flat short-circuiting only applies in the material-color-only
+                # modes; LIT_IBL bakes lighting onto every surface, flat or not.
+                "flat": (
+                    _flat_material_constants(mat, lit=(bake_mode == "LIT_ALBEDO"))
+                    if bake_mode != "LIT_IBL"
+                    else None
+                ),
+                "needs_opacity": _material_needs_opacity(mat),
+                "resolution": (
+                    resolution if resolution > 0 else _material_source_resolution(mat)
+                ),
+            }
+            material_analysis[mat] = info
+        return info
+
+    def _object_step_flags(obj) -> tuple:
+        """(base, roughness, opacity) progress steps this object will run.
+
+        Derived from the same ``_analyze_material`` results the bake loop uses,
+        so the pre-counted total always matches the steps that actually execute
+        - including the flat-material skips.
+        """
+        infos = [_analyze_material(m) for m in original_slot_materials[obj] if m]
+        if not infos:
+            return (False, False, False)
+        has_nonflat = any(info["flat"] is None for info in infos)
+        return (
+            bake_base and has_nonflat,
+            bake_roughness_map and has_nonflat,
+            bake_opacity
+            and any(info["needs_opacity"] and info["flat"] is None for info in infos),
+        )
+
     total_steps = 0
-    if mesh_objects:
-        for obj in mesh_objects:
-            has_materials = any(slot.material for slot in obj.material_slots)
-            if not has_materials:
-                continue
-            if bake_base:
-                total_steps += 1
-            if bake_roughness_map:
-                total_steps += 1
-            # Opacity is only baked for materials that are actually transparent
-            # (see the gated pass below), so only count the step for objects that
-            # have one. Counting it unconditionally would leave progress short of
-            # 100% on every opaque object. Must mirror the runtime gate exactly,
-            # including the flat-material skip (flat materials are short-circuited
-            # in the material-color-only modes, never in LIT_IBL).
-            if bake_opacity and any(
-                slot.material
-                and _material_needs_opacity(slot.material)
-                and (bake_mode == "LIT_IBL" or _flat_material_constants(slot.material) is None)
-                for slot in obj.material_slots
-            ):
-                total_steps += 1
+    for obj in mesh_objects:
+        total_steps += sum(_object_step_flags(obj))
     if total_steps <= 0:
         total_steps = 1
     completed_steps = 0
@@ -133,20 +182,6 @@ def bake_materials_for_objects(
     # material color and can safely share.
     cache_enabled = bake_mode != "LIT_IBL"
 
-    # Snapshot every object's source materials BEFORE any baking begins. Material
-    # slots are DATA-linked by default, so assigning a baked material to one
-    # object writes it onto the *shared mesh datablock* - which instantly changes
-    # the "source" material seen by every sibling instance still to be processed.
-    # Reading the source per-object inside the loop would therefore key later
-    # pawns off an already-baked material, miss the reuse cache, and re-bake a
-    # private texture each (also defeating the exporter's instancing). Keying off
-    # this pre-bake snapshot keeps every instance resolving to the same original
-    # material -> same cache key -> one shared bake. It also keeps
-    # ``result.original_materials`` pointing at the true originals for restore.
-    original_slot_materials: Dict[object, List[Optional[object]]] = {
-        obj: [slot.material for slot in obj.material_slots] for obj in mesh_objects
-    }
-
     with _temporary_ibl_world(context, settings, diagnostics, enabled=(bake_mode == "LIT_IBL")):
         mesh_count = len(mesh_objects)
         for mesh_index, obj in enumerate(mesh_objects, start=1):
@@ -164,9 +199,16 @@ def bake_materials_for_objects(
 
             # Identity (not name) of the mesh datablock: a baked texture is tied
             # to a specific UV layout, and distinct datablocks can share a name
-            # (e.g. across linked libraries). id() is stable for the lifetime of
-            # this run, which is all the cache needs.
-            mesh_id = id(obj.data)
+            # (e.g. across linked libraries). Never id(): ``obj.data`` returns a
+            # transient Python wrapper freed right after the expression, so its
+            # address can be reused by the next object's wrapper (two different
+            # meshes colliding to one id) and differs across accesses to the
+            # same mesh (defeating reuse). session_uid / as_pointer() identify
+            # the underlying datablock itself.
+            mesh_data = obj.data
+            mesh_id = getattr(mesh_data, "session_uid", None)
+            if mesh_id is None:
+                mesh_id = mesh_data.as_pointer()
 
             # Pre-compute a reuse key for every slot. Objects that share a source
             # material AND mesh datablock under identical bake parameters produce
@@ -179,26 +221,21 @@ def bake_materials_for_objects(
                 if not src:
                     slot_keys.append(None)
                     continue
-                is_flat = (
-                    _flat_material_constants(src) is not None
-                    if bake_mode != "LIT_IBL"
-                    else False
-                )
-                mat_res = (
-                    resolution if resolution > 0 else _material_source_resolution(src)
-                )
+                info = _analyze_material(src)
                 slot_keys.append(
                     _make_cache_key(
-                        source_material_name=src.name,
+                        # name_full includes the library suffix, so a local and a
+                        # library-linked material sharing a short name can't collide.
+                        source_material_name=src.name_full,
                         mesh_id=mesh_id,
-                        resolution=mat_res,
+                        resolution=info["resolution"],
                         uv_layer=uv_layer_name,
                         bake_mode=bake_mode,
                         bake_base=bake_base,
-                        use_opacity=_material_needs_opacity(src),
+                        use_opacity=info["needs_opacity"],
                         bake_roughness_map=bake_roughness_map,
                         roughness_single=roughness_single,
-                        is_flat=is_flat,
+                        is_flat=info["flat"] is not None,
                     )
                 )
 
@@ -211,6 +248,11 @@ def bake_materials_for_objects(
                     if key is None:
                         continue
                     obj.material_slots[slot_idx].material = bake_cache[key]
+                # The pre-count included this object's steps (it can't know in
+                # advance which objects will hit the cache), so mark them done
+                # here - otherwise progress would stall short of 100% on every
+                # scene with instanced duplicates.
+                completed_steps += sum(_object_step_flags(obj))
                 _report_progress(
                     f"Reusing baked materials [{mesh_index}/{mesh_count}] - {obj.name}"
                 )
@@ -244,17 +286,11 @@ def bake_materials_for_objects(
                 # modes (Unlit / Lit PBR), where the baked texture would just be
                 # the constant color. In LIT_IBL the bake captures
                 # lighting/shadows/AO onto every surface - including flat-colored
-                # ones - so they must still be baked normally.
-                flat_constants = (
-                    _flat_material_constants(source_mat)
-                    if bake_mode != "LIT_IBL"
-                    else None
-                )
-                mat_resolution = (
-                    resolution
-                    if resolution > 0
-                    else _material_source_resolution(source_mat)
-                )
+                # ones - so they must still be baked normally. (_analyze_material
+                # already encodes that mode split.)
+                info = _analyze_material(source_mat)
+                flat_constants = info["flat"]
+                mat_resolution = info["resolution"]
 
                 entry = {
                     "source_material": source_mat,
@@ -264,7 +300,7 @@ def bake_materials_for_objects(
                     "merged_opacity_image": None,
                     "roughness_image": None,
                     "roughness_value": None,
-                    "use_opacity": _material_needs_opacity(source_mat),
+                    "use_opacity": info["needs_opacity"],
                     "uv_layer": uv_layer_name,
                     "flat": flat_constants,
                     "throwaway_image": None,
@@ -328,8 +364,13 @@ def bake_materials_for_objects(
 
                 baked_entries.append(entry)
 
-            has_materials = any(entry for entry in baked_entries)
             has_base_targets = any(entry and entry.get("base_image") for entry in baked_entries)
+            # Roughness (like base color) only has non-flat slots to bake into;
+            # an all-flat object would just render into throwaway targets. This
+            # gate must stay aligned with _object_step_flags' pre-count.
+            has_roughness_targets = any(
+                entry and not entry.get("flat") for entry in baked_entries
+            )
             isolate_meshes = bake_mode == "LIT_IBL" and isolate_meshes_lit
 
             with _temporary_mesh_isolation(context, obj, enabled=isolate_meshes):
@@ -362,7 +403,7 @@ def bake_materials_for_objects(
                             )
                     _finish_step(step_message)
 
-                if bake_roughness_map and has_materials:
+                if bake_roughness_map and has_roughness_targets:
                     step_message = f"Baking roughness [{mesh_index}/{mesh_count}] - {obj.name}"
                     _start_step(step_message)
                     if roughness_single:
@@ -870,6 +911,11 @@ def _material_source_resolution(material, fallback: int = _DEFAULT_BAKE_RESOLUTI
     texture nodes are ignored, so a 1K albedo is not upscaled just because some
     other input uses a 4K texture. Falls back when no such image is found or
     its size is unknown (e.g. a procedural-only or unloaded texture).
+
+    The result is floored at ``_MIN_SOURCE_BAKE_RESOLUTION``: a small tileable
+    texture repeated many times across the UV layout flattens into the bake, so
+    keying the bake to the tile size would squeeze all that repetition into a
+    handful of texels.
     """
     if not getattr(material, "use_nodes", False) or material.node_tree is None:
         return fallback
@@ -903,7 +949,9 @@ def _material_source_resolution(material, fallback: int = _DEFAULT_BAKE_RESOLUTI
                         largest = int(dimension)
             else:
                 stack.extend(inp for inp in node.inputs if inp.is_linked)
-    return largest if largest > 0 else fallback
+    if largest <= 0:
+        return fallback
+    return max(largest, _MIN_SOURCE_BAKE_RESOLUTION)
 
 
 def _resolve_texture_override_resolution(settings) -> int:
@@ -1006,7 +1054,7 @@ def _get_active_uv(obj) -> Optional[str]:
     return None
 
 
-def _flat_material_constants(material) -> Optional[Dict[str, object]]:
+def _flat_material_constants(material, *, lit: bool = True) -> Optional[Dict[str, object]]:
     """Return constant PBR values when *material* is a flat-color material.
 
     A material is "flat" when nothing texture-varying feeds its surface: it has
@@ -1015,6 +1063,13 @@ def _flat_material_constants(material) -> Optional[Dict[str, object]]:
     full-resolution texture (wasted file size) and, when the faces have no real
     UV unwrap, yields an all-black texture. Instead the returned constants are
     authored directly so apps like Reality Composer Pro show the exact color.
+
+    A *linked* Alpha input always disqualifies: procedural (non-image)
+    transparency must go through the real opacity bake, not be silently
+    flattened to a constant 1.0. When ``lit`` is True (the Lit-PBR mode, where
+    roughness/metallic are actually authored), linked Roughness or Metallic
+    chains likewise force a real bake so their variation isn't collapsed to the
+    Principled defaults.
 
     Returns ``None`` for any material that genuinely needs a texture bake.
     """
@@ -1052,6 +1107,17 @@ def _flat_material_constants(material) -> Optional[Dict[str, object]]:
     metallic = principled.inputs.get('Metallic')
     alpha = principled.inputs.get('Alpha')
 
+    # Procedural transparency (a linked Alpha with no image textures) can't be
+    # represented by a constant - it needs the real opacity bake.
+    if alpha is not None and alpha.is_linked:
+        return None
+    # In Lit-PBR mode roughness/metallic are authored on the exported material,
+    # so procedurally-driven values need the real bake passes too.
+    if lit and roughness is not None and roughness.is_linked:
+        return None
+    if lit and metallic is not None and metallic.is_linked:
+        return None
+
     return {
         "base_color": base_rgba,
         "roughness": float(roughness.default_value)
@@ -1060,9 +1126,7 @@ def _flat_material_constants(material) -> Optional[Dict[str, object]]:
         "metallic": float(metallic.default_value)
         if metallic is not None and not metallic.is_linked
         else None,
-        "alpha": float(alpha.default_value)
-        if alpha is not None and not alpha.is_linked
-        else 1.0,
+        "alpha": float(alpha.default_value) if alpha is not None else 1.0,
     }
 
 
