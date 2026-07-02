@@ -7,7 +7,7 @@ from __future__ import annotations
 import bpy
 import json
 from pathlib import Path
-from bpy.props import StringProperty, BoolProperty, EnumProperty
+from bpy.props import StringProperty, BoolProperty, EnumProperty, FloatProperty
 from bpy.types import AddonPreferences
 
 from .api.addon_loader import _candidate_module_names
@@ -80,6 +80,31 @@ class BlenderToRCPPreferences(AddonPreferences):
         options={'HIDDEN'},
     )
 
+    # RealityKit / Spatial preview (macOS companion app)
+    companion_app_path: StringProperty(
+        name="RealityKit Preview App",
+        description=(
+            "Path to RCPPreview.app (the macOS RealityKit / Spatial preview "
+            "companion). Optional - used as a fallback if the app cannot be "
+            "found by its bundle id"
+        ),
+        default="",
+        subtype='FILE_PATH',
+        maxlen=1024
+    )
+
+    live_preview_debounce: FloatProperty(
+        name="Live Update Debounce",
+        description=(
+            "Seconds the scene must be idle after an edit before the live "
+            "preview re-exports. Higher values are less responsive but lighter"
+        ),
+        default=0.4,
+        min=0.0,
+        max=5.0,
+        subtype='TIME'
+    )
+
     last_export_settings_json: StringProperty(
         name="Last Export Settings",
         description="Serialized last used export settings",
@@ -115,6 +140,18 @@ class BlenderToRCPPreferences(AddonPreferences):
         box.label(text="Default Settings", icon='PREFERENCES')
         box.prop(self, "default_export_format")
         # Strict mode only; no UI toggle.
+
+        # RealityKit / Spatial preview (macOS only)
+        import sys
+        if sys.platform == "darwin":
+            box = layout.box()
+            box.label(text="RealityKit / Spatial Preview", icon='CAMERA_STEREO')
+            box.prop(self, "companion_app_path")
+            box.label(
+                text="Leave empty to locate RCPPreview.app by bundle id",
+                icon='INFO',
+            )
+            box.prop(self, "live_preview_debounce")
 
 
 def get_preferences(context=None):

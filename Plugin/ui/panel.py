@@ -635,6 +635,55 @@ class BlenderToRCPExportSettings(PropertyGroup):
     
 
 
+def _draw_spatial_preview(layout):
+    """Draw the macOS RealityKit / Spatial preview controls (macOS only)."""
+    import sys
+    if sys.platform != "darwin":
+        return
+    try:
+        from .. import live_preview
+    except Exception:
+        return
+
+    box = layout.box()
+    box.label(text="Apple Spatial Preview", icon='CAMERA_STEREO')
+
+    desktop_active = live_preview.is_active(live_preview.KIND_DESKTOP)
+    stream_active = live_preview.is_active(live_preview.KIND_STREAM)
+
+    row = box.row(align=True)
+    row.operator(
+        "blendertorcp.preview_realitykit",
+        icon='PAUSE' if desktop_active else 'PLAY',
+        text="Stop RealityKit Preview" if desktop_active else "Preview in RealityKit",
+        depress=desktop_active,
+    )
+    row = box.row(align=True)
+    row.operator(
+        "blendertorcp.send_to_vision_pro",
+        icon='PAUSE' if stream_active else 'PLAY',
+        text="Stop Vision Pro Stream" if stream_active else "Send to Vision Pro",
+        depress=stream_active,
+    )
+
+    if desktop_active or stream_active:
+        status = live_preview.get_status()
+        info = box.column(align=True)
+        if status.get("streaming"):
+            info.label(
+                text=f"Streaming: {status.get('endpoint') or 'connected'}",
+                icon='CHECKMARK',
+            )
+        elif stream_active:
+            info.label(
+                text=status.get("message") or "Waiting for Vision Pro...",
+                icon='SORTTIME',
+            )
+        if status.get("error"):
+            info.label(text=str(status.get("error")), icon='ERROR')
+        info.label(text="Live updates on scene change", icon='FILE_REFRESH')
+
+
 class BLENDERTORCP_PT_export_panel(Panel):
     """Main export panel"""
     bl_label = "BlenderToRCP Export"
@@ -679,6 +728,8 @@ class BLENDERTORCP_PT_export_panel(Panel):
                 icon='RENDER_STILL',
                 text="Bake Textures & Export"
             )
+
+            _draw_spatial_preview(actions_box)
 
             if status:
                 monitor = actions_box.box()

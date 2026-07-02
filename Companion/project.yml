@@ -1,0 +1,39 @@
+name: RCPPreview
+options:
+  bundleIdPrefix: com.studiomeije.blendertorcp
+  deploymentTarget:
+    macOS: "27.0"
+  createIntermediateGroups: true
+
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    MACOSX_DEPLOYMENT_TARGET: "27.0"
+    SWIFT_APPROACHABLE_CONCURRENCY: YES
+
+targets:
+  RCPPreview:
+    type: application
+    platform: macOS
+    sources:
+      - path: Sources
+    info:
+      path: Sources/Info.plist
+      properties:
+        CFBundleName: RCPPreview
+        CFBundleDisplayName: RealityKit Preview
+        CFBundleShortVersionString: "1.0"
+        CFBundleVersion: "1"
+        LSMinimumSystemVersion: "27.0"
+        NSHighResolutionCapable: true
+        LSApplicationCategoryType: public.app-category.developer-tools
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.studiomeije.blendertorcp.preview
+        GENERATE_INFOPLIST_FILE: NO
+        CODE_SIGN_STYLE: Manual
+        CODE_SIGN_IDENTITY: "-"
+        CODE_SIGNING_REQUIRED: NO
+        ENABLE_HARDENED_RUNTIME: NO
+        # Not sandboxed (v1): reads the live session dir from ~/Library/Caches.
+        ENABLE_APP_SANDBOX: NO

@@ -10,6 +10,7 @@ from . import export_operator
 from . import bake_export_operator
 from . import nodegroup_operators
 from . import validation_operators
+from . import preview_operators
 
 if _needs_reload:
     import importlib
@@ -17,6 +18,7 @@ if _needs_reload:
     bake_export_operator = importlib.reload(bake_export_operator)
     nodegroup_operators = importlib.reload(nodegroup_operators)
     validation_operators = importlib.reload(validation_operators)
+    preview_operators = importlib.reload(preview_operators)
 
 
 def register():
@@ -25,10 +27,12 @@ def register():
     bake_export_operator.register()
     nodegroup_operators.register()
     validation_operators.register()
+    preview_operators.register()
 
 
 def unregister():
     """Unregister all operator classes."""
+    preview_operators.unregister()
     validation_operators.unregister()
     nodegroup_operators.unregister()
     bake_export_operator.unregister()
