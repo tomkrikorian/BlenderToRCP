@@ -89,7 +89,7 @@ blendertorcp version
 
 ```json
 {
-  "plugin": "1.2.0",
+  "plugin": "1.3.0",
   "blender": "5.1.0",
   "python": "3.12.0"
 }
