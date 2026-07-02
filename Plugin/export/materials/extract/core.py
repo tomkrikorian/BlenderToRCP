@@ -48,6 +48,59 @@ _EXTENSION_TO_FORMAT = {
 }
 
 
+def material_has_transparency(material) -> bool:
+    """True when a material's alpha actually produces transparency.
+
+    Blender 4.2+/5.x removed the per-material OPAQUE blend mode: ``blend_method``
+    is now a deprecated alias that only ever reports ``HASHED``/``BLEND``, so it
+    can never be used to tell an opaque material apart from a transparent one.
+    Transparency must be read from the real Alpha input instead.
+    """
+    if not material:
+        return False
+    if not getattr(material, "use_nodes", False):
+        color = getattr(material, "diffuse_color", None)
+        if color is not None and len(color) > 3:
+            try:
+                return float(color[3]) < 0.999
+            except (TypeError, ValueError):
+                return False
+        return False
+    node_tree = getattr(material, "node_tree", None)
+    if not node_tree:
+        return False
+    for node in node_tree.nodes:
+        if node.type != 'BSDF_PRINCIPLED':
+            continue
+        alpha_socket = node.inputs.get('Alpha')
+        if not alpha_socket:
+            continue
+        if alpha_socket.is_linked:
+            return True
+        try:
+            if float(alpha_socket.default_value) < 0.999:
+                return True
+        except (TypeError, ValueError):
+            continue
+    return False
+
+
+def should_author_opacity_threshold(material, is_transparent: bool) -> bool:
+    """Whether to author ``opacityThreshold`` (an alpha *cutout* control).
+
+    A non-zero threshold makes RealityKit hard-clip alpha below it, so it must
+    only apply to cutout/clip materials, never to smooth alpha blending (a
+    semi-transparent BLEND material would otherwise export as a broken cutout).
+    Only the legacy CLIP/HASHED (dithered) modes are cutout-style; BLEND is
+    smooth. ``blend_method`` is deprecated on Blender 4.2+/5.x but still
+    reliably distinguishes dithered (HASHED) from blended (BLEND), which is all
+    we need here.
+    """
+    if not is_transparent:
+        return False
+    return getattr(material, "blend_method", "OPAQUE") in {"CLIP", "HASHED"}
+
+
 def extract_blender_material_data(material) -> Dict[str, Any]:
     """Extract supported material parameters from a Blender material."""
     data = {
@@ -55,6 +108,7 @@ def extract_blender_material_data(material) -> Dict[str, Any]:
         'type': 'unknown',
     }
     data['blend_method'] = getattr(material, "blend_method", "OPAQUE")
+    data['is_transparent'] = material_has_transparency(material)
 
     if not material.use_nodes:
         data['type'] = 'simple'
@@ -141,7 +195,7 @@ def extract_blender_material_data(material) -> Dict[str, Any]:
         if clearcoat_roughness_socket:
             data['clearcoat_roughness'] = clearcoat_roughness_socket.default_value
 
-        if material.blend_method in {'CLIP', 'HASHED'}:
+        if should_author_opacity_threshold(material, data['is_transparent']):
             data['alpha_threshold'] = material.alpha_threshold
 
         # Bake Textures & Export can author AO as a baked texture without wiring it into the
@@ -432,11 +486,12 @@ def collect_material_warnings(material) -> List[str]:
             continue
 
         if node_type in {'MIX_RGB', 'MIX'}:
-            if _is_identity_mix(node):
+            if _is_supported_mix(node):
                 continue
             warnings.append(
                 f"Material '{material.name}': Node '{node_name}' ({node_type}) requires baking unless "
-                "Factor is 0/1 with a passthrough input."
+                "it is a multiply/add/subtract or plain mix of resolvable inputs, or Factor is 0/1 "
+                "with a passthrough input."
             )
             continue
 
@@ -1170,38 +1225,57 @@ def _resolve_socket_value(
         return {"kind": "unresolved", "provenance": list(provenance)}
 
     if node_type in {'MIX_RGB', 'MIX'}:
-        fac_socket = from_node.inputs.get('Fac') if hasattr(from_node, "inputs") else None
-        if fac_socket is None and hasattr(from_node, "inputs"):
-            fac_socket = from_node.inputs.get('Factor')
-        if fac_socket and not fac_socket.is_linked:
-            try:
-                fac = float(fac_socket.default_value)
-            except Exception:
-                fac = None
-            a_socket = from_node.inputs.get('Color1') if hasattr(from_node, "inputs") else None
-            b_socket = from_node.inputs.get('Color2') if hasattr(from_node, "inputs") else None
-            if a_socket is None and hasattr(from_node, "inputs"):
-                a_socket = from_node.inputs.get('A')
-            if b_socket is None and hasattr(from_node, "inputs"):
-                b_socket = from_node.inputs.get('B')
+        blend, fac, a_socket, b_socket = _mix_node_params(from_node)
+        if fac is not None:
+            # Blender Mix is out = lerp(A, op(A, B), fac), so Factor 0 is input A
+            # for *every* blend mode (the blended term drops out entirely).
             if fac == 0.0 and a_socket and a_socket.is_linked:
                 return _resolve_socket_value(
-                    a_socket,
-                    visited,
-                    channel,
-                    provenance,
-                    cache,
+                    a_socket, visited, channel, provenance, cache,
                     expected_type=expected_type,
                 )
-            if fac == 1.0 and b_socket and b_socket.is_linked:
-                return _resolve_socket_value(
-                    b_socket,
-                    visited,
-                    channel,
-                    provenance,
-                    cache,
-                    expected_type=expected_type,
-                )
+            if blend == 'MIX':
+                # Plain mix: out = lerp(A, B, fac). Factor 1 is input B.
+                if fac == 1.0 and b_socket and b_socket.is_linked:
+                    return _resolve_socket_value(
+                        b_socket, visited, channel, provenance, cache,
+                        expected_type=expected_type,
+                    )
+                if a_socket and b_socket and a_socket.is_linked and b_socket.is_linked:
+                    a_expr = _expr_from_socket(a_socket, visited, channel, provenance, cache)
+                    b_expr = _expr_from_socket(b_socket, visited, channel, provenance, cache)
+                    if a_expr is not None and b_expr is not None:
+                        return _make_node_expr(
+                            _nodedef_for("mix", expected_type or "color3"),
+                            {"bg": a_expr, "fg": b_expr, "mix": _constant_expr(fac)},
+                        )
+            else:
+                # Combining blends: out = lerp(A, op(A, B), fac). Emit op(A, B)
+                # so e.g. a diffuse x AO multiply survives as a real MaterialX
+                # node instead of collapsing to one of its inputs.
+                op_name = {
+                    'MULTIPLY': 'multiply',
+                    'ADD': 'add',
+                    'SUBTRACT': 'subtract',
+                }.get(blend)
+                if (
+                    op_name is not None
+                    and a_socket and b_socket
+                    and a_socket.is_linked and b_socket.is_linked
+                ):
+                    a_expr = _expr_from_socket(a_socket, visited, channel, provenance, cache)
+                    b_expr = _expr_from_socket(b_socket, visited, channel, provenance, cache)
+                    if a_expr is not None and b_expr is not None:
+                        blended = _make_node_expr(
+                            _nodedef_for(op_name, expected_type or "color3"),
+                            {"in1": a_expr, "in2": b_expr},
+                        )
+                        if fac == 1.0:
+                            return blended
+                        return _make_node_expr(
+                            _nodedef_for("mix", expected_type or "color3"),
+                            {"bg": a_expr, "fg": blended, "mix": _constant_expr(fac)},
+                        )
 
     if node_type == 'MATH':
         operation = (getattr(from_node, "operation", "") or "").upper()
@@ -2149,32 +2223,67 @@ def _default_texcoord_expr(vector_dim: int = 2) -> Dict[str, Any]:
     return _make_node_expr(nodedef, {})
 
 
+# Combining blends the resolver can author as a real MaterialX node instead of
+# requiring a bake. Plain 'MIX' is handled separately (it is a pure lerp).
+_RESOLVABLE_MIX_BLENDS = {'MULTIPLY', 'ADD', 'SUBTRACT'}
+
+
+def _mix_node_params(node):
+    """Return (blend_type, factor, a_socket, b_socket) for a Mix/MixRGB node.
+
+    ``factor`` is the constant Factor value, or None when it is unset or driven
+    by a link (which the resolver cannot fold). Socket lookup handles both the
+    legacy MixRGB (Color1/Color2) and the newer Mix (A/B) names.
+    """
+    blend = (getattr(node, "blend_type", "") or "MIX").upper()
+    if not hasattr(node, "inputs"):
+        return blend, None, None, None
+    fac_socket = node.inputs.get('Fac') or node.inputs.get('Factor')
+    fac = None
+    if fac_socket and not fac_socket.is_linked:
+        try:
+            fac = float(fac_socket.default_value)
+        except Exception:
+            fac = None
+    a_socket = node.inputs.get('Color1') or node.inputs.get('A')
+    b_socket = node.inputs.get('Color2') or node.inputs.get('B')
+    return blend, fac, a_socket, b_socket
+
+
 def _is_identity_mix(node) -> bool:
-    """Return True when a Mix/MixRGB node is a passthrough."""
+    """Return True when a Mix/MixRGB node is a pure passthrough of one input."""
     if not node or getattr(node, "type", "") not in {'MIX', 'MIX_RGB'}:
         return False
-    if not hasattr(node, "inputs"):
+    blend, fac, a_socket, b_socket = _mix_node_params(node)
+    if fac is None:
         return False
-    fac_socket = node.inputs.get('Fac') or node.inputs.get('Factor')
-    if not fac_socket or fac_socket.is_linked:
-        return False
-    try:
-        fac_value = float(fac_socket.default_value)
-    except Exception:
-        return False
-
-    a_socket = node.inputs.get('Color1') if hasattr(node, "inputs") else None
-    b_socket = node.inputs.get('Color2') if hasattr(node, "inputs") else None
-    if a_socket is None and hasattr(node, "inputs"):
-        a_socket = node.inputs.get('A')
-    if b_socket is None and hasattr(node, "inputs"):
-        b_socket = node.inputs.get('B')
-
-    if fac_value == 0.0:
+    # out = lerp(A, op(A, B), fac): Factor 0 is always A; Factor 1 is B only
+    # for a plain mix (other blends compute op(A, B), not B).
+    if fac == 0.0:
         return bool(a_socket and a_socket.is_linked)
-    if fac_value == 1.0:
+    if fac == 1.0 and blend == 'MIX':
         return bool(b_socket and b_socket.is_linked)
     return False
+
+
+def _is_supported_mix(node) -> bool:
+    """Return True when the resolver can express a Mix/MixRGB node for RCP.
+
+    Either a pure passthrough, or a combining blend (multiply/add/subtract) /
+    general plain mix whose inputs are both linked - those are authored as real
+    MaterialX nodes, so they do not require baking.
+    """
+    if _is_identity_mix(node):
+        return True
+    if not node or getattr(node, "type", "") not in {'MIX', 'MIX_RGB'}:
+        return False
+    blend, fac, a_socket, b_socket = _mix_node_params(node)
+    if fac is None:
+        return False
+    both_linked = bool(a_socket and b_socket and a_socket.is_linked and b_socket.is_linked)
+    if blend == 'MIX':
+        return both_linked
+    return blend in _RESOLVABLE_MIX_BLENDS and both_linked
 
 
 def _is_identity_math_node(node) -> bool:

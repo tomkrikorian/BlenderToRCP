@@ -32,6 +32,8 @@ def _bake_result_summary(settings) -> str:
     bake_mode = getattr(settings, "bake_mode", "LIT_IBL")
     if bake_mode == "LIT_IBL":
         return "Final export: RealityKit Unlit, baked lighting/shadows."
+    if bake_mode == "LIT_ALBEDO":
+        return "Final export: RealityKit Lit PBR, material color only."
     return "Final export: RealityKit Unlit, material color only."
 
 
@@ -42,8 +44,13 @@ def _bake_mode_help_lines(settings) -> tuple[str, str]:
             "Matches the Blender preview.",
             "Lighting and shadows are baked into textures.",
         )
+    if bake_mode == "LIT_ALBEDO":
+        return (
+            "Reality Composer Pro or RealityKit lights the baked color.",
+            "Blender shadows are not baked.",
+        )
     return (
-        "Reality Composer Pro or RealityKit lights the scene.",
+        "Shown as-is, ignoring scene lighting (Unlit).",
         "Blender shadows are not baked.",
     )
 
@@ -451,10 +458,11 @@ class BlenderToRCPExportSettings(PropertyGroup):
 
     bake_mode: EnumProperty(
         name="Texture Bake Includes",
-        description="Choose whether baked textures include material color only or Blender lighting and shadows",
+        description="Choose whether baked textures include material color only (Unlit or Lit PBR) or Blender lighting and shadows",
         items=[
-            ('UNLIT_ALBEDO', "Material Color Only", "Use when Reality Composer Pro or RealityKit should light the scene. Blender shadows are not baked."),
-            ('LIT_IBL', "Lighting & Shadows", "Use when the export should match the Blender preview. Blender lighting and shadows are baked into textures."),
+            ('UNLIT_ALBEDO', "Material Color Only - Unlit", "Bake light-independent material color and author RealityKit Unlit materials — shown as-is, ignoring scene lighting. Blender shadows are not baked."),
+            ('LIT_ALBEDO', "Material Color Only - Lit PBR", "Bake light-independent material color and author Lit PBR materials so Reality Composer Pro or RealityKit lights the baked color. Blender shadows are not baked."),
+            ('LIT_IBL', "Lighting & Shadows", "Use when the export should match the Blender preview. Blender lighting and shadows are baked into textures (authored Unlit)."),
         ],
         default='LIT_IBL',
         update=_on_settings_changed,
@@ -578,6 +586,24 @@ class BlenderToRCPExportSettings(PropertyGroup):
     bake_keep_materials: BoolProperty(
         name="Keep Baked Materials",
         description="Keep baked materials assigned after export",
+        default=False,
+        update=_on_settings_changed,
+    )
+
+    bake_roughness_mode: EnumProperty(
+        name="Roughness",
+        description="How Lit PBR roughness is exported ('Material Color Only - Lit PBR' only)",
+        items=[
+            ('TEXTURE', "Bake Roughness Maps", "Bake a per-texel roughness texture (accurate, larger file)."),
+            ('AVERAGE', "Average to Single Value", "Use one averaged roughness constant — no roughness texture exported (smaller file)."),
+        ],
+        default='TEXTURE',
+        update=_on_settings_changed,
+    )
+
+    apply_yup_geometry: BoolProperty(
+        name="Apply RealityKit (Y-Up) to Geometry",
+        description="Bake a −90° X rotation (about the scene origin) into the mesh data and export as a native Y-up USD with no root orientation.",
         default=False,
         update=_on_settings_changed,
     )
@@ -788,8 +814,13 @@ class BLENDERTORCP_PT_export_usd_general(Panel):
         layout.prop(settings, "relative_paths")
         layout.prop(settings, "convert_orientation")
         if settings.convert_orientation:
-            layout.prop(settings, "forward_axis")
-            layout.prop(settings, "up_axis")
+            layout.prop(settings, "apply_yup_geometry")
+            # Y-up geometry bake forces a native Y-up export and disables the
+            # exporter's own orientation conversion, so the forward/up axis
+            # dropdowns no longer apply — hide them while it is enabled.
+            if not settings.apply_yup_geometry:
+                layout.prop(settings, "forward_axis")
+                layout.prop(settings, "up_axis")
         layout.prop(settings, "convert_scene_units")
         if settings.convert_scene_units == 'CUSTOM':
             layout.prop(settings, "meters_per_unit")
@@ -992,6 +1023,8 @@ class BLENDERTORCP_PT_export_bake_advanced(Panel):
 
         settings = context.scene.blender_to_rcp_export_settings
         layout.enabled = not _is_job_running(settings)
+        if settings.bake_mode == 'LIT_ALBEDO':
+            layout.prop(settings, "bake_roughness_mode")
         layout.prop(settings, "bake_base_color")
         layout.prop(settings, "bake_opacity")
         layout.prop(settings, "bake_step_timeout_seconds")

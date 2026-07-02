@@ -75,8 +75,11 @@ Bake textures and export. Fresh scenes default to Lighting & Shadows (`LIT_IBL`)
 # Lighting & Shadows bake at default settings
 blendertorcp bake-export <file.blend> -o /path/to/output.usdz
 
-# Material Color Only bake
+# Material Color Only - Unlit bake
 blendertorcp bake-export <file.blend> -o out.usdz --bake-mode UNLIT_ALBEDO
+
+# Material Color Only - Lit PBR bake (RealityKit lights the baked color)
+blendertorcp bake-export <file.blend> -o out.usdz --bake-mode LIT_ALBEDO
 
 # High-res PNG bake
 blendertorcp bake-export <file.blend> -o out.usdz --resolution 4096 --image-format PNG
@@ -105,7 +108,7 @@ Bake-export flags:
 | `--selected-only` | off | Only bake/export selected objects |
 | `--diagnostics` | off | Write `<output>.diagnostics.json` |
 | `--no-diagnostics` | off | Do not write diagnostics, even if enabled by settings |
-| `--bake-mode` | from settings (`LIT_IBL` for fresh scenes) | `UNLIT_ALBEDO` = Material Color Only, `LIT_IBL` = Lighting & Shadows |
+| `--bake-mode` | from settings (`LIT_IBL` for fresh scenes) | `UNLIT_ALBEDO` = Material Color Only - Unlit, `LIT_ALBEDO` = Material Color Only - Lit PBR, `LIT_IBL` = Lighting & Shadows |
 | `--resolution` | `2048` | `ORIGINAL`, `512`, `1024`, `2048`, `4096`, or any integer |
 | `--image-format` | `AVIF` | `ORIGINAL`, `AVIF`, or `PNG`; AVIF staging uses external `avifenc` when available and falls back to PNG |
 | `--margin` | `8` | Bake padding in pixels |
@@ -236,7 +239,7 @@ fi
 
 **Texture:** `export_texture_settings_enabled`, `bake_resolution` (ORIGINAL/512/1024/2048/4096/CUSTOM), `bake_image_format` (ORIGINAL/AVIF/PNG), `bake_margin`
 
-**Bake:** `bake_mode` (`UNLIT_ALBEDO` = Material Color Only, `LIT_IBL` = Lighting & Shadows), `bake_ibl_source`, `bake_ibl_filepath`, `bake_ibl_strength`, `bake_ibl_rotation`, `bake_isolate_meshes_lit`, `bake_base_color`, `bake_opacity`, `bake_keep_materials`
+**Bake:** `bake_mode` (`UNLIT_ALBEDO` = Material Color Only - Unlit, `LIT_ALBEDO` = Material Color Only - Lit PBR, `LIT_IBL` = Lighting & Shadows), `bake_roughness_mode` (`TEXTURE`/`AVERAGE`, `LIT_ALBEDO` only), `bake_ibl_source`, `bake_ibl_filepath`, `bake_ibl_strength`, `bake_ibl_rotation`, `bake_isolate_meshes_lit`, `bake_base_color`, `bake_opacity`, `bake_keep_materials`
 
 **Geometry:** `triangulate_meshes`, `export_normals`, `export_uvmaps`, `export_subdivision` (IGNORE/TESSELLATE/BEST_MATCH)
 

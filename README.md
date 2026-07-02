@@ -191,7 +191,7 @@ Which option should I choose?
 | Goal | Use |
 |------|-----|
 | Quick USDZ export without baking textures | `Export Scene` |
-| Reusable baked textures that Reality Composer Pro or RealityKit can light | `Bake Textures & Export` with `Material Color Only` |
+| Reusable baked textures that Reality Composer Pro or RealityKit can light | `Bake Textures & Export` with `Material Color Only - Unlit` or `Material Color Only - Lit PBR` |
 | Export that preserves Blender-looking lighting and shadows | `Bake Textures & Export` with `Lighting & Shadows` (default) |
 
 Operational details:
@@ -205,7 +205,8 @@ Operational details:
 - Bake/export does not validate the source material graph. Unsupported Blender node groups are expected to be resolved by baking; strict graph validation only applies to `Export Scene`.
 
 Bake modes:
-- `Material Color Only` (`UNLIT_ALBEDO`): bakes light-independent material color and rewrites the exported materials as RealityKit Unlit materials. Use this when Reality Composer Pro or RealityKit should light the scene.
+- `Material Color Only - Unlit` (`UNLIT_ALBEDO`): bakes light-independent material color and rewrites the exported materials as RealityKit Unlit materials, shown as-is and ignoring scene lighting. Blender shadows are not baked.
+- `Material Color Only - Lit PBR` (`LIT_ALBEDO`): bakes the same light-independent material color but authors Lit PBR materials so Reality Composer Pro or RealityKit lights the baked color. Blender shadows are not baked. The `Roughness` option under `Advanced Bake Options` chooses between a baked per-texel roughness map and a single averaged roughness value.
 - `Lighting & Shadows` (`LIT_IBL`, default): bakes the appearance under the selected lighting source, then still exports the final materials as RealityKit Unlit materials with lighting and shadows encoded into textures. Use this when the USDZ should match the Blender preview.
 - `Isolate Meshes for Shadows`: hides non-target meshes during lighting-and-shadows bakes to avoid cross-mesh shadow contribution.
 - `USD Export: Texture`: opt in to applying the shared texture resolution, image format, and bake margin settings. For `Export Scene`, `Original` keeps each source texture format and `Keep Original` leaves source dimensions untouched. AVIF support requires Blender 5.1+, and older builds warn and fall back to PNG.

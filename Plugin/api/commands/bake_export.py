@@ -19,6 +19,7 @@ def handle(args: dict) -> dict:
     import bpy
     from Plugin.export import (
         asset_preflight,
+        bake_finalize,
         bake_textures,
         blender_usd_export,
         postprocess_usd,
@@ -176,6 +177,11 @@ def handle(args: dict) -> dict:
         bake_ops._ensure_object_mode(bpy.context)
         bake_ops._set_render_engine(bpy.context.scene, "CYCLES")
 
+        ## Reset the staging dir ONCE before baking textures into it; the export
+        ## below passes reset_staging=False so it won't delete the baked textures.
+        blender_usd_export._reset_export_staging_dir(
+            blender_usd_export.get_export_staging_dir(filepath), diag
+        )
         texture_dir = blender_usd_export.get_export_staging_dir(filepath) / "textures"
         resolved_image_format = bake_textures._resolve_bake_image_format(settings, diag, safe_for_blender_save=True)
         diag.data["bake"] = {
@@ -198,8 +204,19 @@ def handle(args: dict) -> dict:
         )
         diag.end_phase("bake_textures")
 
-        # Bake Textures & Export always forces Unlit
-        settings.force_unlit_materials = True
+        # Author Lit PBR only for "Material Color Only - Lit PBR"; every other
+        # bake mode stays Unlit — same as the interactive path.
+        bake_finalize.apply_force_unlit(settings)
+
+        # Capture BEFORE the Y-up bake, which clears convert_orientation.
+        apply_yup = bake_finalize.should_apply_yup(settings)
+        if apply_yup:
+            yup_objects = (
+                objects_to_export
+                if getattr(settings, "selected_objects_only", False)
+                else None
+            )
+            bake_finalize.apply_yup_geometry_bake(bpy.context, settings, yup_objects)
 
         if getattr(settings, "selected_objects_only", False):
             bake_ops._set_selection(bpy.context, objects_to_export)
@@ -207,7 +224,7 @@ def handle(args: dict) -> dict:
         # Export
         diag.begin_phase("blender_usd_export", {"output_path": filepath})
         temp_usd_path = blender_usd_export.export_blender_scene(
-            bpy.context, settings, filepath, diag
+            bpy.context, settings, filepath, diag, reset_staging=False
         )
         if not temp_usd_path or not Path(temp_usd_path).exists():
             raise CommandError(
@@ -241,6 +258,9 @@ def handle(args: dict) -> dict:
                 details=diag.data.get("material_issues"),
                 artifacts=_artifacts(diagnostics_path, filepath, bpy.data.filepath),
             )
+
+        if apply_yup:
+            bake_finalize.set_stage_up_axis_y(temp_usd_path, diag)
 
         # Package
         if settings.export_format == "USDZ":
@@ -312,6 +332,12 @@ def handle(args: dict) -> dict:
             )
         bake_ops._restore_selection(bpy.context, original_selection, original_active)
         bake_ops._restore_mode(bpy.context, original_active, original_mode)
+        # Guarantee the .blendertorcp_temp staging tree is gone, even if the
+        # export failed or raised above (publish/pack only clean it on success).
+        try:
+            blender_usd_export.remove_export_staging_dir(filepath, diag)
+        except Exception:
+            pass
 
 
 def _save_diagnostics(diag, diagnostics_path: str | None) -> None:

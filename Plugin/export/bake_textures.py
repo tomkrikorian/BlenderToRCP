@@ -13,6 +13,8 @@ from contextlib import contextmanager
 
 import bpy
 
+from .materials.extract.core import material_has_transparency
+
 _BAKE_IMAGE_FORMATS = {
     "AVIF": {
         "file_format": "AVIF",
@@ -56,7 +58,7 @@ def bake_materials_for_objects(
     output_dir.mkdir(parents=True, exist_ok=True)
 
     bake_mode = str(getattr(settings, "bake_mode", "LIT_IBL") or "LIT_IBL")
-    if bake_mode not in {"UNLIT_ALBEDO", "LIT_IBL"}:
+    if bake_mode not in {"UNLIT_ALBEDO", "LIT_ALBEDO", "LIT_IBL"}:
         bake_mode = "LIT_IBL"
 
     resolution = _resolve_bake_resolution(settings)
@@ -64,7 +66,9 @@ def bake_materials_for_objects(
     margin = _resolve_bake_margin(settings)
     bake_base = bool(getattr(settings, "bake_base_color", True))
     bake_opacity = bool(getattr(settings, "bake_opacity", True))
+    bake_roughness_map = bake_mode == "LIT_ALBEDO"
     isolate_meshes_lit = bool(getattr(settings, "bake_isolate_meshes_lit", False))
+    roughness_single = (str(getattr(settings, "bake_roughness_mode", "TEXTURE")) == "AVERAGE")
 
     mesh_objects = [obj for obj in objects if getattr(obj, "type", None) == 'MESH']
     total_steps = 0
@@ -75,7 +79,20 @@ def bake_materials_for_objects(
                 continue
             if bake_base:
                 total_steps += 1
-            if bake_opacity:
+            if bake_roughness_map:
+                total_steps += 1
+            # Opacity is only baked for materials that are actually transparent
+            # (see the gated pass below), so only count the step for objects that
+            # have one. Counting it unconditionally would leave progress short of
+            # 100% on every opaque object. Must mirror the runtime gate exactly,
+            # including the flat-material skip (flat materials are short-circuited
+            # in the material-color-only modes, never in LIT_IBL).
+            if bake_opacity and any(
+                slot.material
+                and _material_needs_opacity(slot.material)
+                and (bake_mode == "LIT_IBL" or _flat_material_constants(slot.material) is None)
+                for slot in obj.material_slots
+            ):
                 total_steps += 1
     if total_steps <= 0:
         total_steps = 1
@@ -103,6 +120,33 @@ def bake_materials_for_objects(
         color_bake_type = 'COMBINED'
         color_pass_filter = None
 
+    # Maps a per-slot reuse key -> the baked material already produced for it.
+    # Lets objects that share a source material + mesh under identical bake
+    # parameters share one baked material instead of each getting a private
+    # copy+bake, so the USD exporter can emit instanceable references.
+    bake_cache: Dict[tuple, object] = {}
+    # Reuse is only sound when the bake is position-independent. The LIT_IBL
+    # COMBINED pass bakes path-traced lighting/shadows/AO in world space, so two
+    # instances at different transforms genuinely differ - sharing one bake would
+    # paint the first piece's lighting onto all of them. So in LIT_IBL every
+    # instance bakes its own textures; the albedo/Lit-PBR modes bake pure
+    # material color and can safely share.
+    cache_enabled = bake_mode != "LIT_IBL"
+
+    # Snapshot every object's source materials BEFORE any baking begins. Material
+    # slots are DATA-linked by default, so assigning a baked material to one
+    # object writes it onto the *shared mesh datablock* - which instantly changes
+    # the "source" material seen by every sibling instance still to be processed.
+    # Reading the source per-object inside the loop would therefore key later
+    # pawns off an already-baked material, miss the reuse cache, and re-bake a
+    # private texture each (also defeating the exporter's instancing). Keying off
+    # this pre-bake snapshot keeps every instance resolving to the same original
+    # material -> same cache key -> one shared bake. It also keeps
+    # ``result.original_materials`` pointing at the true originals for restore.
+    original_slot_materials: Dict[object, List[Optional[object]]] = {
+        obj: [slot.material for slot in obj.material_slots] for obj in mesh_objects
+    }
+
     with _temporary_ibl_world(context, settings, diagnostics, enabled=(bake_mode == "LIT_IBL")):
         mesh_count = len(mesh_objects)
         for mesh_index, obj in enumerate(mesh_objects, start=1):
@@ -115,23 +159,102 @@ def bake_materials_for_objects(
 
             _report_progress(f"Preparing bake targets [{mesh_index}/{mesh_count}] - {obj.name}")
 
-            original_mats = [slot.material for slot in obj.material_slots]
+            original_mats = original_slot_materials[obj]
             result.original_materials[obj] = original_mats
 
+            # Identity (not name) of the mesh datablock: a baked texture is tied
+            # to a specific UV layout, and distinct datablocks can share a name
+            # (e.g. across linked libraries). id() is stable for the lifetime of
+            # this run, which is all the cache needs.
+            mesh_id = id(obj.data)
+
+            # Pre-compute a reuse key for every slot. Objects that share a source
+            # material AND mesh datablock under identical bake parameters produce
+            # byte-identical baked materials/textures, so they can share one baked
+            # material instead of each getting its own copy+bake. That shared
+            # binding is what lets the USD exporter emit instanceable references
+            # (use_instancing) for e.g. all 8 pawns of a chess set.
+            slot_keys = []
+            for src in original_mats:
+                if not src:
+                    slot_keys.append(None)
+                    continue
+                is_flat = (
+                    _flat_material_constants(src) is not None
+                    if bake_mode != "LIT_IBL"
+                    else False
+                )
+                mat_res = (
+                    resolution if resolution > 0 else _material_source_resolution(src)
+                )
+                slot_keys.append(
+                    _make_cache_key(
+                        source_material_name=src.name,
+                        mesh_id=mesh_id,
+                        resolution=mat_res,
+                        uv_layer=uv_layer_name,
+                        bake_mode=bake_mode,
+                        bake_base=bake_base,
+                        use_opacity=_material_needs_opacity(src),
+                        bake_roughness_map=bake_roughness_map,
+                        roughness_single=roughness_single,
+                        is_flat=is_flat,
+                    )
+                )
+
+            present_keys = [k for k in slot_keys if k is not None]
+            if cache_enabled and present_keys and all(k in bake_cache for k in present_keys):
+                # Every slot was already baked for an earlier object under the same
+                # key: reuse those baked materials verbatim (no copy, no re-bake)
+                # so the objects stay instanceable.
+                for slot_idx, key in enumerate(slot_keys):
+                    if key is None:
+                        continue
+                    obj.material_slots[slot_idx].material = bake_cache[key]
+                _report_progress(
+                    f"Reusing baked materials [{mesh_index}/{mesh_count}] - {obj.name}"
+                )
+                continue
+
             baked_entries = []
-            for slot in obj.material_slots:
-                source_mat = slot.material
+            for slot_idx, slot in enumerate(obj.material_slots):
+                # Use the pre-bake snapshot, not slot.material: an earlier sibling
+                # sharing this DATA-linked mesh may have already overwritten the
+                # slot with its baked material.
+                source_mat = original_mats[slot_idx]
                 if not source_mat:
                     baked_entries.append(None)
                     continue
 
                 baked_mat = source_mat.copy()
                 baked_mat.use_nodes = True
-                baked_mat.name = _unique_name(f"{source_mat.name}_Baked", bpy.data.materials)
+                # Strip any existing _Baked chain before re-appending, so a baked
+                # material that gets fed back in as a source (e.g. a prior bake
+                # was saved into the slot, or "keep baked materials" was on) does
+                # not compound into names like "Marble_Baked_Baked_Baked".
+                baked_mat.name = _unique_name(
+                    f"{_strip_baked_suffix(source_mat.name)}_Baked", bpy.data.materials
+                )
                 if not source_mat.use_nodes:
                     _initialize_simple_material(baked_mat, source_mat)
                 slot.material = baked_mat
                 result.baked_materials.append(baked_mat)
+
+                # Only short-circuit flat materials in the material-color-only
+                # modes (Unlit / Lit PBR), where the baked texture would just be
+                # the constant color. In LIT_IBL the bake captures
+                # lighting/shadows/AO onto every surface - including flat-colored
+                # ones - so they must still be baked normally.
+                flat_constants = (
+                    _flat_material_constants(source_mat)
+                    if bake_mode != "LIT_IBL"
+                    else None
+                )
+                mat_resolution = (
+                    resolution
+                    if resolution > 0
+                    else _material_source_resolution(source_mat)
+                )
 
                 entry = {
                     "source_material": source_mat,
@@ -139,11 +262,51 @@ def bake_materials_for_objects(
                     "base_image": None,
                     "opacity_image": None,
                     "merged_opacity_image": None,
+                    "roughness_image": None,
+                    "roughness_value": None,
                     "use_opacity": _material_needs_opacity(source_mat),
                     "uv_layer": uv_layer_name,
+                    "flat": flat_constants,
+                    "throwaway_image": None,
+                    "resolution": mat_resolution,
+                    "cache_key": slot_keys[slot_idx],
+                    # Pass the source normal map through untouched - we never
+                    # bake a normal pass, and only LIT_ALBEDO authors a lit
+                    # material that uses it (Unlit output ignores normals).
+                    "normal": (
+                        _source_normal_passthrough(source_mat)
+                        if bake_mode == "LIT_ALBEDO"
+                        else None
+                    ),
+                    "metallic": (
+                        _source_metallic_passthrough(source_mat)
+                        if bake_mode == "LIT_ALBEDO"
+                        else None
+                    ),
                 }
 
-                if bake_base:
+                if flat_constants is not None:
+                    # Flat-color material: there is nothing texture-varying to bake,
+                    # so skip baking entirely. Baking it would render a constant into
+                    # a full-resolution texture (wasted file size) and, when the flat
+                    # material's faces have no real UV unwrap, produce an all-black
+                    # texture. The constant is authored directly in _build_baked_material.
+                    #
+                    # A whole-object bake still touches these faces when the object also
+                    # has textured materials, and bpy.ops.object.bake errors on any slot
+                    # without an active image node. Attach a tiny throwaway target to
+                    # satisfy that requirement; it is never saved and is removed below.
+                    throwaway = _create_bake_image(
+                        name=f"{obj.name}_{baked_mat.name}_skipflat",
+                        filepath=Path(""),
+                        width=4,
+                        height=4,
+                        colorspace="sRGB",
+                        file_format=image_format["file_format"],
+                    )
+                    entry["throwaway_image"] = throwaway
+                    _set_active_image_node(baked_mat, throwaway, uv_layer_name)
+                elif bake_base:
                     base_image_path = _make_image_path(
                         output_dir,
                         obj.name,
@@ -154,8 +317,8 @@ def bake_materials_for_objects(
                     base_image = _create_bake_image(
                         name=f"{obj.name}_{baked_mat.name}_baseColor",
                         filepath=base_image_path,
-                        width=resolution,
-                        height=resolution,
+                        width=mat_resolution,
+                        height=mat_resolution,
                         colorspace="sRGB",
                         file_format=image_format["file_format"],
                     )
@@ -171,17 +334,21 @@ def bake_materials_for_objects(
 
             with _temporary_mesh_isolation(context, obj, enabled=isolate_meshes):
                 if bake_base and has_base_targets:
-                    label = "Baking material color" if bake_mode == "UNLIT_ALBEDO" else "Baking lighting and shadows"
+                    label = "Baking lighting and shadows" if bake_mode == "LIT_IBL" else "Baking material color"
                     step_message = f"{label} [{mesh_index}/{mesh_count}] - {obj.name}"
                     _start_step(step_message)
                     _select_object(context, obj)
-                    _bake_object_pass(
-                        context,
-                        obj,
-                        bake_type=color_bake_type,
-                        pass_filter=color_pass_filter,
-                        margin=margin,
-                    )
+                    # COMBINED (LIT_IBL) bakes real lighting and needs the user's
+                    # samples; the albedo-only DIFFUSE/COLOR pass does not.
+                    base_samples = None if bake_mode == "LIT_IBL" else 1
+                    with _temporary_cycles_samples(context, base_samples):
+                        _bake_object_pass(
+                            context,
+                            obj,
+                            bake_type=color_bake_type,
+                            pass_filter=color_pass_filter,
+                            margin=margin,
+                        )
                     for entry in baked_entries:
                         if not entry or not entry.get("base_image"):
                             continue
@@ -195,13 +362,134 @@ def bake_materials_for_objects(
                             )
                     _finish_step(step_message)
 
-                if bake_opacity and has_materials:
+                if bake_roughness_map and has_materials:
+                    step_message = f"Baking roughness [{mesh_index}/{mesh_count}] - {obj.name}"
+                    _start_step(step_message)
+                    if roughness_single:
+                        # Averaged roughness only needs a tiny bake; cap at 64px.
+                        # (resolution may be 0 here, the "use source resolution" sentinel.)
+                        small_res = min(resolution, 64) if resolution > 0 else 64
+                        for entry in baked_entries:
+                            if not entry or entry.get("flat"):
+                                continue
+                            baked_mat = entry["material"]
+                            rough_image = _create_bake_image(
+                                name=f"{obj.name}_{baked_mat.name}_roughness",
+                                filepath=Path(""),
+                                width=small_res,
+                                height=small_res,
+                                colorspace="Non-Color",
+                                file_format=image_format["file_format"],
+                            )
+                            entry["roughness_image"] = rough_image
+                            _set_active_image_node(baked_mat, rough_image, entry["uv_layer"])
+
+                        _select_object(context, obj)
+                        with _temporary_cycles_samples(context, 1):
+                            _bake_object_pass(
+                                context,
+                                obj,
+                                bake_type='ROUGHNESS',
+                                pass_filter=None,
+                                margin=margin,
+                            )
+                        for entry in baked_entries:
+                            if not entry or not entry.get("roughness_image"):
+                                continue
+                            rough_image = entry["roughness_image"]
+                            entry["roughness_value"] = _average_image_value(rough_image)
+                            entry["roughness_image"] = None
+                            ## Force-remove the throwaway roughness bake image. A texture
+                            ## node still references it here, so the old users==0 guard never
+                            ## fired and leaked images with an empty ("." ) filepath into
+                            ## bpy.data, which breaks downstream texture staging.
+                            try:
+                                bpy.data.images.remove(rough_image, do_unlink=True)
+                            except Exception:
+                                pass
+                    else:
+                        for entry in baked_entries:
+                            if not entry or entry.get("flat"):
+                                continue
+                            baked_mat = entry["material"]
+                            rough_image_path = _make_image_path(
+                                output_dir,
+                                obj.name,
+                                baked_mat.name,
+                                "roughness",
+                                image_format["extension"],
+                            )
+                            rough_image = _create_bake_image(
+                                name=f"{obj.name}_{baked_mat.name}_roughness",
+                                filepath=rough_image_path,
+                                width=entry["resolution"],
+                                height=entry["resolution"],
+                                colorspace="Non-Color",
+                                file_format=image_format["file_format"],
+                            )
+                            entry["roughness_image"] = rough_image
+                            result.baked_images.append(rough_image)
+                            _set_active_image_node(baked_mat, rough_image, entry["uv_layer"])
+
+                        _select_object(context, obj)
+                        with _temporary_cycles_samples(context, 1):
+                            _bake_object_pass(
+                                context,
+                                obj,
+                                bake_type='ROUGHNESS',
+                                pass_filter=None,
+                                margin=margin,
+                            )
+                        for entry in baked_entries:
+                            if not entry or not entry.get("roughness_image"):
+                                continue
+                            entry["roughness_image"].save()
+                            if diagnostics:
+                                diagnostics.add_generated_file(
+                                    "baked_roughness",
+                                    getattr(entry["roughness_image"], "filepath_raw", ""),
+                                    object=obj.name,
+                                    material=entry["source_material"].name,
+                                )
+                    _finish_step(step_message)
+
+                # Only materials that are actually transparent get an opacity
+                # bake. An opaque material's alpha is a constant 1.0, so a baked
+                # opacity map would be a flat-white texture that is never wired
+                # into the material (see _build_baked_material) - pure wasted
+                # bake time plus an orphan file left in the export's textures
+                # dir. So gate the whole pass on real transparency.
+                opacity_targets = [
+                    entry
+                    for entry in baked_entries
+                    if entry and not entry.get("flat") and entry.get("use_opacity")
+                ]
+                if bake_opacity and opacity_targets:
                     step_message = f"Baking opacity [{mesh_index}/{mesh_count}] - {obj.name}"
                     _start_step(step_message)
+                    # The EMIT pass bakes the whole object, so every non-flat slot
+                    # needs an active bake target - otherwise the pass overwrites
+                    # the just-baked base color of opaque slots. Slots that aren't
+                    # getting an opacity map get a tiny throwaway target instead,
+                    # removed right after the bake. (Flat slots are already pointed
+                    # at their own throwaway from the base-color pass.)
+                    emit_throwaways = []
                     for entry in baked_entries:
-                        if not entry:
+                        if not entry or entry.get("flat"):
                             continue
                         baked_mat = entry["material"]
+                        if not entry.get("use_opacity"):
+                            throwaway = _create_bake_image(
+                                name=f"{obj.name}_{baked_mat.name}_skipopacity",
+                                filepath=Path(""),
+                                width=4,
+                                height=4,
+                                colorspace="Non-Color",
+                                file_format=image_format["file_format"],
+                            )
+                            emit_throwaways.append(throwaway)
+                            _set_active_image_node(baked_mat, throwaway, entry["uv_layer"])
+                            continue
                         opacity_image_path = _make_image_path(
                             output_dir,
                             obj.name,
@@ -212,8 +500,9 @@ def bake_materials_for_objects(
                         opacity_image = _create_bake_image(
                             name=f"{obj.name}_{baked_mat.name}_opacity",
                             filepath=opacity_image_path,
-                            width=resolution,
-                            height=resolution,
+                            # Must match the base image so opacity can be merged into its alpha.
+                            width=entry["resolution"],
+                            height=entry["resolution"],
                             colorspace="Non-Color",
                             file_format=image_format["file_format"],
                         )
@@ -223,13 +512,14 @@ def bake_materials_for_objects(
                         _configure_emission_for_alpha(baked_mat)
 
                     _select_object(context, obj)
-                    _bake_object_pass(
-                        context,
-                        obj,
-                        bake_type='EMIT',
-                        pass_filter=None,
-                        margin=margin,
-                    )
+                    with _temporary_cycles_samples(context, 1):
+                        _bake_object_pass(
+                            context,
+                            obj,
+                            bake_type='EMIT',
+                            pass_filter=None,
+                            margin=margin,
+                        )
                     for entry in baked_entries:
                         if not entry or not entry.get("opacity_image"):
                             continue
@@ -241,13 +531,14 @@ def bake_materials_for_objects(
                                 object=obj.name,
                                 material=entry["source_material"].name,
                             )
+                    for throwaway in emit_throwaways:
+                        try:
+                            bpy.data.images.remove(throwaway, do_unlink=True)
+                        except Exception:
+                            pass
                     _finish_step(step_message)
 
-                    for entry in baked_entries:
-                        if not entry:
-                            continue
-                        if not entry.get("use_opacity"):
-                            continue
+                    for entry in opacity_targets:
                         merged = _merge_opacity_into_base_image(
                             entry.get("base_image"),
                             entry.get("opacity_image"),
@@ -259,13 +550,36 @@ def bake_materials_for_objects(
             for entry in baked_entries:
                 if not entry:
                     continue
+                # Remove the flat-slot throwaway target before authoring the final
+                # material. It is only needed to satisfy the whole-object bake (now
+                # finished) and is not tracked in result.baked_images, so doing this
+                # first guarantees it can't leak if _build_baked_material raises.
+                throwaway_image = entry.get("throwaway_image")
+                if throwaway_image is not None:
+                    try:
+                        bpy.data.images.remove(throwaway_image, do_unlink=True)
+                    except Exception:
+                        pass
+                    entry["throwaway_image"] = None
                 _build_baked_material(
                     entry["material"],
                     entry.get("base_image"),
                     entry.get("opacity_image") if entry.get("use_opacity") else None,
                     entry.get("use_opacity", False),
                     uv_layer=entry.get("uv_layer"),
+                    roughness_image=entry.get("roughness_image"),
+                    roughness_value=entry.get("roughness_value"),
+                    flat=entry.get("flat"),
+                    normal=entry.get("normal"),
+                    metallic=entry.get("metallic"),
                 )
+                # First object to bake this key owns the shared baked material;
+                # later objects with the same key reuse it (see the pre-pass
+                # above) so they export as instances. Disabled in LIT_IBL, where
+                # each instance must keep its own position-dependent lighting.
+                cache_key = entry.get("cache_key")
+                if cache_enabled and cache_key is not None:
+                    bake_cache.setdefault(cache_key, entry["material"])
                 merged_opacity_image = entry.get("merged_opacity_image")
                 if merged_opacity_image is not None and getattr(merged_opacity_image, "users", 0) == 0:
                     try:
@@ -320,6 +634,50 @@ def _temporary_ibl_world(context, settings, diagnostics=None, enabled: bool = Tr
         if temp_world is not None:
             try:
                 bpy.data.worlds.remove(temp_world)
+            except Exception:
+                pass
+
+
+@contextmanager
+def _temporary_cycles_samples(context, samples: Optional[int]):
+    """Temporarily override Cycles bake sample count (and denoising).
+
+    Property bakes - albedo (DIFFUSE/COLOR), roughness and opacity (EMIT) - are
+    deterministic: their result is identical at 1 sample as at 64, so the scene's
+    sample count is pure wasted render time on those passes. Only the LIT_IBL
+    COMBINED pass bakes path-traced lighting and genuinely needs samples, so it
+    passes ``samples=None`` to leave the user's setting untouched.
+    """
+    if samples is None:
+        yield
+        return
+
+    cycles = getattr(context.scene, "cycles", None)
+    if cycles is None:
+        yield
+        return
+
+    original_samples = getattr(cycles, "samples", None)
+    original_denoising = getattr(cycles, "use_denoising", None)
+    try:
+        try:
+            cycles.samples = int(samples)
+        except Exception:
+            pass
+        try:
+            cycles.use_denoising = False
+        except Exception:
+            pass
+        yield
+    finally:
+        if original_samples is not None:
+            try:
+                cycles.samples = original_samples
+            except Exception:
+                pass
+        if original_denoising is not None:
+            try:
+                cycles.use_denoising = original_denoising
             except Exception:
                 pass
 
@@ -436,18 +794,116 @@ def restore_baked_materials(result: BakeResult, keep_baked_materials: bool) -> N
 
 
 def _resolve_bake_resolution(settings) -> int:
+    # Returns a fixed bake resolution in pixels, or 0 meaning "use each
+    # material's own source-texture resolution" (resolved per material at
+    # bake time by _material_source_resolution).
+    #
+    # When texture overrides are off (the default), we bake at the source
+    # resolution rather than forcing 2048 - a 1K material should stay 1K
+    # instead of being upscaled to 2K (slower bakes, 4x larger files).
     if not _export_texture_settings_enabled(settings):
-        return _DEFAULT_BAKE_RESOLUTION
+        return 0
 
     value = getattr(settings, "bake_resolution", "2048")
     if str(value).upper() == "ORIGINAL":
-        return _DEFAULT_BAKE_RESOLUTION
+        return 0
     if value == 'CUSTOM':
         return int(getattr(settings, "bake_resolution_custom", _DEFAULT_BAKE_RESOLUTION))
     try:
         return int(value)
     except Exception:
         return _DEFAULT_BAKE_RESOLUTION
+
+
+_BAKED_CHANNEL_INPUTS = ("Base Color", "Roughness", "Alpha")
+
+
+def _make_cache_key(
+    *,
+    source_material_name: str,
+    mesh_id: object,
+    resolution: int,
+    uv_layer: Optional[str],
+    bake_mode: str,
+    bake_base: bool,
+    use_opacity: bool,
+    bake_roughness_map: bool,
+    roughness_single: bool,
+    is_flat: bool,
+) -> tuple:
+    """Identity of a baked-material result for reuse across objects.
+
+    Two slots that hash to the same key bake to byte-identical materials and
+    textures, so the second (and later) slots can reuse the first's baked
+    material instead of copying + re-baking. Reusing a shared binding is what
+    lets the USD exporter emit instanceable references.
+
+    The key deliberately includes the mesh datablock identity: a baked texture is
+    tied to a specific UV layout, so two objects sharing a source material but
+    different meshes (hence possibly different UVs) must NOT share a bake. It also
+    includes every parameter that changes the baked output - resolution, UV
+    layer, bake mode, and the base/opacity/roughness/flat flags - so a change in
+    any of them forces a fresh bake rather than an incorrect cache hit.
+    """
+    return (
+        source_material_name,
+        mesh_id,
+        int(resolution),
+        uv_layer or "",
+        bake_mode,
+        bool(bake_base),
+        bool(use_opacity),
+        bool(bake_roughness_map),
+        bool(roughness_single),
+        bool(is_flat),
+    )
+
+
+def _material_source_resolution(material, fallback: int = _DEFAULT_BAKE_RESOLUTION) -> int:
+    """Largest source-texture dimension feeding the baked channels, or *fallback*.
+
+    Used when baking at "original" resolution so each material's baked maps
+    match the size of the textures it was authored with, rather than a global
+    default. Only images that actually drive the channels we bake (base color,
+    roughness, alpha) are considered - traced upstream from those Principled
+    inputs. Maps we do not bake (e.g. a high-res normal map) and disconnected
+    texture nodes are ignored, so a 1K albedo is not upscaled just because some
+    other input uses a 4K texture. Falls back when no such image is found or
+    its size is unknown (e.g. a procedural-only or unloaded texture).
+    """
+    if not getattr(material, "use_nodes", False) or material.node_tree is None:
+        return fallback
+
+    principled = next(
+        (node for node in material.node_tree.nodes if node.type == 'BSDF_PRINCIPLED'),
+        None,
+    )
+    if principled is None:
+        return fallback
+
+    stack = [
+        principled.inputs[name]
+        for name in _BAKED_CHANNEL_INPUTS
+        if principled.inputs.get(name) is not None and principled.inputs[name].is_linked
+    ]
+    visited = set()
+    largest = 0
+    while stack:
+        socket = stack.pop()
+        for link in socket.links:
+            node = link.from_node
+            if node in visited:
+                continue
+            visited.add(node)
+            if node.type == 'TEX_IMAGE':
+                image = getattr(node, "image", None)
+                size = tuple(getattr(image, "size", ()) or ())
+                for dimension in size[:2]:
+                    if dimension and dimension > largest:
+                        largest = int(dimension)
+            else:
+                stack.extend(inp for inp in node.inputs if inp.is_linked)
+    return largest if largest > 0 else fallback
 
 
 def _resolve_texture_override_resolution(settings) -> int:
@@ -550,33 +1006,156 @@ def _get_active_uv(obj) -> Optional[str]:
     return None
 
 
-def _material_needs_opacity(material) -> bool:
-    if not material:
-        return False
-    if getattr(material, "blend_method", "OPAQUE") != "OPAQUE":
-        return True
-    if not material.use_nodes:
-        color = getattr(material, "diffuse_color", None)
-        if color and len(color) > 3:
+def _flat_material_constants(material) -> Optional[Dict[str, object]]:
+    """Return constant PBR values when *material* is a flat-color material.
+
+    A material is "flat" when nothing texture-varying feeds its surface: it has
+    no image-texture nodes and its Principled Base Color is an unlinked constant.
+    Such materials must not be baked - baking would burn a single color into a
+    full-resolution texture (wasted file size) and, when the faces have no real
+    UV unwrap, yields an all-black texture. Instead the returned constants are
+    authored directly so apps like Reality Composer Pro show the exact color.
+
+    Returns ``None`` for any material that genuinely needs a texture bake.
+    """
+    if not getattr(material, "use_nodes", False) or material.node_tree is None:
+        # Non-node material: its only color is the legacy diffuse_color.
+        color = getattr(material, "diffuse_color", (0.8, 0.8, 0.8, 1.0))
+        alpha = float(color[3]) if len(color) > 3 else 1.0
+        return {
+            "base_color": (color[0], color[1], color[2], alpha),
+            "roughness": float(getattr(material, "roughness", 0.5)),
+            "metallic": float(getattr(material, "metallic", 0.0)),
+            "alpha": alpha,
+        }
+
+    node_tree = material.node_tree
+    # Any image texture means there is something worth baking.
+    if any(node.type == 'TEX_IMAGE' for node in node_tree.nodes):
+        return None
+
+    principled = next(
+        (node for node in node_tree.nodes if node.type == 'BSDF_PRINCIPLED'),
+        None,
+    )
+    if principled is None:
+        return None
+
+    base_color = principled.inputs.get('Base Color')
+    if base_color is None or base_color.is_linked:
+        return None
+
+    base = tuple(base_color.default_value)
+    base_rgba = (base[0], base[1], base[2], base[3] if len(base) > 3 else 1.0)
+
+    roughness = principled.inputs.get('Roughness')
+    metallic = principled.inputs.get('Metallic')
+    alpha = principled.inputs.get('Alpha')
+
+    return {
+        "base_color": base_rgba,
+        "roughness": float(roughness.default_value)
+        if roughness is not None and not roughness.is_linked
+        else None,
+        "metallic": float(metallic.default_value)
+        if metallic is not None and not metallic.is_linked
+        else None,
+        "alpha": float(alpha.default_value)
+        if alpha is not None and not alpha.is_linked
+        else 1.0,
+    }
+
+
+def _source_normal_passthrough(material) -> Optional[Dict[str, object]]:
+    """Capture the source material's normal map so the bake can pass it through.
+
+    The bake only renders base color / roughness / opacity - it never bakes a
+    normal pass. A normal map is already a clean, RCP-compatible image, so the
+    right thing is to carry it onto the baked material untouched rather than
+    drop it (which left baked surfaces looking flat and over-glossy). Returns
+    the source image, its UV layer and Normal Map strength, or ``None`` when the
+    Normal input is unlinked or not driven by an image.
+    """
+    if not getattr(material, "use_nodes", False) or material.node_tree is None:
+        return None
+    principled = next(
+        (node for node in material.node_tree.nodes if node.type == 'BSDF_PRINCIPLED'),
+        None,
+    )
+    if principled is None:
+        return None
+    normal_socket = principled.inputs.get('Normal')
+    if normal_socket is None or not normal_socket.is_linked:
+        return None
+
+    from_node = normal_socket.links[0].from_node
+    strength = 1.0
+    uv_layer = None
+    tex_node = None
+    if from_node.type == 'NORMAL_MAP':
+        strength_socket = from_node.inputs.get('Strength')
+        if strength_socket is not None and not strength_socket.is_linked:
             try:
-                if float(color[3]) < 0.999:
-                    return True
+                strength = float(strength_socket.default_value)
             except Exception:
-                pass
-    if material.use_nodes and material.node_tree:
-        for node in material.node_tree.nodes:
-            if node.type == 'BSDF_PRINCIPLED':
-                alpha_socket = node.inputs.get('Alpha')
-                if not alpha_socket:
-                    continue
-                if alpha_socket.is_linked:
-                    return True
-                try:
-                    if float(alpha_socket.default_value) < 0.999:
-                        return True
-                except Exception:
-                    continue
-    return False
+                strength = 1.0
+        uv_layer = getattr(from_node, "uv_map", None) or None
+        color_socket = from_node.inputs.get('Color')
+        if color_socket is not None and color_socket.is_linked:
+            candidate = color_socket.links[0].from_node
+            if candidate.type == 'TEX_IMAGE':
+                tex_node = candidate
+    elif from_node.type == 'TEX_IMAGE':
+        tex_node = from_node
+
+    if tex_node is None or getattr(tex_node, "image", None) is None:
+        return None
+    if not uv_layer:
+        uv_layer = getattr(tex_node, "uv_map", None) or None
+    return {"image": tex_node.image, "uv_layer": uv_layer, "strength": strength}
+
+
+def _source_metallic_passthrough(material) -> Optional[Dict[str, object]]:
+    """Capture the source material's metallic input for passthrough.
+
+    Like the normal map, metallic is never baked, so a textured or non-default
+    constant metallic would otherwise be dropped (reset to 0) by the rebuilt
+    material. Returns ``{"image", "uv_layer"}`` for a directly-wired metallic
+    texture, ``{"value"}`` for a non-zero constant, or ``None`` when metallic is
+    the default 0 or driven by a chain we don't pass through.
+    """
+    if not getattr(material, "use_nodes", False) or material.node_tree is None:
+        return None
+    principled = next(
+        (node for node in material.node_tree.nodes if node.type == 'BSDF_PRINCIPLED'),
+        None,
+    )
+    if principled is None:
+        return None
+    metallic_socket = principled.inputs.get('Metallic')
+    if metallic_socket is None:
+        return None
+    if not metallic_socket.is_linked:
+        try:
+            value = float(metallic_socket.default_value)
+        except Exception:
+            return None
+        return {"value": value} if value else None
+
+    from_node = metallic_socket.links[0].from_node
+    if from_node.type == 'TEX_IMAGE' and getattr(from_node, "image", None) is not None:
+        return {
+            "image": from_node.image,
+            "uv_layer": getattr(from_node, "uv_map", None) or None,
+        }
+    return None
+
+
+def _material_needs_opacity(material) -> bool:
+    # Detect transparency from the real Alpha input. ``blend_method`` is a
+    # deprecated alias on Blender 4.2+/5.x that never reports OPAQUE, so it
+    # cannot be used to decide whether a material actually needs an opacity bake.
+    return material_has_transparency(material)
 
 
 def _set_active_image_node(material, image, uv_layer: Optional[str]) -> None:
@@ -646,6 +1225,23 @@ def _configure_emission_for_alpha(material) -> None:
     links.new(emission_node.outputs['Emission'], output_node.inputs['Surface'])
 
 
+def _average_image_value(image) -> float:
+    try:
+        px = image.pixels[:]
+    except Exception:
+        return 0.5
+    count = len(px) // 4
+    if count <= 0:
+        return 0.5
+    step = max(1, count // 4096)
+    total = 0.0
+    n = 0
+    for i in range(0, count, step):
+        total += px[i * 4]
+        n += 1
+    return (total / n) if n else 0.5
+
+
 def _new_combine_color_node(nodes):
     """Create a shader color-combine node across Blender versions."""
     try:
@@ -661,6 +1257,11 @@ def _build_baked_material(
     use_opacity: bool,
     *,
     uv_layer: Optional[str] = None,
+    roughness_image=None,
+    roughness_value=None,
+    flat: Optional[Dict[str, object]] = None,
+    normal: Optional[Dict[str, object]] = None,
+    metallic: Optional[Dict[str, object]] = None,
 ) -> None:
     material.use_nodes = True
     nodes = material.node_tree.nodes
@@ -670,6 +1271,85 @@ def _build_baked_material(
     output_node = nodes.new("ShaderNodeOutputMaterial")
     principled = nodes.new("ShaderNodeBsdfPrincipled")
     links.new(principled.outputs['BSDF'], output_node.inputs['Surface'])
+
+    if flat is not None:
+        # Flat-color material: author the captured constants directly (no textures),
+        # so the exported USD carries the exact color/roughness/metallic.
+        base = flat.get("base_color", (0.8, 0.8, 0.8, 1.0))
+        try:
+            principled.inputs['Base Color'].default_value = (base[0], base[1], base[2], 1.0)
+        except Exception:
+            pass
+        if flat.get("roughness") is not None:
+            try:
+                principled.inputs['Roughness'].default_value = float(flat["roughness"])
+            except Exception:
+                pass
+        if flat.get("metallic") is not None:
+            try:
+                principled.inputs['Metallic'].default_value = float(flat["metallic"])
+            except Exception:
+                pass
+        alpha_value = float(flat.get("alpha", 1.0))
+        try:
+            principled.inputs['Alpha'].default_value = alpha_value
+        except Exception:
+            pass
+        material.blend_method = 'BLEND' if (use_opacity and alpha_value < 1.0) else 'OPAQUE'
+        return
+
+    # Carry the source normal map through untouched (the bake never renders a
+    # normal pass). Done before the base/opacity wiring so the early returns in
+    # that block can't skip it.
+    if normal is not None and normal.get("image") is not None:
+        normal_map_node = nodes.new("ShaderNodeNormalMap")
+        try:
+            normal_map_node.inputs['Strength'].default_value = float(
+                normal.get("strength", 1.0)
+            )
+        except Exception:
+            pass
+        normal_uv = normal.get("uv_layer") or uv_layer
+        if normal_uv and hasattr(normal_map_node, "uv_map"):
+            normal_map_node.uv_map = normal_uv
+        normal_tex = nodes.new("ShaderNodeTexImage")
+        # Reference the source image as-is; it already carries its authored
+        # colorspace. Forcing it here would mutate the shared datablock for
+        # every other user of the image (and isn't restored).
+        normal_tex.image = normal["image"]
+        if normal_uv and hasattr(normal_tex, "uv_map"):
+            normal_tex.uv_map = normal_uv
+        links.new(normal_tex.outputs['Color'], normal_map_node.inputs['Color'])
+        links.new(normal_map_node.outputs['Normal'], principled.inputs['Normal'])
+
+    # Carry the source metallic through (texture or non-default constant); the
+    # bake never renders a metallic pass.
+    if metallic is not None:
+        if metallic.get("image") is not None:
+            metallic_tex = nodes.new("ShaderNodeTexImage")
+            # As-is: don't mutate the shared image's colorspace (see normal map).
+            metallic_tex.image = metallic["image"]
+            metallic_uv = metallic.get("uv_layer") or uv_layer
+            if metallic_uv and hasattr(metallic_tex, "uv_map"):
+                metallic_tex.uv_map = metallic_uv
+            links.new(metallic_tex.outputs['Color'], principled.inputs['Metallic'])
+        elif metallic.get("value") is not None:
+            try:
+                principled.inputs['Metallic'].default_value = float(metallic["value"])
+            except Exception:
+                pass
+
+    if roughness_image is not None:
+        rough_node = nodes.new("ShaderNodeTexImage")
+        rough_node.image = roughness_image
+        if uv_layer and hasattr(rough_node, "uv_map"):
+            rough_node.uv_map = uv_layer
+        links.new(rough_node.outputs['Color'], principled.inputs['Roughness'])
+    elif roughness_value is not None:
+        try:
+            principled.inputs['Roughness'].default_value = float(roughness_value)
+        except Exception:
+            pass
 
     if base_image:
         base_node = nodes.new("ShaderNodeTexImage")
@@ -841,3 +1521,21 @@ def _unique_name(name: str, collection) -> str:
     while f"{name}_{idx}" in collection:
         idx += 1
     return f"{name}_{idx}"
+
+
+# A trailing run of "_Baked" suffixes, each optionally carrying a _unique_name
+# collision counter (e.g. "_Baked", "_Baked_3", "_Baked_3_Baked_Baked").
+_BAKED_SUFFIX_RE = re.compile(r"(?:_Baked(?:_\d+)?)+$")
+
+
+def _strip_baked_suffix(name: str) -> str:
+    """Remove a trailing _Baked(_N) chain from a material name.
+
+    Keeps the bake idempotent on its own output: re-baking a material that is
+    already a baked product yields "<base>_Baked" instead of compounding into
+    "<base>_Baked_Baked_Baked...". A genuine name component that ends in digits
+    (e.g. "Marble_001") is untouched because it is not part of a _Baked run.
+    """
+    stripped = _BAKED_SUFFIX_RE.sub("", name)
+    # Never return empty (e.g. a material literally named "_Baked").
+    return stripped or name

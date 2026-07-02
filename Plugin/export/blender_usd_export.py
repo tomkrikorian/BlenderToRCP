@@ -10,10 +10,50 @@ from __future__ import annotations
 import os
 import bpy
 import shutil
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Optional
 
 from . import animation_export
+
+
+@contextmanager
+def _packed_images_referencing_disk():
+    """Point packed images at their on-disk originals during the native export.
+
+    With ``export_textures=False`` Blender re-materializes each packed image to
+    its own copy for the UsdPreviewSurface network, which then differs (byte for
+    byte) from the on-disk file the MaterialX postprocess references via
+    ``_resolve_image_path`` - so the same texture ships twice and the
+    content-fingerprint dedup in ``prepare_textures`` can't collapse them.
+
+    Unpacking to the existing on-disk file (``USE_ORIGINAL``) makes both networks
+    reference one path, so the dedup keeps a single copy. Only images that are
+    packed *and* have a real file on disk are touched, and each is re-packed
+    afterward so the .blend's pack state is left exactly as it was.
+    """
+    unpacked = []
+    for image in list(bpy.data.images):
+        if not getattr(image, "packed_file", None):
+            continue
+        try:
+            abspath = bpy.path.abspath(image.filepath) if image.filepath else ""
+        except Exception:
+            abspath = ""
+        if abspath and os.path.isfile(abspath):
+            try:
+                image.unpack(method='USE_ORIGINAL')
+                unpacked.append(image)
+            except Exception:
+                pass
+    try:
+        yield
+    finally:
+        for image in unpacked:
+            try:
+                image.pack()
+            except Exception:
+                pass
 
 
 _AXIS_TO_USD_EXPORT_ENUM = {
@@ -86,14 +126,18 @@ def get_usdz_staging_dir(final_path: str | Path) -> Path:
     return get_export_staging_dir(final_path)
 
 
-def export_blender_scene(context, settings, final_path: str, diagnostics=None) -> Optional[str]:
+def export_blender_scene(context, settings, final_path: str, diagnostics=None, *, reset_staging: bool = True) -> Optional[str]:
     """Export Blender scene to USD using Blender's native exporter
-    
+
     Args:
         context: Blender context
         settings: Export settings
         final_path: Final output path
-        
+        reset_staging: Wipe and recreate the staging dir before exporting. The
+            bake-export flow bakes textures into the staging dir *before* calling
+            this, so it resets the dir itself beforehand and passes False here to
+            avoid deleting those freshly baked textures.
+
     Returns:
         Path to exported USD file (temporary if USDZ is requested)
     """
@@ -106,7 +150,10 @@ def export_blender_scene(context, settings, final_path: str, diagnostics=None) -
     # existing destination `textures/` directory and reusing stale sidecars from
     # previous exports.
     temp_dir = get_export_staging_dir(final_path)
-    _reset_export_staging_dir(temp_dir, diagnostics)
+    if reset_staging:
+        _reset_export_staging_dir(temp_dir, diagnostics)
+    else:
+        temp_dir.mkdir(parents=True, exist_ok=True)
     temp_ext = ".usdc" if export_format == "USDZ" else Path(final_path).suffix
     if not temp_ext:
         temp_ext = ".usdc" if export_format == "USDC" else ".usda"
@@ -198,7 +245,11 @@ def export_blender_scene(context, settings, final_path: str, diagnostics=None) -
         # Call Blender's USD exporter
         # Note: In Blender 5.0+, this is available as an operator
         export_kwargs = _filter_export_kwargs(bpy.ops.wm.usd_export, export_kwargs)
-        bpy.ops.wm.usd_export(**export_kwargs)
+        # Unpack packed images to their on-disk originals so the native
+        # UsdPreviewSurface network references the same files the MaterialX
+        # postprocess does - otherwise each packed texture ships twice.
+        with _packed_images_referencing_disk():
+            bpy.ops.wm.usd_export(**export_kwargs)
         
         if not os.path.exists(output_path):
             raise RuntimeError(f"USD export failed: {output_path} not created")
@@ -283,6 +334,45 @@ def cleanup_export_staging_dir(staged_path: str | Path, diagnostics=None) -> Non
             temp_root.rmdir()
         except OSError:
             pass
+
+
+def remove_export_staging_dir(final_path: str | Path, diagnostics=None) -> None:
+    """Guarantee the per-export staging tree for *final_path* is gone.
+
+    ``cleanup_export_staging_dir`` only runs on the success path (inside
+    publish/pack), so any early return or exception between staging and publish
+    leaves ``.blendertorcp_temp/<stem>`` behind in the user's export directory.
+    This is safe to call from a ``finally`` after every export attempt - success
+    OR failure - so the staging tree never lingers. Idempotent and best-effort:
+    a missing dir, an already-cleaned tree, or an rmtree error are all swallowed.
+    """
+    try:
+        staging_dir = get_export_staging_dir(final_path)
+    except Exception:
+        return
+    # Safety: only ever touch a ".blendertorcp_temp/<stem>" directory.
+    if staging_dir.parent.name != ".blendertorcp_temp" or staging_dir.name in {"", ".", ".."}:
+        return
+    temp_root = staging_dir.parent
+    if staging_dir.exists():
+        # Let rmtree raise so a genuine failure (locked file, permissions) is
+        # surfaced as a warning rather than silently swallowed - matching
+        # cleanup_export_staging_dir. The caller still wraps this in try/except,
+        # so a warning here never masks the original export error.
+        try:
+            shutil.rmtree(staging_dir)
+        except Exception as exc:
+            if diagnostics:
+                diagnostics.add_warning(
+                    f"Failed to remove export staging directory '{staging_dir}': {exc}"
+                )
+            return
+    # Drop the now-empty ".blendertorcp_temp" root too (no-op while other
+    # exports still have staging dirs inside it).
+    try:
+        temp_root.rmdir()
+    except OSError:
+        pass
 
 
 def _reset_export_staging_dir(staging_dir: str | Path, diagnostics=None) -> None:
