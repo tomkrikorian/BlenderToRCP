@@ -134,23 +134,18 @@ class BLENDERTORCP_OT_export(Operator, ExportHelper):
                 return {'CANCELLED'}
 
         yup_state = None
-        apply_yup = False
         try:
             # Import export modules
             from ..export import blender_usd_export, postprocess_usd, pack_usdz, bake_finalize
 
             # Bake a -90deg X rotation into geometry for a native Y-up export when
-            # requested. The regular export runs in the live scene, so the bake is
-            # undone in the finally below (the bake runner skips that - its scene
-            # is a throwaway background process).
-            apply_yup = bake_finalize.should_apply_yup(settings)
-            if apply_yup:
-                yup_objects = (
-                    list(context.selected_objects)
-                    if getattr(settings, "selected_objects_only", False)
-                    else None
-                )
-                yup_state = bake_finalize.apply_yup_geometry_bake(context, settings, yup_objects)
+            # requested (and safe - the helper owns the settings gate, scope and
+            # animation preflight). The regular export runs in the live scene, so
+            # the bake is undone in the finally below (the bake runner skips that
+            # - its scene is a throwaway background process).
+            yup_state = bake_finalize.maybe_apply_yup_geometry_bake(
+                context, settings, diagnostics=diag
+            )
 
             # Step 1: Export from Blender to USD
             self.report({'INFO'}, "Exporting from Blender...")
@@ -165,19 +160,16 @@ class BLENDERTORCP_OT_export(Operator, ExportHelper):
                 self.report({'ERROR'}, "Blender USD export failed")
                 return {'CANCELLED'}
             
-            # Step 2: Post-process USD (material rewrite, etc.)
+            # Step 2: Post-process USD (material rewrite; authors upAxis=Y when
+            # the Y-up geometry bake ran)
             self.report({'INFO'}, "Rewriting materials to RealityKit ShaderGraph...")
             postprocess_usd.process_usd_stage(
                 temp_usd_path,
                 settings,
                 context,
-                diag
+                diag,
+                force_up_axis_y=yup_state is not None,
             )
-
-            # Geometry was baked Y-up and convert_orientation cleared, so author
-            # the stage's upAxis explicitly (after postprocess, like the bake path).
-            if apply_yup:
-                bake_finalize.set_stage_up_axis_y(temp_usd_path, diag)
 
             # Fail fast on strict export errors before packaging.
             if diag.data.get('errors'):

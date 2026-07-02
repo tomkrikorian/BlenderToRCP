@@ -603,7 +603,7 @@ class BlenderToRCPExportSettings(PropertyGroup):
 
     apply_yup_geometry: BoolProperty(
         name="Apply RealityKit (Y-Up) to Geometry",
-        description="Bake a −90° X rotation (about the scene origin) into the mesh data and export as a native Y-up USD with no root orientation.",
+        description="Bake a −90° X rotation (about the scene origin) into the mesh data and export as a native Y-up USD with no root orientation. Skipped automatically (falling back to root orientation conversion) when the scene has animated, constrained or armature-deformed transforms the bake cannot preserve.",
         default=False,
         update=_on_settings_changed,
     )

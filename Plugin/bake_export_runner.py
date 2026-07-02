@@ -419,17 +419,12 @@ def main() -> int:
 
         bake_finalize.apply_force_unlit(scene_settings)
 
-        ## Capture this BEFORE the Y-up bake, which clears convert_orientation.
-        apply_yup = bake_finalize.should_apply_yup(scene_settings)
-        if apply_yup:
-            yup_objects = (
-                objects_to_export
-                if getattr(scene_settings, "selected_objects_only", False)
-                else None
-            )
-            bake_finalize.apply_yup_geometry_bake(
-                bpy.context, scene_settings, yup_objects
-            )
+        ## Y-up geometry bake when requested (and safe). This runner's scene is a
+        ## throwaway background process, so the returned restore state is only
+        ## used to decide whether to author upAxis=Y below - never to restore.
+        yup_state = bake_finalize.maybe_apply_yup_geometry_bake(
+            bpy.context, scene_settings, objects_to_export, diag
+        )
 
         ## Set the export selection last so the Y-up bake's mesh-selection churn
         ## above can't clobber a selected-objects-only export.
@@ -463,7 +458,8 @@ def main() -> int:
             temp_usd_path,
             scene_settings,
             bpy.context,
-            diag
+            diag,
+            force_up_axis_y=yup_state is not None,
         )
 
         if diag.data.get("errors"):
@@ -479,9 +475,6 @@ def main() -> int:
                 diagnostics_path=diagnostics_path,
             )
             return 1
-
-        if apply_yup:
-            bake_finalize.set_stage_up_axis_y(temp_usd_path, diag)
 
         if scene_settings.export_format == "USDZ":
             _set_running_stage(0.85, "Packaging USDZ")

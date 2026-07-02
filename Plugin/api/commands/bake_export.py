@@ -208,15 +208,12 @@ def handle(args: dict) -> dict:
         # bake mode stays Unlit — same as the interactive path.
         bake_finalize.apply_force_unlit(settings)
 
-        # Capture BEFORE the Y-up bake, which clears convert_orientation.
-        apply_yup = bake_finalize.should_apply_yup(settings)
-        if apply_yup:
-            yup_objects = (
-                objects_to_export
-                if getattr(settings, "selected_objects_only", False)
-                else None
-            )
-            bake_finalize.apply_yup_geometry_bake(bpy.context, settings, yup_objects)
+        # Y-up geometry bake when requested (and safe). This runs in a throwaway
+        # background scene, so the returned restore state is only used to decide
+        # whether to author upAxis=Y below - never to restore.
+        yup_state = bake_finalize.maybe_apply_yup_geometry_bake(
+            bpy.context, settings, objects_to_export, diag
+        )
 
         if getattr(settings, "selected_objects_only", False):
             bake_ops._set_selection(bpy.context, objects_to_export)
@@ -240,10 +237,11 @@ def handle(args: dict) -> dict:
             },
         )
 
-        # Post-process
+        # Post-process (authors upAxis=Y when the Y-up geometry bake ran)
         diag.begin_phase("postprocess_usd", {"usd_path": temp_usd_path})
         postprocess_usd.process_usd_stage(
-            temp_usd_path, settings, bpy.context, diag
+            temp_usd_path, settings, bpy.context, diag,
+            force_up_axis_y=yup_state is not None,
         )
         diag.end_phase("postprocess_usd")
 
@@ -258,9 +256,6 @@ def handle(args: dict) -> dict:
                 details=diag.data.get("material_issues"),
                 artifacts=_artifacts(diagnostics_path, filepath, bpy.data.filepath),
             )
-
-        if apply_yup:
-            bake_finalize.set_stage_up_axis_y(temp_usd_path, diag)
 
         # Package
         if settings.export_format == "USDZ":

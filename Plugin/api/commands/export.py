@@ -108,19 +108,14 @@ def handle(args: dict) -> dict:
 
     start_time = time.time()
     yup_state = None
-    apply_yup = False
     try:
         # Bake a -90deg X rotation into geometry for a native Y-up export when
-        # requested. This in-process export runs on the live scene, so it is
-        # undone in the finally below.
-        apply_yup = bake_finalize.should_apply_yup(settings)
-        if apply_yup:
-            yup_objects = (
-                list(bpy.context.selected_objects)
-                if getattr(settings, "selected_objects_only", False)
-                else None
-            )
-            yup_state = bake_finalize.apply_yup_geometry_bake(bpy.context, settings, yup_objects)
+        # requested (and safe - the helper owns the settings gate, scope and
+        # animation preflight). This in-process export runs on the live scene,
+        # so it is undone in the finally below.
+        yup_state = bake_finalize.maybe_apply_yup_geometry_bake(
+            bpy.context, settings, diagnostics=diag
+        )
 
         # Step 1: Export from Blender to USD
         diag.begin_phase("blender_usd_export", {"output_path": filepath})
@@ -141,15 +136,14 @@ def handle(args: dict) -> dict:
             },
         )
 
-        # Step 2: Post-process (material rewrite)
+        # Step 2: Post-process (material rewrite; authors upAxis=Y when the
+        # Y-up geometry bake ran)
         diag.begin_phase("postprocess_usd", {"usd_path": temp_usd_path})
-        postprocess_usd.process_usd_stage(temp_usd_path, settings, bpy.context, diag)
+        postprocess_usd.process_usd_stage(
+            temp_usd_path, settings, bpy.context, diag,
+            force_up_axis_y=yup_state is not None,
+        )
         diag.end_phase("postprocess_usd")
-
-        # Geometry was baked Y-up and convert_orientation cleared, so author the
-        # stage's upAxis explicitly (after postprocess, like the bake path).
-        if apply_yup:
-            bake_finalize.set_stage_up_axis_y(temp_usd_path, diag)
 
         if diag.data.get("errors"):
             errors = diag.data["errors"][:5]
