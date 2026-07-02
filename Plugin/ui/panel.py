@@ -196,7 +196,7 @@ class BlenderToRCPExportSettings(PropertyGroup):
 
     author_blender_name: BoolProperty(
         name="Blender Names",
-        description="Author USD attributes with Blender object/data names",
+        description="Author USD attributes with Blender object/data names. Requires Custom Properties export to be enabled",
         default=True,
         update=_on_settings_changed,
     )
@@ -682,17 +682,24 @@ class BLENDERTORCP_PT_export_panel(Panel):
 
         try:
             _apply_persisted_settings(context)
+            status = _read_background_job_status(settings)
+            job_state = status.get("state") if status else None
+            job_running = job_state in {"queued", "running"}
+
+            # Job monitor first: while a job runs (and everything below is
+            # locked), state, progress and the cancel affordance must be
+            # visible without scrolling.
+            if status:
+                _draw_job_monitor(layout, status, job_state, job_running)
+
             export_box = layout.box()
             export_box.label(text="Export Settings", icon='EXPORT')
-            export_box.enabled = not _is_job_running(settings)
-            export_box.prop(settings, "filepath")
+            export_box.enabled = not job_running
+            export_box.prop(settings, "filepath", placeholder="//export/scene.usdz")
             export_box.prop(settings, "export_format")
 
             actions_box = layout.box()
             actions_box.label(text="Actions", icon='PLAY')
-            status = _read_background_job_status(settings)
-            job_state = status.get("state") if status else None
-            job_running = job_state in {"queued", "running"}
 
             export_row = actions_box.row()
             export_row.enabled = not job_running
@@ -705,59 +712,81 @@ class BLENDERTORCP_PT_export_panel(Panel):
                 icon='RENDER_STILL',
                 text="Bake Textures & Export"
             )
-
-            if status:
-                monitor = actions_box.box()
-                monitor.label(text=f"State: {job_state or 'unknown'}")
-                progress = status.get("progress")
-                if progress is not None:
-                    try:
-                        monitor.label(text=f"Progress: {int(progress * 100)}%")
-                    except Exception:
-                        pass
-                if status.get("export_path"):
-                    monitor.label(text=f"Output: {status.get('export_path')}")
-                if status.get("log_path"):
-                    log_row = monitor.row()
-                    log_row.label(text=f"Log: {status.get('log_path')}")
-                    op = log_row.operator(
-                        "blendertorcp.open_support_text",
-                        icon='TEXT',
-                        text="Open Log"
-                    )
-                    op.filepath = status.get("log_path")
-                    op.text_name = "BlenderToRCP Background Log"
-                if status.get("diagnostics_path"):
-                    diag_row = monitor.row()
-                    diag_row.label(text=f"Diagnostics: {status.get('diagnostics_path')}")
-                    op = diag_row.operator(
-                        "blendertorcp.open_diagnostics_text",
-                        icon='INFO',
-                        text="Open Diagnostics"
-                    )
-                    op.filepath = status.get("diagnostics_path")
-                if status.get("message"):
-                    monitor.label(text=status.get("message"))
-
-                if job_running:
-                    monitor.operator(
-                        "blendertorcp.cancel_bake_export",
-                        icon='CANCEL',
-                        text="Cancel Background Job"
-                    )
-                else:
-                    monitor.operator(
-                        "blendertorcp.clear_bake_job",
-                        icon='TRASH',
-                        text="Clear Background Job"
-                    )
         except Exception as exc:
             layout.label(text=f"UI error: {exc}")
             layout.operator("blendertorcp.export", icon='EXPORT', text="Export Scene")
 
 
+def _draw_job_monitor(layout, status, job_state, job_running):
+    """Background-job status card.
+
+    Header row carries the state plus a compact cancel/clear button, running
+    jobs get a real progress bar (the runner's step message doubles as the bar
+    label) and a note explaining why the rest of the panel is greyed out, and
+    failures render in Blender's alert styling instead of a plain label.
+    """
+    monitor = layout.box()
+    header = monitor.row(align=True)
+    if job_running:
+        header.label(text="Background Job - Running", icon='TIME')
+        header.operator("blendertorcp.cancel_bake_export", text="", icon='CANCEL')
+    else:
+        state_row = header.row(align=True)
+        if job_state == "error":
+            state_row.alert = True
+            state_row.label(text="Background Job - Failed", icon='ERROR')
+        elif job_state == "done":
+            state_row.label(text="Background Job - Done", icon='CHECKMARK')
+        elif job_state == "canceled":
+            state_row.label(text="Background Job - Canceled", icon='CANCEL')
+        else:
+            state_row.label(text=f"Background Job - {job_state or 'Unknown'}", icon='QUESTION')
+        header.operator("blendertorcp.clear_bake_job", text="", icon='TRASH')
+
+    message = str(status.get("message") or "")
+    if job_running:
+        factor = 0.0
+        try:
+            factor = max(0.0, min(1.0, float(status.get("progress"))))
+        except (TypeError, ValueError):
+            pass
+        monitor.progress(text=message or f"{int(factor * 100)}%", factor=factor, type='BAR')
+        monitor.label(
+            text="Settings are locked until the job finishes or is canceled.",
+            icon='LOCKED',
+        )
+    elif message:
+        message_column = monitor.column()
+        message_column.alert = job_state == "error"
+        message_column.label(
+            text=message,
+            icon='ERROR' if job_state == "error" else 'INFO',
+        )
+
+    if status.get("export_path"):
+        monitor.label(text=f"Output: {status.get('export_path')}", icon='FILE')
+
+    file_row = monitor.row(align=True)
+    if status.get("log_path"):
+        op = file_row.operator("blendertorcp.open_support_text", icon='TEXT', text="Open Log")
+        op.filepath = status.get("log_path")
+        op.text_name = "BlenderToRCP Background Log"
+    if status.get("diagnostics_path"):
+        op = file_row.operator(
+            "blendertorcp.open_diagnostics_text", icon='INFO', text="Open Diagnostics"
+        )
+        op.filepath = status.get("diagnostics_path")
+
+
 class BLENDERTORCP_PT_export_usd_root(Panel):
-    """USD export settings root panel"""
+    """USD export settings root panel.
+
+    All setting groups are drawn as inline collapsible sections
+    (``layout.panel``) instead of separately registered sub-panels: one less
+    nesting level to click through, section open/closed state is remembered
+    per region, and the sections stay expandable while a background job runs
+    (only their contents grey out, with a note explaining why).
+    """
     bl_label = "USD Export Settings"
     bl_idname = "BLENDERTORCP_PT_export_usd_root"
     bl_parent_id = "BLENDERTORCP_PT_export_panel"
@@ -772,167 +801,138 @@ class BLENDERTORCP_PT_export_usd_root(Panel):
         layout.use_property_split = True
         layout.use_property_decorate = False
         settings = context.scene.blender_to_rcp_export_settings
-        layout.enabled = not _is_job_running(settings)
-        layout.label(text="Advanced USD exporter options.")
+        job_running = _is_job_running(settings)
+        if job_running:
+            layout.label(text="Locked while a background job runs.", icon='LOCKED')
+
+        for idname, title, draw_section in _USD_EXPORT_SECTIONS:
+            header, body = layout.panel(idname, default_closed=True)
+            header.label(text=title)
+            if body is not None:
+                body.enabled = not job_running
+                draw_section(body, settings)
 
 
-class BLENDERTORCP_PT_export_usd_general(Panel):
-    """USD exporter general settings"""
-    bl_label = "USD Export: General"
-    bl_idname = "BLENDERTORCP_PT_export_usd_general"
-    bl_parent_id = "BLENDERTORCP_PT_export_usd_root"
-    bl_space_type = 'VIEW_3D'
-    bl_region_type = 'UI'
-    bl_category = "RCP Exporter"
-    bl_options = {'DEFAULT_CLOSED'}
+def _draw_usd_general_section(layout, settings):
+    layout.prop(settings, "root_prim_name", placeholder="Scene")
 
-    def draw(self, context):
-        layout = self.layout
-        layout.use_property_split = True
-        layout.use_property_decorate = False
+    include_row = layout.row(align=True)
+    include_row.label(text="Include")
+    include_row.prop(settings, "selected_objects_only", text="Selection Only")
+    include_row.prop(settings, "export_animation", text="Animation")
+    if settings.export_animation:
+        layout.prop(settings, "author_animation_library")
 
-        settings = context.scene.blender_to_rcp_export_settings
-        layout.enabled = not _is_job_running(settings)
-        layout.prop(settings, "root_prim_name")
-
-        include_row = layout.row(align=True)
-        include_row.label(text="Include")
-        include_row.prop(settings, "selected_objects_only", text="Selection Only")
-        include_row.prop(settings, "export_animation", text="Animation")
-        if settings.export_animation:
-            layout.prop(settings, "author_animation_library")
-
-        layout.prop(settings, "export_custom_properties")
-        if settings.export_custom_properties:
-            layout.prop(settings, "custom_properties_namespace")
-            layout.prop(settings, "author_blender_name")
-        else:
-            row = layout.row()
-            row.enabled = False
-            row.prop(settings, "author_blender_name")
-        layout.prop(settings, "allow_unicode")
-        layout.prop(settings, "relative_paths")
-        layout.prop(settings, "convert_orientation")
-        if settings.convert_orientation:
-            layout.prop(settings, "apply_yup_geometry")
-            # Y-up geometry bake forces a native Y-up export and disables the
-            # exporter's own orientation conversion, so the forward/up axis
-            # dropdowns no longer apply — hide them while it is enabled.
-            if not settings.apply_yup_geometry:
-                layout.prop(settings, "forward_axis")
-                layout.prop(settings, "up_axis")
-        layout.prop(settings, "convert_scene_units")
-        if settings.convert_scene_units == 'CUSTOM':
-            layout.prop(settings, "meters_per_unit")
-        layout.prop(settings, "xform_op_mode")
-        layout.prop(settings, "evaluation_mode")
-        layout.prop(settings, "use_instancing")
+    layout.prop(settings, "export_custom_properties")
+    if settings.export_custom_properties:
+        layout.prop(settings, "custom_properties_namespace")
+        layout.prop(settings, "author_blender_name")
+    else:
+        row = layout.row()
+        row.enabled = False
+        row.prop(settings, "author_blender_name")
+    layout.prop(settings, "allow_unicode")
+    layout.prop(settings, "relative_paths")
+    layout.prop(settings, "convert_orientation")
+    if settings.convert_orientation:
+        layout.prop(settings, "apply_yup_geometry")
+        # Y-up geometry bake forces a native Y-up export and disables the
+        # exporter's own orientation conversion, so the forward/up axis
+        # dropdowns no longer apply — hide them while it is enabled.
+        if not settings.apply_yup_geometry:
+            layout.prop(settings, "forward_axis")
+            layout.prop(settings, "up_axis")
+    layout.prop(settings, "convert_scene_units")
+    if settings.convert_scene_units == 'CUSTOM':
+        layout.prop(settings, "meters_per_unit")
+    layout.prop(settings, "xform_op_mode")
+    layout.prop(settings, "evaluation_mode")
+    layout.prop(settings, "use_instancing")
 
 
-class BLENDERTORCP_PT_export_usd_object_types(Panel):
-    """USD exporter object type toggles"""
-    bl_label = "USD Export: Object Types"
-    bl_idname = "BLENDERTORCP_PT_export_usd_object_types"
-    bl_parent_id = "BLENDERTORCP_PT_export_usd_root"
-    bl_space_type = 'VIEW_3D'
-    bl_region_type = 'UI'
-    bl_category = "RCP Exporter"
-    bl_options = {'DEFAULT_CLOSED'}
-
-    def draw(self, context):
-        layout = self.layout
-        layout.use_property_split = True
-        layout.use_property_decorate = False
-
-        settings = context.scene.blender_to_rcp_export_settings
-        layout.enabled = not _is_job_running(settings)
-        layout.prop(settings, "export_meshes")
-        layout.prop(settings, "export_lights")
-        layout.prop(settings, "convert_world_material")
-        layout.prop(settings, "export_cameras")
-        layout.prop(settings, "export_curves")
-        layout.prop(settings, "export_points")
-        layout.prop(settings, "export_volumes")
-        layout.prop(settings, "export_hair")
+def _draw_usd_object_types_section(layout, settings):
+    layout.prop(settings, "export_meshes")
+    layout.prop(settings, "export_lights")
+    layout.prop(settings, "convert_world_material")
+    layout.prop(settings, "export_cameras")
+    layout.prop(settings, "export_curves")
+    layout.prop(settings, "export_points")
+    layout.prop(settings, "export_volumes")
+    layout.prop(settings, "export_hair")
 
 
-class BLENDERTORCP_PT_export_usd_geometry(Panel):
-    """USD exporter geometry settings"""
-    bl_label = "USD Export: Geometry"
-    bl_idname = "BLENDERTORCP_PT_export_usd_geometry"
-    bl_parent_id = "BLENDERTORCP_PT_export_usd_root"
-    bl_space_type = 'VIEW_3D'
-    bl_region_type = 'UI'
-    bl_category = "RCP Exporter"
-    bl_options = {'DEFAULT_CLOSED'}
-
-    def draw(self, context):
-        layout = self.layout
-        layout.use_property_split = True
-        layout.use_property_decorate = False
-
-        settings = context.scene.blender_to_rcp_export_settings
-        layout.enabled = not _is_job_running(settings)
-        layout.prop(settings, "export_uvmaps")
-        layout.prop(settings, "rename_uvmaps")
-        layout.prop(settings, "export_normals")
-        layout.prop(settings, "merge_parent_xform")
-        layout.prop(settings, "triangulate_meshes")
-        if settings.triangulate_meshes:
-            layout.prop(settings, "quad_method")
-            layout.prop(settings, "ngon_method")
-        layout.prop(settings, "export_subdivision")
+def _draw_usd_geometry_section(layout, settings):
+    layout.prop(settings, "export_uvmaps")
+    layout.prop(settings, "rename_uvmaps")
+    layout.prop(settings, "export_normals")
+    layout.prop(settings, "merge_parent_xform")
+    layout.prop(settings, "triangulate_meshes")
+    if settings.triangulate_meshes:
+        layout.prop(settings, "quad_method")
+        layout.prop(settings, "ngon_method")
+    layout.prop(settings, "export_subdivision")
 
 
-class BLENDERTORCP_PT_export_usd_rigging(Panel):
-    """USD exporter rigging settings"""
-    bl_label = "USD Export: Rigging"
-    bl_idname = "BLENDERTORCP_PT_export_usd_rigging"
-    bl_parent_id = "BLENDERTORCP_PT_export_usd_root"
-    bl_space_type = 'VIEW_3D'
-    bl_region_type = 'UI'
-    bl_category = "RCP Exporter"
-    bl_options = {'DEFAULT_CLOSED'}
-
-    def draw(self, context):
-        layout = self.layout
-        layout.use_property_split = True
-        layout.use_property_decorate = False
-
-        settings = context.scene.blender_to_rcp_export_settings
-        layout.enabled = not _is_job_running(settings)
-        layout.prop(settings, "export_shapekeys")
-        layout.prop(settings, "export_armatures")
-        layout.prop(settings, "only_deform_bones")
+def _draw_usd_rigging_section(layout, settings):
+    layout.prop(settings, "export_shapekeys")
+    layout.prop(settings, "export_armatures")
+    layout.prop(settings, "only_deform_bones")
 
 
-class BLENDERTORCP_PT_export_texture_settings(Panel):
-    """Shared export texture override settings."""
-    bl_label = "USD Export: Texture"
-    bl_idname = "BLENDERTORCP_PT_export_texture_settings"
-    bl_parent_id = "BLENDERTORCP_PT_export_usd_root"
-    bl_space_type = 'VIEW_3D'
-    bl_region_type = 'UI'
-    bl_category = "RCP Exporter"
-    bl_options = {'DEFAULT_CLOSED'}
-    bl_order = 4
+def _draw_usd_texture_section(layout, settings):
+    layout.prop(settings, "export_texture_settings_enabled")
 
-    def draw(self, context):
-        layout = self.layout
-        layout.use_property_split = True
-        layout.use_property_decorate = False
+    column = layout.column()
+    column.enabled = bool(settings.export_texture_settings_enabled)
+    column.prop(settings, "bake_resolution")
+    column.prop(settings, "bake_image_format")
+    if settings.bake_resolution == 'CUSTOM':
+        column.prop(settings, "bake_resolution_custom")
+    column.prop(settings, "bake_margin")
 
-        settings = context.scene.blender_to_rcp_export_settings
-        layout.enabled = not _is_job_running(settings)
-        layout.prop(settings, "export_texture_settings_enabled")
 
-        settings_box = layout.box()
-        settings_box.enabled = bool(settings.export_texture_settings_enabled)
-        settings_box.prop(settings, "bake_resolution")
-        settings_box.prop(settings, "bake_image_format")
-        if settings.bake_resolution == 'CUSTOM':
-            settings_box.prop(settings, "bake_resolution_custom")
-        settings_box.prop(settings, "bake_margin")
+def _draw_usd_bake_section(layout, settings):
+    layout.prop(settings, "bake_mode")
+    layout.label(text=_bake_result_summary(settings), icon='INFO')
+
+    # The per-mode explanation lives in a collapsible sub-section instead of
+    # permanently occupying panel rows.
+    help_header, help_body = layout.panel("blendertorcp_bake_mode_help", default_closed=True)
+    help_header.label(text="About This Mode")
+    if help_body is not None:
+        help_column = help_body.column(align=True)
+        for line in _bake_mode_help_lines(settings):
+            help_column.label(text=line)
+
+    if settings.bake_mode == 'LIT_IBL':
+        lighting_box = layout.box()
+        lighting_box.label(text="Lighting Source")
+        lighting_box.prop(settings, "bake_ibl_source")
+        if settings.bake_ibl_source == 'HDRI_FILE':
+            lighting_box.prop(settings, "bake_ibl_filepath", placeholder="//studio.hdr")
+            lighting_box.prop(settings, "bake_ibl_strength")
+            lighting_box.prop(settings, "bake_ibl_rotation")
+        lighting_box.prop(settings, "bake_isolate_meshes_lit")
+
+    advanced_header, advanced_body = layout.panel("blendertorcp_bake_advanced", default_closed=True)
+    advanced_header.label(text="Advanced")
+    if advanced_body is not None:
+        if settings.bake_mode == 'LIT_ALBEDO':
+            advanced_body.prop(settings, "bake_roughness_mode")
+        advanced_body.prop(settings, "bake_base_color")
+        advanced_body.prop(settings, "bake_opacity")
+        advanced_body.prop(settings, "bake_step_timeout_seconds")
+        advanced_body.prop(settings, "bake_keep_materials")
+
+
+_USD_EXPORT_SECTIONS = (
+    ("blendertorcp_usd_general", "General", _draw_usd_general_section),
+    ("blendertorcp_usd_object_types", "Object Types", _draw_usd_object_types_section),
+    ("blendertorcp_usd_geometry", "Geometry", _draw_usd_geometry_section),
+    ("blendertorcp_usd_rigging", "Rigging", _draw_usd_rigging_section),
+    ("blendertorcp_usd_texture", "Texture", _draw_usd_texture_section),
+    ("blendertorcp_usd_baking", "Baking", _draw_usd_bake_section),
+)
 
 
 class BLENDERTORCP_PT_export_diagnostics(Panel):
@@ -969,68 +969,6 @@ class BLENDERTORCP_PT_export_diagnostics(Panel):
         actions.operator("blendertorcp.create_support_bundle", icon='FILE_FOLDER', text="Create Support Bundle")
 
 
-class BLENDERTORCP_PT_export_bake_settings(Panel):
-    """Bake Textures & Export settings"""
-    bl_label = "USD Export: Baking"
-    bl_idname = "BLENDERTORCP_PT_export_bake_settings"
-    bl_parent_id = "BLENDERTORCP_PT_export_usd_root"
-    bl_space_type = 'VIEW_3D'
-    bl_region_type = 'UI'
-    bl_category = "RCP Exporter"
-    bl_options = {'DEFAULT_CLOSED'}
-    bl_order = 5
-
-    def draw(self, context):
-        layout = self.layout
-        layout.use_property_split = True
-        layout.use_property_decorate = False
-
-        settings = context.scene.blender_to_rcp_export_settings
-        layout.enabled = not _is_job_running(settings)
-
-        mode_box = layout.box()
-        mode_box.prop(settings, "bake_mode")
-        for line in _bake_mode_help_lines(settings):
-            mode_box.label(text=line)
-        mode_box.separator()
-        mode_box.label(text=_bake_result_summary(settings), icon='INFO')
-
-        if settings.bake_mode == 'LIT_IBL':
-            lighting_box = layout.box()
-            lighting_box.label(text="Lighting Source")
-            lighting_box.prop(settings, "bake_ibl_source")
-            if settings.bake_ibl_source == 'HDRI_FILE':
-                lighting_box.prop(settings, "bake_ibl_filepath")
-                lighting_box.prop(settings, "bake_ibl_strength")
-                lighting_box.prop(settings, "bake_ibl_rotation")
-            lighting_box.prop(settings, "bake_isolate_meshes_lit")
-
-
-class BLENDERTORCP_PT_export_bake_advanced(Panel):
-    """Advanced Bake Textures & Export settings"""
-    bl_label = "Advanced Bake Options"
-    bl_idname = "BLENDERTORCP_PT_export_bake_advanced"
-    bl_parent_id = "BLENDERTORCP_PT_export_bake_settings"
-    bl_space_type = 'VIEW_3D'
-    bl_region_type = 'UI'
-    bl_category = "RCP Exporter"
-    bl_options = {'DEFAULT_CLOSED'}
-
-    def draw(self, context):
-        layout = self.layout
-        layout.use_property_split = True
-        layout.use_property_decorate = False
-
-        settings = context.scene.blender_to_rcp_export_settings
-        layout.enabled = not _is_job_running(settings)
-        if settings.bake_mode == 'LIT_ALBEDO':
-            layout.prop(settings, "bake_roughness_mode")
-        layout.prop(settings, "bake_base_color")
-        layout.prop(settings, "bake_opacity")
-        layout.prop(settings, "bake_step_timeout_seconds")
-        layout.prop(settings, "bake_keep_materials")
-
-
 
 def _diagnostics_output_path(settings) -> str:
     status = _read_background_job_status(settings)
@@ -1050,15 +988,8 @@ def register():
     bpy.utils.register_class(BlenderToRCPExportSettings)
     bpy.utils.register_class(BLENDERTORCP_PT_export_panel)
     bpy.utils.register_class(BLENDERTORCP_PT_export_usd_root)
-    bpy.utils.register_class(BLENDERTORCP_PT_export_usd_general)
-    bpy.utils.register_class(BLENDERTORCP_PT_export_usd_object_types)
-    bpy.utils.register_class(BLENDERTORCP_PT_export_usd_geometry)
-    bpy.utils.register_class(BLENDERTORCP_PT_export_usd_rigging)
-    bpy.utils.register_class(BLENDERTORCP_PT_export_texture_settings)
     bpy.utils.register_class(BLENDERTORCP_PT_export_diagnostics)
-    bpy.utils.register_class(BLENDERTORCP_PT_export_bake_settings)
-    bpy.utils.register_class(BLENDERTORCP_PT_export_bake_advanced)
-    
+
     # Register property on Scene
     bpy.types.Scene.blender_to_rcp_export_settings = bpy.props.PointerProperty(
         type=BlenderToRCPExportSettings
@@ -1072,14 +1003,7 @@ def unregister():
     """Unregister UI classes"""
     _remove_background_job_load_handlers()
     del bpy.types.Scene.blender_to_rcp_export_settings
-    bpy.utils.unregister_class(BLENDERTORCP_PT_export_bake_advanced)
-    bpy.utils.unregister_class(BLENDERTORCP_PT_export_bake_settings)
     bpy.utils.unregister_class(BLENDERTORCP_PT_export_diagnostics)
-    bpy.utils.unregister_class(BLENDERTORCP_PT_export_texture_settings)
-    bpy.utils.unregister_class(BLENDERTORCP_PT_export_usd_rigging)
-    bpy.utils.unregister_class(BLENDERTORCP_PT_export_usd_geometry)
-    bpy.utils.unregister_class(BLENDERTORCP_PT_export_usd_object_types)
-    bpy.utils.unregister_class(BLENDERTORCP_PT_export_usd_general)
     bpy.utils.unregister_class(BLENDERTORCP_PT_export_usd_root)
     bpy.utils.unregister_class(BLENDERTORCP_PT_export_panel)
     bpy.utils.unregister_class(BlenderToRCPExportSettings)

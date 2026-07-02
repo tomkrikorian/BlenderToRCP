@@ -288,23 +288,12 @@ class BLENDERTORCP_OT_show_diagnostics(Operator):
         summary.label(text=f"KTX-required nodes: {len(nodes.get('ktx_required', []))}")
         summary.label(text=f"Omitted nodes: {len(nodes.get('omitted', []))}")
 
+        from ..ui.draw_utils import draw_issue_list
+
         errors = data.get('errors', []) or []
         warnings = data.get('warnings', []) or []
-        if errors:
-            error_box = layout.box()
-            error_box.label(text="Errors", icon='ERROR')
-            for line in errors[:8]:
-                error_box.label(text=str(line))
-            if len(errors) > 8:
-                error_box.label(text=f"... {len(errors) - 8} more")
-
-        if warnings:
-            warn_box = layout.box()
-            warn_box.label(text="Warnings", icon='INFO')
-            for line in warnings[:8]:
-                warn_box.label(text=str(line))
-            if len(warnings) > 8:
-                warn_box.label(text=f"... {len(warnings) - 8} more")
+        draw_issue_list(layout, errors, title="Errors", icon='ERROR', alert=True)
+        draw_issue_list(layout, warnings, title="Warnings", icon='INFO')
 
         if self._diag_path:
             op = layout.operator(

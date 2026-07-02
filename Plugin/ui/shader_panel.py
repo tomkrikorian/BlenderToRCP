@@ -6,6 +6,7 @@ import bpy
 from bpy.types import Panel
 
 from ..nodes import validate as rk_validate
+from .draw_utils import draw_issue_list
 
 
 def _get_active_material(context):
@@ -51,25 +52,27 @@ class BLENDERTORCP_PT_shader_validation(Panel):
                 result["warnings"] = []
             result["ok"] = not result["errors"]
         if result["errors"]:
-            layout.label(text="Incompatible material", icon='ERROR')
+            status = layout.row()
+            status.alert = True
+            status.label(text="Incompatible material", icon='ERROR')
         elif result["warnings"]:
             layout.label(text="Compatible with warnings", icon='INFO')
         else:
             layout.label(text="Compatible", icon='CHECKMARK')
 
-        if result["errors"]:
-            layout.label(text="Errors:", icon='ERROR')
-            for issue in result["errors"][:6]:
-                layout.label(text=f"{issue['node_name']}: {issue['message']}")
-            if len(result["errors"]) > 6:
-                layout.label(text=f"{len(result['errors']) - 6} more errors")
+        def _issue_text(issue):
+            return f"{issue['node_name']}: {issue['message']}"
 
-        if result["warnings"]:
-            layout.label(text="Warnings:", icon='INFO')
-            for issue in result["warnings"][:6]:
-                layout.label(text=f"{issue['node_name']}: {issue['message']}")
-            if len(result["warnings"]) > 6:
-                layout.label(text=f"{len(result['warnings']) - 6} more warnings")
+        draw_issue_list(
+            layout, result["errors"],
+            title="Errors", icon='ERROR', alert=True, max_items=6,
+            format_item=_issue_text,
+        )
+        draw_issue_list(
+            layout, result["warnings"],
+            title="Warnings", icon='INFO', max_items=6,
+            format_item=_issue_text,
+        )
 
         layout.separator()
         layout.operator("blendertorcp.validate_material", icon='CHECKMARK')
