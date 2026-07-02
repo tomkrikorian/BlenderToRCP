@@ -104,7 +104,7 @@ Once installed, an agent can respond to prompts like "export my Blender scene to
 ## Contribute to the Blender add-on
 
 ### Requirements
-- Blender 5.0 or newer.
+- Blender 5.1 or newer.
 - Python 3.
 - Git LFS. This repo stores `.png` and `.usda` via LFS.
 - OpenUSD Python bindings (`pxr`) in Blender for material rewriting and validation helpers.
