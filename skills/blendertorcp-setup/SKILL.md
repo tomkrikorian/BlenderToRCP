@@ -9,7 +9,7 @@ Configure the BlenderToRCP CLI so the agent can export scenes, bake textures, va
 
 ## Prerequisites
 
-- Blender 5.1+ installed
+- Blender 5.2+ installed
 - BlenderToRCP addon installed and enabled in Blender's preferences
 - Python 3 available as `python3`
 

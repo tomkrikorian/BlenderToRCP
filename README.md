@@ -104,7 +104,7 @@ Once installed, an agent can respond to prompts like "export my Blender scene to
 ## Contribute to the Blender add-on
 
 ### Requirements
-- Blender 5.1 or newer.
+- Blender 5.2 or newer.
 - Python 3.
 - Git LFS. This repo stores `.png` and `.usda` via LFS.
 - OpenUSD Python bindings (`pxr`) in Blender for material rewriting and validation helpers.
@@ -123,7 +123,7 @@ git lfs pull
 ```
 
 2. Ensure Blender's user extension repository exists on macOS.
-Replace `<version>` with your installed Blender major.minor version, for example `5.1`:
+Replace `<version>` with your installed Blender major.minor version, for example `5.2`:
 
 ```bash
 mkdir -p ~/Library/Application\ Support/Blender/<version>/extensions/user_default
@@ -200,7 +200,7 @@ Operational details:
 - Job state lives under `<export_dir>/.blendertorcp_jobs/<job_id>/`.
 - Each job writes `settings.json`, `status.json`, and `log.txt`; status also records the diagnostics path when available.
 - The panel shows progress, output path, log path, diagnostics path, and the current step, and supports cancel, clear, log open, diagnostics open, and support bundle actions.
-- `Step Timeout (sec)` terminates the background process if a single step exceeds the configured duration.
+- `Step Timeout (sec)` is shown beside the background export action. Set it to `0` (the default) for no time limit, or enter a per-step limit when you need stalled jobs to stop automatically.
 - Bake/export preflights external image files used by exported objects. Missing, unpacked textures fail early with an actionable pack-or-relink error.
 - Bake/export does not validate the source material graph. Unsupported Blender node groups are expected to be resolved by baking; strict graph validation only applies to `Export Scene`.
 

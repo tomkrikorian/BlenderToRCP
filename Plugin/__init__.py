@@ -36,7 +36,7 @@ bl_info = {
     "name": "BlenderToRCP",
     "author": "Your Name",
     "version": (1, 2, 0),
-    "blender": (5, 0, 0),
+    "blender": (5, 2, 0),
     "location": "View3D > UI",
     "description": "Export Blender scenes to Reality Composer Pro format",
     "warning": "Requires OpenUSD Python bindings (pxr) for material rewriting",

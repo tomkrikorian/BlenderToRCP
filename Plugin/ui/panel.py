@@ -513,7 +513,7 @@ class BlenderToRCPExportSettings(PropertyGroup):
 
     bake_step_timeout_seconds: IntProperty(
         name="Step Timeout (sec)",
-        description="Abort background bake/export if a single step exceeds this duration (0 = disabled)",
+        description="Maximum duration of one background bake/export step; use 0 for no timeout",
         default=0,
         min=0,
         update=_on_settings_changed,
@@ -712,6 +712,17 @@ class BLENDERTORCP_PT_export_panel(Panel):
                 icon='RENDER_STILL',
                 text="Bake Textures & Export"
             )
+
+            timeout_row = actions_box.row()
+            timeout_row.enabled = not job_running
+            timeout_row.prop(settings, "bake_step_timeout_seconds")
+            if settings.bake_step_timeout_seconds == 0:
+                actions_box.label(text="Background steps have no time limit.", icon='INFO')
+            else:
+                actions_box.label(
+                    text=f"Each step stops after {settings.bake_step_timeout_seconds} seconds.",
+                    icon='TIME',
+                )
         except Exception as exc:
             layout.label(text=f"UI error: {exc}")
             layout.operator("blendertorcp.export", icon='EXPORT', text="Export Scene")
