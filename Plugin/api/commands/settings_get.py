@@ -13,6 +13,12 @@ def handle(args: dict) -> dict:
 
     # Determine which keys to return
     if keys:
+        valid_keys = {prop.identifier for prop in settings.bl_rna.properties} - set(INTERNAL_KEYS)
+        unknown = sorted(set(keys) - valid_keys)
+        if unknown:
+            raise ValueError(
+                f"Unknown setting key(s): {', '.join(unknown)}. Use 'settings list' to see valid keys."
+            )
         allowed = set(keys)
     elif group and group != "all":
         allowed = SETTING_GROUPS.get(group)

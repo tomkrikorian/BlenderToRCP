@@ -17,12 +17,12 @@ def build_preview(group, _entry, helpers):
         ("baseColor", "Base Color"),
         ("metallic", "Metallic"),
         ("roughness", "Roughness"),
-        ("emissiveColor", "Emission"),
+        ("emissiveColor", "Emission Color"),
         ("opacity", "Alpha"),
-        ("specular", "Specular"),
-        ("clearcoat", "Clearcoat"),
-        ("clearcoatRoughness", "Clearcoat Roughness"),
-        ("clearcoatNormal", "Clearcoat Normal"),
+        ("specular", "Specular IOR Level"),
+        ("clearcoat", "Coat Weight"),
+        ("clearcoatRoughness", "Coat Roughness"),
+        ("clearcoatNormal", "Coat Normal"),
     )
     for socket_name, target_name in mapping:
         if socket_name in input_node.outputs and target_name in principled.inputs:

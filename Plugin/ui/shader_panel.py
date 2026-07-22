@@ -43,14 +43,7 @@ class BLENDERTORCP_PT_shader_validation(Panel):
             layout.label(text="No active material", icon='INFO')
             return
 
-        try:
-            result = rk_validate.validate_material(material, strict=True)
-        except TypeError:
-            result = rk_validate.validate_material(material)
-            if result.get("warnings"):
-                result["errors"].extend(result["warnings"])
-                result["warnings"] = []
-            result["ok"] = not result["errors"]
+        result = rk_validate.validate_material(material, strict=True)
         if result["errors"]:
             status = layout.row()
             status.alert = True

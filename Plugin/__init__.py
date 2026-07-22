@@ -32,19 +32,6 @@ if bpy is not None and _needs_reload:
     print("BlenderToRCP Add-on Reloaded")
 
 
-bl_info = {
-    "name": "BlenderToRCP",
-    "author": "Your Name",
-    "version": (1, 2, 0),
-    "blender": (5, 2, 0),
-    "location": "View3D > UI",
-    "description": "Export Blender scenes to Reality Composer Pro format",
-    "warning": "Requires OpenUSD Python bindings (pxr) for material rewriting",
-    "doc_url": "",
-    "category": "Import-Export",
-}
-
-
 def register():
     """Register the add-on's classes and properties."""
     if bpy is None:

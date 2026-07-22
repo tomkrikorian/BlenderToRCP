@@ -20,6 +20,8 @@ Core design constraints:
 - `Plugin/manifest/`: bundled `rk_nodes_manifest.json` plus selectors for MaterialX nodedef lookup.
 - `Plugin/assets/nodegroups.blend`: generated nodegroup library used by the authoring tools.
 - `Plugin/core/paths.py`: shared path resolution for manifests, assets, and bundled resources.
+- `Plugin/core/version.py`: runtime access to `blender_manifest.toml` (single source of version metadata).
+- `Plugin/export/usd_hook.py`: scoped USDHook that captures the exporter's prim map during export.
 - `scripts/`: developer tooling for packaging, manifest generation, nodegroup generation, and validation.
 - `References/MaterialX-definitions/`: Apple MaterialX definition sources used to build the runtime manifest.
 - `References/RealityComposerProProject/`: reference assets and Reality Composer Pro project material.
@@ -60,7 +62,6 @@ Important behaviors:
 Preferences live in `Plugin/prefs.py`:
 - `usdzip_path`
 - `materialx_library_path`
-- `default_export_format`
 
 Diagnostics are an export setting on `BlenderToRCPExportSettings`, not an always-on add-on preference. `diagnostics_enabled` gates whether `.diagnostics.json` files are written and whether the UI exposes the diagnostics viewer/support-bundle actions.
 
@@ -79,6 +80,7 @@ Wrapper: `Plugin/export/blender_usd_export.py`
 - For `.usda` or `.usdc`, publishes the processed staged USD plus fresh `textures/` and `assets/` sidecars to the requested destination.
 - For `.usdz`, exports to a staged `.usdc` first and packages the staged contents later.
 - Calls Blender's USD exporter with the add-on scene settings rather than a hard-coded configuration.
+- Registers a scoped USDHook during the export call to capture the exact prim map (`export_context.get_prim_map()`), so the material rewrite resolves material prims exactly instead of by name.
 
 ### 2. Optional animation preparation
 Implementation: `Plugin/export/animation_export.py`
@@ -132,19 +134,21 @@ Runner script: `Plugin/bake_export_runner.py`
 - Launches Blender in background factory-startup mode with the current `.blend` so unrelated user add-ons do not pollute the bake session.
 - Ensures the add-on is enabled inside the background session.
 - Applies serialized scene settings.
-- Fails early if exported objects reference missing, unpacked external image files.
+- Fails early if exported objects reference missing, unpacked external image files, checking every UDIM tile and image-sequence frame individually.
 - Restores selection when `Selection Only` is active.
 - Switches the render engine to `CYCLES` for baking.
 - Uses a heartbeat thread to keep `status.json` fresh while long bake steps run.
 - Restores render engine, selection, active object, and mode after completion or failure.
+- Arms an `exit_pre` crash guard so an unexpected Blender shutdown still writes a terminal error status, preventing the UI from waiting on a stale "running" job.
 
 ### Bake semantics
 Baking is implemented in `Plugin/export/bake_textures.py`.
 
 User-visible contracts:
-- `Bake Textures & Export` always authors the final exported materials as RealityKit Unlit materials.
+- `Bake Textures & Export` authors RealityKit Unlit materials for `UNLIT_ALBEDO` and `LIT_IBL`, and Lit PBR materials for `LIT_ALBEDO`.
 - Bake/export skips source material graph validation because baking is the compatibility boundary. Strict graph validation remains part of `Export Scene`.
-- `Material Color Only` (`UNLIT_ALBEDO`) bakes light-independent material color.
+- `Material Color Only - Unlit` (`UNLIT_ALBEDO`) bakes light-independent material color.
+- `Material Color Only - Lit PBR` (`LIT_ALBEDO`) bakes light-independent material color and exports Lit PBR materials (roughness as a texture or averaged constant via `bake_roughness_mode`).
 - `Lighting & Shadows` (`LIT_IBL`) bakes appearance under the chosen lighting source, then still exports Unlit materials whose textures already include that lighting and shadowing.
 - `Isolate Meshes for Shadows` hides non-target meshes during each lighting-and-shadows bake pass to avoid cross-mesh shadows.
 - `Step Timeout (sec)` is enforced by the foreground watcher and can terminate the background Blender process when a single step stalls.
@@ -153,7 +157,8 @@ User-visible contracts:
 Material rewriting is orchestrated in `Plugin/export/materials/rewrite.py`.
 
 ### Runtime inputs
-- Blender material bindings already authored by the base USD export.
+- Blender material bindings already authored by the base USD export (mesh prims and GeomSubset children — multi-material meshes bind per subset).
+- The prim map captured by the export-time USDHook, mapping material prim paths to Blender material names exactly.
 - Blender material data resolved from `context.blend_data.materials`.
 - The prebuilt MaterialX manifest loaded through `Plugin/manifest/materialx_nodes.py`.
 
@@ -265,8 +270,6 @@ Packaging is intentionally deterministic:
 - CI build: `.github/workflows/build-archive.yml`
 - Output artifact: `dist/BlenderToRCP.zip`
 
-Release-facing metadata lives in:
-- `Plugin/blender_manifest.toml`
-- `Plugin/__init__.py`
+Release-facing metadata lives in `Plugin/blender_manifest.toml` (read at runtime via `Plugin/core/version.py`).
 
 If packaging changes or release automation is touched, keep those metadata surfaces aligned with the built archive and published release asset.

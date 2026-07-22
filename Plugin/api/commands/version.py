@@ -9,8 +9,8 @@ def handle(args: dict) -> dict:
 
     plugin_version = "unknown"
     try:
-        from Plugin import bl_info
-        plugin_version = ".".join(str(v) for v in bl_info["version"])
+        from ...core.version import get_version
+        plugin_version = get_version()
     except Exception:
         pass
 

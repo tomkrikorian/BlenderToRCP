@@ -11,6 +11,7 @@ def collect_missing_image_files_for_objects(objects: Iterable[Any], bpy_module=N
     if bpy_module is None:
         import bpy as bpy_module  # type: ignore
 
+    expanded_paths = _expanded_image_paths(bpy_module)
     records: dict[str, dict[str, Any]] = {}
     for obj in objects or []:
         object_name = getattr(obj, "name", "")
@@ -22,7 +23,10 @@ def collect_missing_image_files_for_objects(objects: Iterable[Any], bpy_module=N
                 source = getattr(image, "source", "")
                 if source not in {"FILE", "SEQUENCE", "MOVIE", "TILED"}:
                     continue
-                for raw_path, resolved_path in _resolved_image_paths(image, bpy_module):
+                image_paths = _image_paths_for(image, expanded_paths)
+                if image_paths is None:
+                    image_paths = _resolved_image_paths(image, bpy_module)
+                for raw_path, resolved_path in image_paths:
                     if not raw_path:
                         continue
                     if _path_exists(resolved_path):
@@ -132,6 +136,48 @@ def _image_is_packed(image) -> bool:
         return len(packed_files) > 0
     except Exception:
         return False
+
+
+def _expanded_image_paths(bpy_module) -> dict[int, list[tuple[str, str]]] | None:
+    """Map image pointer -> expanded (raw, resolved) file paths.
+
+    Uses ``bpy.data.file_path_foreach`` with token/sequence expansion so every
+    UDIM tile and image-sequence frame is visited individually.
+    Returns None when the API is unavailable (e.g. stubbed bpy in tests).
+    """
+    file_path_foreach = getattr(getattr(bpy_module, "data", None), "file_path_foreach", None)
+    if file_path_foreach is None:
+        return None
+
+    expanded: dict[int, list[tuple[str, str]]] = {}
+
+    def visit(owner_id, path, _metadata):
+        try:
+            key = owner_id.as_pointer()
+            resolved = str(bpy_module.path.abspath(path, library=getattr(owner_id, "library", None)))
+        except Exception:
+            return None
+        expanded.setdefault(key, []).append((str(path), resolved))
+        return None
+
+    try:
+        file_path_foreach(
+            visit,
+            visit_types={'IMAGE'},
+            flags={'SKIP_PACKED', 'SKIP_WEAK_REFERENCES', 'EXPAND_TOKENS', 'EXPAND_SEQUENCES'},
+        )
+    except Exception:
+        return None
+    return expanded
+
+
+def _image_paths_for(image, expanded_paths) -> list[tuple[str, str]] | None:
+    if not expanded_paths:
+        return None
+    try:
+        return expanded_paths.get(image.as_pointer())
+    except Exception:
+        return None
 
 
 def _resolved_image_paths(image, bpy_module) -> list[tuple[str, str]]:

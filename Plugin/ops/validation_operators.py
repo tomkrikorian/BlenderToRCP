@@ -34,14 +34,7 @@ class BLENDERTORCP_OT_validate_material(Operator):
             self.report({'WARNING'}, "No active material to validate")
             return {'CANCELLED'}
 
-        try:
-            result = rk_validate.validate_material(material, strict=True)
-        except TypeError:
-            result = rk_validate.validate_material(material)
-            if result.get("warnings"):
-                result["errors"].extend(result["warnings"])
-                result["warnings"] = []
-            result["ok"] = not result["errors"]
+        result = rk_validate.validate_material(material, strict=True)
         if result["errors"]:
             self.report({'ERROR'}, f"{len(result['errors'])} errors found in '{material.name}'")
             return {'FINISHED'}
@@ -65,14 +58,7 @@ class BLENDERTORCP_OT_select_offenders(Operator):
             self.report({'WARNING'}, "No active material to inspect")
             return {'CANCELLED'}
 
-        try:
-            result = rk_validate.validate_material(material, strict=True)
-        except TypeError:
-            result = rk_validate.validate_material(material)
-            if result.get("warnings"):
-                result["errors"].extend(result["warnings"])
-                result["warnings"] = []
-            result["ok"] = not result["errors"]
+        result = rk_validate.validate_material(material, strict=True)
         if not result["offending_nodes"]:
             self.report({'INFO'}, "No offending nodes found")
             return {'FINISHED'}
@@ -93,14 +79,7 @@ class BLENDERTORCP_OT_remove_offenders(Operator):
             self.report({'WARNING'}, "No active material to inspect")
             return {'CANCELLED'}
 
-        try:
-            result = rk_validate.validate_material(material, strict=True)
-        except TypeError:
-            result = rk_validate.validate_material(material)
-            if result.get("warnings"):
-                result["errors"].extend(result["warnings"])
-                result["warnings"] = []
-            result["ok"] = not result["errors"]
+        result = rk_validate.validate_material(material, strict=True)
         removed = rk_validate.remove_offending_nodes(material, result)
         if removed == 0:
             self.report({'INFO'}, "No offending nodes to remove")

@@ -105,14 +105,7 @@ class BLENDERTORCP_OT_export(Operator, ExportHelper):
 
         materials = rk_validate.collect_scene_materials(context)
         for material in materials:
-            try:
-                result = rk_validate.validate_material(material, strict=True)
-            except TypeError:
-                result = rk_validate.validate_material(material)
-                if result.get("warnings"):
-                    result["errors"].extend(result["warnings"])
-                    result["warnings"] = []
-                result["ok"] = not result["errors"]
+            result = rk_validate.validate_material(material, strict=True)
             if result["errors"]:
                 error_count = len(result["errors"])
                 for issue in result["errors"]:

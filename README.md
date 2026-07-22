@@ -209,7 +209,7 @@ Bake modes:
 - `Material Color Only - Lit PBR` (`LIT_ALBEDO`): bakes the same light-independent material color but authors Lit PBR materials so Reality Composer Pro or RealityKit lights the baked color. Blender shadows are not baked. The `Roughness` option under `Advanced Bake Options` chooses between a baked per-texel roughness map and a single averaged roughness value.
 - `Lighting & Shadows` (`LIT_IBL`, default): bakes the appearance under the selected lighting source, then still exports the final materials as RealityKit Unlit materials with lighting and shadows encoded into textures. Use this when the USDZ should match the Blender preview.
 - `Isolate Meshes for Shadows`: hides non-target meshes during lighting-and-shadows bakes to avoid cross-mesh shadow contribution.
-- `USD Export: Texture`: opt in to applying the shared texture resolution, image format, and bake margin settings. For `Export Scene`, `Original` keeps each source texture format and `Keep Original` leaves source dimensions untouched. AVIF support requires Blender 5.1+, and older builds warn and fall back to PNG.
+- `USD Export: Texture`: opt in to applying the shared texture resolution, image format, and bake margin settings. For `Export Scene`, `Original` keeps each source texture format and `Keep Original` leaves source dimensions untouched. AVIF textures are written natively by Blender.
 
 ## Material authoring and diagnostics
 BlenderToRCP is not export-only. The Shader Editor integration also supports:
@@ -244,8 +244,7 @@ Use `--json` for automated support capture so load failures, validation failures
 - Both local and CI paths build the same archive: `dist/BlenderToRCP.zip`.
 
 Before publishing a release, verify add-on metadata:
-- `Plugin/blender_manifest.toml` still contains placeholder maintainer metadata and should be updated.
-- `Plugin/__init__.py` still leaves `doc_url` empty.
+- `Plugin/blender_manifest.toml` still contains placeholder maintainer metadata and has no `website` field yet; it is the single source of release metadata (version is read from it at runtime).
 
 ## Architecture
 See `docs/ARCHITECTURE.MD`.

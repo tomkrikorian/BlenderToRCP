@@ -144,47 +144,37 @@ def test_prepare_textures_keeps_prefixed_names_collision_safe(tmp_path, monkeypa
     assert attr_b.set_value.path == f"textures/{texture_files[1]}"
 
 
-def test_avif_texture_conversion_uses_external_encoder(tmp_path, monkeypatch):
+def test_avif_texture_conversion_uses_imbuf(tmp_path, monkeypatch):
     source = tmp_path / "source.png"
     dest = tmp_path / "source.avif"
     source.write_bytes(b"source bytes")
 
-    class _FakeImage:
+    class _FakeIbuf:
         def __init__(self):
-            self.size = [64, 64]
-            self.users = 0
-            self.filepath_raw = ""
-            self.file_format = ""
+            self.size = (64, 64)
+            self.quality = 0
+            self.file_type = ""
+            self.freed = False
 
-        def scale(self, width, height):
-            self.size = [width, height]
+        def resize(self, size, method="FAST"):
+            assert method == "BILINEAR"
+            self.size = tuple(size)
 
-        def save(self):
-            assert self.file_format == "PNG"
-            Path(self.filepath_raw).write_bytes(b"normalized png")
+        def free(self):
+            self.freed = True
 
-    class _FakeImages:
-        def load(self, *_args, **_kwargs):
-            return _FakeImage()
+    fake_ibuf = _FakeIbuf()
+    loads = []
 
-        def remove(self, _image):
-            pass
+    def fake_load(filepath):
+        loads.append(filepath)
+        return fake_ibuf
 
-    fake_bpy = SimpleNamespace(
-        app=SimpleNamespace(background=False),
-        data=SimpleNamespace(images=_FakeImages()),
-    )
-    monkeypatch.setitem(sys.modules, "bpy", fake_bpy)
-    monkeypatch.setattr(usd_textures.shutil, "which", lambda name: "/usr/bin/avifenc" if name == "avifenc" else None)
+    def fake_write(ibuf, *, filepath=None):
+        assert ibuf is fake_ibuf
+        Path(filepath).write_bytes(b"converted bytes")
 
-    commands = []
-
-    def fake_run(command, **_kwargs):
-        commands.append(command)
-        Path(command[-1]).write_bytes(b"converted bytes")
-        return SimpleNamespace(returncode=0, stdout="", stderr="")
-
-    monkeypatch.setattr(usd_textures.subprocess, "run", fake_run)
+    monkeypatch.setitem(sys.modules, "imbuf", SimpleNamespace(load=fake_load, write=fake_write))
 
     converted = usd_textures._convert_texture(
         source,
@@ -198,28 +188,49 @@ def test_avif_texture_conversion_uses_external_encoder(tmp_path, monkeypatch):
 
     assert converted is True
     assert dest.read_bytes() == b"converted bytes"
-    assert commands
-    assert commands[0][0] == "/usr/bin/avifenc"
-    assert commands[0][-1] == str(dest)
+    assert loads == [str(source)]
+    assert fake_ibuf.size == (32, 32)
+    assert fake_ibuf.file_type == "AVIF"
+    assert fake_ibuf.quality == usd_textures._LOSSY_TEXTURE_QUALITY
+    assert fake_ibuf.freed is True
 
 
-def test_avif_texture_conversion_falls_back_without_external_encoder(tmp_path, monkeypatch):
+def test_avif_texture_conversion_falls_back_to_image_datablock(tmp_path, monkeypatch):
     source = tmp_path / "source.png"
     dest = tmp_path / "source.avif"
     source.write_bytes(b"source bytes")
 
-    class _FailingImages:
+    def failing_load(_filepath):
+        raise RuntimeError("imbuf cannot read this file")
+
+    monkeypatch.setitem(sys.modules, "imbuf", SimpleNamespace(load=failing_load, write=None))
+
+    class _FakeImage:
+        def __init__(self):
+            self.size = [64, 64]
+            self.users = 0
+            self.filepath_raw = ""
+            self.file_format = ""
+
+        def scale(self, width, height):
+            self.size = [width, height]
+
+        def save(self):
+            assert self.file_format == "AVIF"
+            Path(self.filepath_raw).write_bytes(b"datablock avif")
+
+    class _FakeImages:
         def load(self, *_args, **_kwargs):
-            raise AssertionError("AVIF fallback must not touch Blender image saving")
+            return _FakeImage()
+
+        def remove(self, _image):
+            pass
 
     fake_bpy = SimpleNamespace(
         app=SimpleNamespace(background=False),
-        data=SimpleNamespace(images=_FailingImages()),
+        data=SimpleNamespace(images=_FakeImages()),
     )
     monkeypatch.setitem(sys.modules, "bpy", fake_bpy)
-    monkeypatch.delenv("BLENDERTORCP_AVIFENC", raising=False)
-    monkeypatch.setattr(usd_textures.shutil, "which", lambda _name: None)
-    monkeypatch.setattr(usd_textures, "_AVIFENC_CANDIDATE_PATHS", ())
 
     converted = usd_textures._convert_texture(
         source,
@@ -231,23 +242,11 @@ def test_avif_texture_conversion_falls_back_without_external_encoder(tmp_path, m
         },
     )
 
-    assert converted is False
-    assert not dest.exists()
+    assert converted is True
+    assert dest.read_bytes() == b"datablock avif"
 
 
-def test_find_avifenc_uses_common_install_path_when_path_is_minimal(tmp_path, monkeypatch):
-    avifenc = tmp_path / "avifenc"
-    avifenc.write_text("#!/bin/sh\nexit 0\n")
-    avifenc.chmod(0o755)
-
-    monkeypatch.delenv("BLENDERTORCP_AVIFENC", raising=False)
-    monkeypatch.setattr(usd_textures.shutil, "which", lambda _name: None)
-    monkeypatch.setattr(usd_textures, "_AVIFENC_CANDIDATE_PATHS", (str(avifenc),))
-
-    assert usd_textures._find_avifenc() == str(avifenc)
-
-
-def test_prepare_textures_writes_resized_png_when_avif_encoder_is_unavailable(tmp_path, monkeypatch):
+def test_prepare_textures_writes_resized_png_when_avif_saving_fails(tmp_path, monkeypatch):
     monkeypatch.setattr(usd_textures, "Sdf", _FakeSdf)
 
     source = tmp_path / "source.png"
@@ -284,9 +283,6 @@ def test_prepare_textures_writes_resized_png_when_avif_encoder_is_unavailable(tm
     from Plugin.export import bake_textures
 
     monkeypatch.setattr(bake_textures, "bpy", fake_bpy, raising=False)
-    monkeypatch.delenv("BLENDERTORCP_AVIFENC", raising=False)
-    monkeypatch.setattr(usd_textures.shutil, "which", lambda _name: None)
-    monkeypatch.setattr(usd_textures, "_AVIFENC_CANDIDATE_PATHS", ())
 
     usd_path = tmp_path / "scene.usda"
     usd_path.write_text("#usda 1.0\n")
@@ -303,7 +299,8 @@ def test_prepare_textures_writes_resized_png_when_avif_encoder_is_unavailable(tm
 
     fallback = tmp_path / "textures" / "scene-source.png"
     assert fallback.read_bytes() == b"resized png"
-    assert saved_sizes == [(32, 16)]
+    # The failed AVIF attempt scales once before the PNG fallback scales again.
+    assert saved_sizes[-1] == (32, 16)
     assert attr.set_value.path == "textures/scene-source.png"
 
 

@@ -81,14 +81,7 @@ def handle(args: dict) -> dict:
     # Validate materials (strict mode — same as the operator)
     materials = rk_validate.collect_scene_materials(bpy.context)
     for mat in materials:
-        try:
-            result = rk_validate.validate_material(mat, strict=True)
-        except TypeError:
-            result = rk_validate.validate_material(mat)
-            if result.get("warnings"):
-                result["errors"].extend(result["warnings"])
-                result["warnings"] = []
-            result["ok"] = not result["errors"]
+        result = rk_validate.validate_material(mat, strict=True)
         if result["errors"]:
             for issue in result["errors"]:
                 diag.add_validation_issue(mat.name, issue, severity="error")

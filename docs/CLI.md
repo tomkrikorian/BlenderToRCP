@@ -72,6 +72,7 @@ These flags are available on every command.
 | `--json` | off | JSON-only output (suppress all stderr messages) |
 | `--verbose` | off | Print Blender startup output to stderr |
 | `--quiet` | off | Suppress all stderr output |
+| `--timeout <SEC>` | `600` | Overall Blender subprocess timeout in seconds; `0` disables the limit. Place before the subcommand |
 
 ---
 
@@ -89,8 +90,8 @@ blendertorcp version
 
 ```json
 {
-  "plugin": "1.3.0",
-  "blender": "5.1.0",
+  "plugin": "2.0.0",
+  "blender": "5.2.0",
   "python": "3.12.0"
 }
 ```
@@ -219,7 +220,7 @@ blendertorcp list-materials <file.blend> [options]
 
 ### `validate`
 
-Check materials for RealityKit compatibility. Reports errors (nodes that block export) and warnings (nodes that require baking).
+Check materials for RealityKit compatibility. Reports errors (nodes that block export) and warnings (nodes that require baking, unsupported Principled inputs such as Transmission/Sheen/Subsurface/Thin Wall, and DirectX-convention normal maps).
 
 ```bash
 blendertorcp validate <file.blend> [options]
@@ -316,7 +317,7 @@ blendertorcp settings get <file.blend> [options]
 | `geometry` | `export_uvmaps`, `rename_uvmaps`, `export_normals`, `merge_parent_xform`, `triangulate_meshes`, `quad_method`, `ngon_method`, `export_subdivision` |
 | `rigging` | `export_armatures`, `only_deform_bones`, `export_shapekeys` |
 | `texture` | `export_texture_settings_enabled`, `bake_resolution`, `bake_resolution_custom`, `bake_image_format`, `bake_margin` |
-| `bake` | `bake_mode`, `bake_ibl_source`, `bake_ibl_filepath`, `bake_ibl_strength`, `bake_ibl_rotation`, `bake_isolate_meshes_lit`, `bake_base_color`, `bake_opacity`, `bake_keep_materials`, `bake_step_timeout_seconds` |
+| `bake` | `bake_mode`, `bake_ibl_source`, `bake_ibl_filepath`, `bake_ibl_strength`, `bake_ibl_rotation`, `bake_isolate_meshes_lit`, `bake_base_color`, `bake_opacity`, `bake_keep_materials`, `bake_roughness_mode`, `apply_yup_geometry`, `bake_step_timeout_seconds` |
 | `diagnostics` | `diagnostics_enabled` |
 
 **Examples:**
@@ -414,10 +415,10 @@ This command does not require a `.blend` file. It prints the schema for all expo
   },
   {
     "key": "bake_resolution",
-    "type": "enum",
-    "values": ["512", "1024", "2048", "4096", "CUSTOM"],
+    "type": "ENUM",
+    "values": ["ORIGINAL", "512", "1024", "2048", "4096", "CUSTOM"],
     "default": "2048",
-    "group": "bake",
+    "group": "texture",
     "description": "Resolution for baked textures"
   }
 ]
@@ -534,7 +535,7 @@ blendertorcp bake-export <file.blend> -o <output_path> [options]
 | `--format <FORMAT>` | from settings | Export format: `USDA`, `USDC`, `USDZ` |
 | `--bake-mode <MODE>` | from settings (`LIT_IBL` for fresh scenes) | `UNLIT_ALBEDO` for Material Color Only - Unlit, `LIT_ALBEDO` for Material Color Only - Lit PBR, `LIT_IBL` for Lighting & Shadows |
 | `--resolution <RES>` | `2048` | Enables texture overrides for this run and sets bake/export texture resolution: `ORIGINAL`, `512`, `1024`, `2048`, `4096`, or any integer for custom |
-| `--image-format <FMT>` | `AVIF` | Enables texture overrides for this run and sets baked/exported texture format: `ORIGINAL`, `AVIF` (requires Blender 5.1+), or `PNG` |
+| `--image-format <FMT>` | `AVIF` | Enables texture overrides for this run and sets baked/exported texture format: `ORIGINAL`, `AVIF`, or `PNG`. AVIF is encoded natively by Blender; no external tools required |
 | `--margin <PX>` | `8` | Enables texture overrides for this run and sets bake padding in pixels |
 | `--selected-only` | off | Only bake and export selected objects |
 | `--diagnostics` | off | Write `<output>.diagnostics.json` |
@@ -562,7 +563,9 @@ blendertorcp bake-export <file.blend> -o <output_path> [options]
 | Flag | Default | Description |
 |------|---------|-------------|
 | `--keep-materials` | off | Keep baked materials assigned after export |
-| `--timeout <SEC>` | `0` (disabled) | Abort if a single bake step exceeds this duration in seconds |
+| `--roughness-mode <MODE>` | `TEXTURE` | LIT_ALBEDO roughness output: `TEXTURE` (full map) or `AVERAGE` (constant) |
+| `--apply-yup` | off | Bake a Y-up rotation into mesh data for native Y-up export (auto-skipped for animated/constrained/armature-deformed transforms) |
+| `--step-timeout <SEC>` | `0` (disabled) | Per-bake-step timeout stored in the job settings; enforced by the Blender UI background-job watchdog, not by the CLI. For the overall CLI limit use the global `--timeout` |
 
 **Examples:**
 
@@ -677,8 +680,7 @@ blendertorcp preferences get
 ```json
 {
   "usdzip_path": "",
-  "materialx_library_path": "",
-  "default_export_format": "USDA"
+  "materialx_library_path": ""
 }
 ```
 
@@ -698,19 +700,18 @@ blendertorcp preferences set <key>=<value> [...]
 |-----|------|-------------|
 | `usdzip_path` | string | Path to the usdzip tool (leave empty for Python fallback) |
 | `materialx_library_path` | string | Path to MaterialX library directory (leave empty for bundled) |
-| `default_export_format` | enum | `USDA`, `USDC`, or `USDZ` |
 
 **Examples:**
 
 ```bash
-blendertorcp preferences set default_export_format=USDZ
+blendertorcp preferences set usdzip_path=/opt/usd/bin/usdzip
 ```
 
 **Output:**
 
 ```json
 {
-  "updated": ["default_export_format"]
+  "updated": ["usdzip_path"]
 }
 ```
 
@@ -828,6 +829,9 @@ When `diagnostics_enabled` is `false`, exports do not write `<output>.diagnostic
 | `bake_keep_materials` | bool | `true`, `false` | `false` |
 | `bake_step_timeout_seconds` | int | 0+ (0 = disabled) | `0` |
 | `bake_roughness_mode` | enum | `TEXTURE`, `AVERAGE` | `TEXTURE` |
+| `apply_yup_geometry` | bool | `true`, `false` | `false` |
+
+`apply_yup_geometry` bakes a -90° X rotation into mesh data so the export is natively Y-up; it is auto-skipped for animated, constrained, or armature-deformed transforms.
 
 `bake_roughness_mode` only applies to `LIT_ALBEDO`: `TEXTURE` bakes a per-texel roughness map, `AVERAGE` uses one averaged roughness constant (no roughness texture exported).
 

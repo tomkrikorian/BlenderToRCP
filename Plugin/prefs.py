@@ -7,7 +7,7 @@ from __future__ import annotations
 import bpy
 import json
 from pathlib import Path
-from bpy.props import StringProperty, BoolProperty, EnumProperty
+from bpy.props import StringProperty, EnumProperty
 from bpy.types import AddonPreferences
 
 from .api.addon_loader import _candidate_module_names
@@ -51,25 +51,6 @@ class BlenderToRCPPreferences(AddonPreferences):
         maxlen=1024
     )
     
-    # Default export settings
-    default_export_format: EnumProperty(
-        name="Default Export Format",
-        description="Default format for exports",
-        items=[
-            ('USDA', "USD ASCII (.usda)", "Export as USD ASCII (.usda)"),
-            ('USDC', "USD Binary (.usdc)", "Export as USD binary (.usdc)"),
-            ('USDZ', "USDZ Package (.usdz)", "Export as USDZ package (.usdz)"),
-        ],
-        default='USDA'
-    )
-    
-    # Diagnostics
-    enable_diagnostics: BoolProperty(
-        name="Enable Diagnostics",
-        description="Generate detailed export diagnostics JSON",
-        default=False
-    )
-
     enforcement_mode: EnumProperty(
         name="RealityKit Enforcement",
         description="Strict export mode (always blocks on unsupported nodes)",
@@ -109,12 +90,6 @@ class BlenderToRCPPreferences(AddonPreferences):
         box.label(text="MaterialX Library", icon='MATERIAL')
         box.prop(self, "materialx_library_path")
         box.label(text="Leave empty to use bundled MaterialX definitions", icon='INFO')
-        
-        # Defaults
-        box = layout.box()
-        box.label(text="Default Settings", icon='PREFERENCES')
-        box.prop(self, "default_export_format")
-        # Strict mode only; no UI toggle.
 
 
 def get_preferences(context=None):

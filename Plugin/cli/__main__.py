@@ -36,14 +36,30 @@ def _log(msg: str, quiet: bool = False) -> None:
 
 def _run(command: str, args: dict, parsed: argparse.Namespace) -> dict:
     """Run a command through the bridge with common options."""
+    timeout = parsed.timeout if parsed.timeout and parsed.timeout > 0 else None
     return bridge.run(
         command=command,
         args=args,
         blend_file=getattr(parsed, "blend_file", None),
         blender_path=parsed.blender,
-        timeout=getattr(parsed, "timeout", 600),
+        timeout=timeout,
         verbose=parsed.verbose,
     )
+
+
+def _collect_overrides(tokens) -> dict:
+    """Parse ``key=value`` override tokens; reject malformed ones loudly."""
+    overrides = {}
+    for token in tokens or []:
+        if "=" not in token:
+            print(
+                f"Error: invalid override '{token}' (expected key=value, e.g. bake-resolution=1024).",
+                file=sys.stderr,
+            )
+            raise SystemExit(2)
+        key, value = token.split("=", 1)
+        overrides[key.replace("-", "_")] = value
+    return overrides
 
 
 # ---------------------------------------------------------------------------
@@ -145,15 +161,9 @@ def cmd_export(parsed: argparse.Namespace) -> int:
     if parsed.diagnostics:
         args["diagnostics"] = True
 
-    # Collect --key=value overrides
-    overrides = {}
-    for override in (parsed.overrides or []):
-        if "=" not in override:
-            continue
-        key, value = override.split("=", 1)
-        # Convert hyphens to underscores
-        key = key.lstrip("-").replace("-", "_")
-        overrides[key] = value
+    overrides = _collect_overrides(parsed.overrides)
+    if parsed.apply_yup:
+        overrides["apply_yup_geometry"] = "true"
     if overrides:
         args["overrides"] = overrides
 
@@ -202,14 +212,11 @@ def cmd_bake_export(parsed: argparse.Namespace) -> int:
     if parsed.timeout_step is not None:
         args["timeout"] = parsed.timeout_step
 
-    # Collect extra overrides
-    overrides = {}
-    for override in (parsed.overrides or []):
-        if "=" not in override:
-            continue
-        key, value = override.split("=", 1)
-        key = key.lstrip("-").replace("-", "_")
-        overrides[key] = value
+    overrides = _collect_overrides(parsed.overrides)
+    if parsed.roughness_mode:
+        overrides["bake_roughness_mode"] = parsed.roughness_mode
+    if parsed.apply_yup:
+        overrides["apply_yup_geometry"] = "true"
     if overrides:
         args["overrides"] = overrides
 
@@ -295,6 +302,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--quiet", action="store_true",
         help="Suppress all stderr output",
     )
+    parser.add_argument(
+        "--timeout", dest="timeout", type=int, default=600,
+        help="Overall Blender subprocess timeout in seconds, 0 for no limit "
+             "(default: 600; place before the subcommand)",
+    )
 
     subs = parser.add_subparsers(dest="command", required=True)
 
@@ -336,7 +348,7 @@ def build_parser() -> argparse.ArgumentParser:
     p = settings_subs.add_parser("get", help="Read export settings")
     p.add_argument("blend_file", help="Path to .blend file")
     p.add_argument("--keys", nargs="+", help="Return only these keys")
-    p.add_argument("--group", help="Return settings from a group: general, objects, geometry, rigging, texture, bake, diagnostics")
+    p.add_argument("--group", help="Return settings from a group: all, general, objects, geometry, rigging, texture, bake, diagnostics")
     p.set_defaults(func=cmd_settings_get)
 
     # settings set
@@ -359,7 +371,11 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--selected-only", action="store_true", help="Export selected objects only")
     p.add_argument("--diagnostics", action="store_true", help="Write diagnostics JSON sidecar")
     p.add_argument("--no-diagnostics", action="store_true", help="Skip diagnostics")
-    p.add_argument("overrides", nargs="*", metavar="--key=value", help="Setting overrides")
+    p.add_argument("--apply-yup", action="store_true", help="Bake a Y-up rotation into mesh data for native Y-up export")
+    p.add_argument(
+        "overrides", nargs="*", metavar="key=value",
+        help="Setting overrides (place immediately after the blend file, before -o/--format)",
+    )
     p.set_defaults(func=cmd_export)
 
     # --- bake-export ---
@@ -385,8 +401,18 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--no-opacity", action="store_true", help="Skip opacity bake")
     # Advanced
     p.add_argument("--keep-materials", action="store_true", help="Keep baked materials after export")
-    p.add_argument("--timeout", dest="timeout_step", type=int, help="Per-step timeout in seconds")
-    p.add_argument("overrides", nargs="*", metavar="--key=value", help="Setting overrides")
+    p.add_argument("--roughness-mode", choices=["TEXTURE", "AVERAGE"], help="LIT_ALBEDO roughness output: full texture or averaged constant")
+    p.add_argument("--apply-yup", action="store_true", help="Bake a Y-up rotation into mesh data for native Y-up export")
+    p.add_argument(
+        "--step-timeout", dest="timeout_step", type=int,
+        help="Per-bake-step timeout in seconds stored in the job settings "
+             "(enforced by the Blender UI background-job watchdog; "
+             "for the overall CLI timeout use the global --timeout)",
+    )
+    p.add_argument(
+        "overrides", nargs="*", metavar="key=value",
+        help="Setting overrides (place immediately after the blend file, before -o/--format)",
+    )
     p.set_defaults(func=cmd_bake_export)
 
     # --- support-bundle ---

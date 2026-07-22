@@ -990,29 +990,10 @@ def _resolve_bake_image_format(settings, diagnostics=None, *, safe_for_blender_s
         else:
             return dict(_BAKE_IMAGE_FORMATS["ORIGINAL"])
 
-    if safe_for_blender_save and requested == "AVIF":
-        fallback = "PNG"
-        message = (
-            "AVIF baked textures are temporarily saved as PNG because Blender 5.1 RC's native AVIF "
-            "image writer can crash during Image.save()."
-        )
-        print(f"Warning: {message}")
-        if diagnostics:
-            diagnostics.add_warning(message)
-        requested = fallback
-
     available = _available_image_file_formats()
     if available and requested not in available:
         fallback = "PNG"
-        if requested == "AVIF":
-            message = (
-                "AVIF baked textures require Blender 5.1 or newer; "
-                f"this Blender build does not support AVIF image saving, falling back to '{fallback}'."
-            )
-            print(f"Warning: {message}")
-            if diagnostics:
-                diagnostics.add_warning(message)
-        elif diagnostics:
+        if diagnostics:
             diagnostics.add_warning(
                 f"Bake image format '{requested}' is not supported by this Blender build; falling back to '{fallback}'."
             )
@@ -1291,27 +1272,19 @@ def _configure_emission_for_alpha(material) -> None:
 
 def _average_image_value(image) -> float:
     try:
-        px = image.pixels[:]
+        import numpy as np
+
+        buf = np.empty(len(image.pixels), dtype=np.float32)
+        image.pixels.foreach_get(buf)
     except Exception:
         return 0.5
-    count = len(px) // 4
-    if count <= 0:
-        return 0.5
-    step = max(1, count // 4096)
-    total = 0.0
-    n = 0
-    for i in range(0, count, step):
-        total += px[i * 4]
-        n += 1
-    return (total / n) if n else 0.5
+    reds = buf[0::4]
+    return float(reds.mean()) if reds.size else 0.5
 
 
 def _new_combine_color_node(nodes):
-    """Create a shader color-combine node across Blender versions."""
-    try:
-        return nodes.new("ShaderNodeCombineColor"), ("Red", "Green", "Blue"), "Color"
-    except Exception:
-        return nodes.new("ShaderNodeCombineRGB"), ("R", "G", "B"), "Image"
+    """Create a shader color-combine node."""
+    return nodes.new("ShaderNodeCombineColor"), ("Red", "Green", "Blue"), "Color"
 
 
 def _build_baked_material(
@@ -1433,14 +1406,8 @@ def _build_baked_material(
         opacity_node.image = opacity_image
         if uv_layer and hasattr(opacity_node, "uv_map"):
             opacity_node.uv_map = uv_layer
-        try:
-            separate = nodes.new("ShaderNodeSeparateColor")
-            try:
-                separate.mode = 'RGB'
-            except Exception:
-                pass
-        except Exception:
-            separate = nodes.new("ShaderNodeSeparateRGB")
+        separate = nodes.new("ShaderNodeSeparateColor")
+        separate.mode = 'RGB'
         links.new(opacity_node.outputs['Color'], separate.inputs['Color'])
         links.new(separate.outputs['Red'], principled.inputs['Alpha'])
         material.blend_method = 'BLEND'
@@ -1463,19 +1430,23 @@ def _merge_opacity_into_base_image(base_image, opacity_image) -> bool:
         return False
 
     try:
-        base_pixels = list(base_image.pixels)
-        opacity_pixels = list(opacity_image.pixels)
+        import numpy as np
+
+        pixel_count = len(base_image.pixels)
+        if pixel_count != len(opacity_image.pixels):
+            return False
+        base_pixels = np.empty(pixel_count, dtype=np.float32)
+        opacity_pixels = np.empty(pixel_count, dtype=np.float32)
+        base_image.pixels.foreach_get(base_pixels)
+        opacity_image.pixels.foreach_get(opacity_pixels)
     except Exception:
         return False
 
-    if len(base_pixels) != len(opacity_pixels):
-        return False
-
-    for idx in range(0, len(base_pixels), 4):
-        base_pixels[idx + 3] = opacity_pixels[idx]
+    # Opacity bakes are grayscale: red carries the value.
+    base_pixels[3::4] = opacity_pixels[0::4]
 
     try:
-        base_image.pixels[:] = base_pixels
+        base_image.pixels.foreach_set(base_pixels)
         base_image.save()
     except Exception:
         return False

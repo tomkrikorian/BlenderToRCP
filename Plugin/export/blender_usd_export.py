@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Optional
 
 from . import animation_export
+from . import usd_hook
 
 
 @contextmanager
@@ -253,13 +254,13 @@ def export_blender_scene(context, settings, final_path: str, diagnostics=None, *
         # track so downstream tools (Reality Composer Pro) can clip the timeline.
         animation_state = animation_export.prepare_animation_export(context, settings, diagnostics)
 
-        # Call Blender's USD exporter
-        # Note: In Blender 5.0+, this is available as an operator
         export_kwargs = _filter_export_kwargs(bpy.ops.wm.usd_export, export_kwargs)
         # Unpack packed images to their on-disk originals so the native
         # UsdPreviewSurface network references the same files the MaterialX
         # postprocess does - otherwise each packed texture ships twice.
-        with _packed_images_referencing_disk():
+        # The prim-map hook records exactly which Blender material produced
+        # each USD material prim for the MaterialX rewrite.
+        with _packed_images_referencing_disk(), usd_hook.capture_prim_map():
             bpy.ops.wm.usd_export(**export_kwargs)
         
         if not os.path.exists(output_path):
@@ -267,15 +268,6 @@ def export_blender_scene(context, settings, final_path: str, diagnostics=None, *
         
         return output_path
         
-    except Exception as e:
-        # Check if USD exporter is available
-        if not hasattr(bpy.ops.wm, 'usd_export'):
-            raise RuntimeError(
-                "Blender USD exporter not available. "
-                "Please ensure you're using Blender 3.0+ with USD support enabled."
-            ) from e
-        raise
-    
     finally:
         if animation_state is not None:
             animation_export.restore_animation_export(animation_state)

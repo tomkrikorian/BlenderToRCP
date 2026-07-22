@@ -6,10 +6,7 @@ Ensures referenced assets are copied and paths are made relative for USDZ.
 
 from pathlib import Path
 import hashlib
-import os
 import shutil
-import subprocess
-import tempfile
 
 from .usd_utils import Sdf
 
@@ -56,11 +53,13 @@ _ORIGINAL_FORMAT_BY_EXTENSION = {
     ".webp": "WEBP",
 }
 
-_AVIFENC_CANDIDATE_PATHS = (
-    "/opt/homebrew/bin/avifenc",
-    "/usr/local/bin/avifenc",
-    "/opt/local/bin/avifenc",
-)
+# Quality for lossy output formats (AVIF/JPEG/WebP) written via imbuf.
+_LOSSY_TEXTURE_QUALITY = 90
+
+# Image.file_format enum names whose ImBuf file_type identifier differs.
+_IMBUF_FILE_TYPE_BY_FORMAT = {
+    "TARGA": "TGA",
+}
 
 
 def prepare_textures(stage, usd_path: str, settings, diagnostics=None) -> None:
@@ -319,13 +318,6 @@ def _can_convert_texture(source_path: Path) -> bool:
 
 
 def _convert_texture(source_path: Path, dest_path: Path, texture_override, diagnostics=None) -> bool:
-    try:
-        import bpy
-    except Exception as exc:
-        if diagnostics:
-            diagnostics.add_warning(f"Could not convert texture '{source_path}': Blender image API unavailable ({exc}).")
-        return False
-
     file_format = str(texture_override.get("file_format") or "").upper()
     if file_format == "ORIGINAL":
         file_format = _original_file_format_for_source(source_path)
@@ -338,9 +330,15 @@ def _convert_texture(source_path: Path, dest_path: Path, texture_override, diagn
         texture_override = dict(texture_override)
         texture_override["file_format"] = file_format
 
-    if file_format == "AVIF":
-        return _convert_texture_to_avif(source_path, dest_path, texture_override, bpy, diagnostics)
+    if _convert_texture_with_imbuf(source_path, dest_path, texture_override, diagnostics):
+        return True
 
+    try:
+        import bpy
+    except Exception as exc:
+        if diagnostics:
+            diagnostics.add_warning(f"Could not convert texture '{source_path}': Blender image API unavailable ({exc}).")
+        return False
     return _convert_texture_in_current_process(source_path, dest_path, texture_override, bpy, diagnostics)
 
 
@@ -378,129 +376,57 @@ def _convert_texture_in_current_process(
                 pass
 
 
-def _convert_texture_to_avif(
+def _convert_texture_with_imbuf(
     source_path: Path,
     dest_path: Path,
     texture_override,
-    bpy,
     diagnostics=None,
 ) -> bool:
-    avifenc = _find_avifenc()
-    if not avifenc:
-        if diagnostics:
-            diagnostics.add_warning(
-                f"Could not convert texture '{source_path}' to AVIF; external encoder 'avifenc' is unavailable. "
-                "Falling back to a resized PNG texture."
-            )
+    """Convert/resize a texture with the imbuf API (format chosen by extension)."""
+    try:
+        import imbuf
+    except Exception:
         return False
 
-    resolution = int(texture_override.get("resolution") or 0)
-    source_suffix = source_path.suffix.lower()
-
-    # Blender 5.1 RC can segfault when saving AVIF, especially grayscale PNG maps.
-    # Use Blender only for safe PNG normalization/scaling, then encode AVIF externally.
-    if resolution > 0 or source_suffix not in {".png", ".jpg", ".jpeg"}:
-        with tempfile.TemporaryDirectory(prefix="blendertorcp-avif-") as tmp_dir:
-            png_source = Path(tmp_dir) / f"{source_path.stem}.png"
-            normalized = _convert_texture_in_current_process(
-                source_path,
-                png_source,
-                {
-                    "file_format": "PNG",
-                    "extension": ".png",
-                    "resolution": resolution,
-                },
-                bpy,
-                None,
-            )
-            if not normalized:
-                if diagnostics:
-                    diagnostics.add_warning(
-                        f"Could not prepare texture '{source_path}' for AVIF encoding; falling back to a resized PNG texture."
-                    )
-                return False
-            return _run_avifenc(avifenc, png_source, dest_path, source_path, diagnostics)
-
-    return _run_avifenc(avifenc, source_path, dest_path, source_path, diagnostics)
-
-
-def _find_avifenc() -> str | None:
-    configured = os.environ.get("BLENDERTORCP_AVIFENC")
-    if configured:
-        configured_path = Path(configured).expanduser()
-        if configured_path.is_file() and os.access(configured_path, os.X_OK):
-            return str(configured_path)
-
-    discovered = shutil.which("avifenc")
-    if discovered:
-        return discovered
-
-    # Blender.app launched from Finder often has a minimal PATH that omits
-    # Homebrew/MacPorts. Check the common install locations explicitly.
-    for candidate in _AVIFENC_CANDIDATE_PATHS:
-        candidate_path = Path(candidate)
-        if candidate_path.is_file() and os.access(candidate_path, os.X_OK):
-            return str(candidate_path)
-
-    return None
-
-
-def _run_avifenc(
-    avifenc: str,
-    input_path: Path,
-    dest_path: Path,
-    original_source: Path,
-    diagnostics=None,
-) -> bool:
-    _remove_failed_conversion_output(dest_path)
+    file_format = str(texture_override.get("file_format") or "").upper()
+    ibuf = None
     try:
         dest_path.parent.mkdir(parents=True, exist_ok=True)
-        result = subprocess.run(
-            [avifenc, "-q", "90", "--qalpha", "90", "--", str(input_path), str(dest_path)],
-            capture_output=True,
-            text=True,
-            timeout=180,
-            check=False,
-        )
-        if result.returncode == 0 and dest_path.exists():
-            return True
-
-        _remove_failed_conversion_output(dest_path)
-        if diagnostics:
-            diagnostics.add_warning(
-                f"Could not convert texture '{original_source}' to AVIF with avifenc; "
-                f"falling back to a resized PNG texture ({_subprocess_failure_summary(result)})."
-            )
-        return False
-    except subprocess.TimeoutExpired:
-        _remove_failed_conversion_output(dest_path)
-        if diagnostics:
-            diagnostics.add_warning(
-                f"Could not convert texture '{original_source}' to AVIF with avifenc; falling back to a resized PNG texture (timeout)."
-            )
-        return False
+        ibuf = imbuf.load(str(source_path))
+        _scale_imbuf_to_max_resolution(ibuf, int(texture_override.get("resolution") or 0))
+        # imbuf.write() encodes according to the buffer's file_type, not the
+        # destination extension.
+        ibuf.file_type = _IMBUF_FILE_TYPE_BY_FORMAT.get(file_format, file_format)
+        ibuf.quality = _LOSSY_TEXTURE_QUALITY
+        imbuf.write(ibuf, filepath=str(dest_path))
+        return dest_path.exists()
     except Exception as exc:
         _remove_failed_conversion_output(dest_path)
         if diagnostics:
             diagnostics.add_warning(
-                f"Could not convert texture '{original_source}' to AVIF with avifenc; falling back to a resized PNG texture ({exc})."
+                f"Could not convert texture '{source_path}' to '{dest_path.suffix}' via imbuf ({exc})."
             )
         return False
+    finally:
+        if ibuf is not None:
+            try:
+                ibuf.free()
+            except Exception:
+                pass
 
 
-def _subprocess_failure_summary(result) -> str:
-    details = [f"exit code {result.returncode}"]
-    output = "\n".join(part for part in (result.stderr, result.stdout) if part)
-    output = output.strip()
-    if output:
-        details.append(_tail(output, 900))
-    return "; ".join(details)
-
-
-def _tail(text: str, limit: int) -> str:
-    if len(text) <= limit:
-        return text
-    return text[-limit:]
+def _scale_imbuf_to_max_resolution(ibuf, max_resolution: int) -> None:
+    if max_resolution <= 0:
+        return
+    width, height = ibuf.size
+    largest = max(width, height)
+    if largest <= max_resolution:
+        return
+    scale = max_resolution / largest
+    ibuf.resize(
+        (max(1, round(width * scale)), max(1, round(height * scale))),
+        method='BILINEAR',
+    )
 
 
 def _remove_failed_conversion_output(dest_path: Path) -> None:

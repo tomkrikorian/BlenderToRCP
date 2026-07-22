@@ -59,12 +59,13 @@ def collect_environment(context=None) -> dict:
         pass
 
     try:
-        from .. import bl_info
+        from ..core.version import get_manifest_info
 
+        manifest = get_manifest_info()
         info["addon"] = {
-            "name": bl_info.get("name", "BlenderToRCP"),
-            "version": ".".join(str(v) for v in bl_info.get("version", ())),
-            "blender_required": ".".join(str(v) for v in bl_info.get("blender", ())),
+            "name": manifest.get("name", "BlenderToRCP"),
+            "version": str(manifest.get("version", "unknown")),
+            "blender_required": str(manifest.get("blender_version_min", "")),
         }
     except Exception:
         info["addon"] = {"name": "BlenderToRCP", "version": "unknown"}
@@ -95,8 +96,6 @@ def collect_environment(context=None) -> dict:
             info["preferences"] = {
                 "usdzip_path": getattr(prefs, "usdzip_path", ""),
                 "materialx_library_path": getattr(prefs, "materialx_library_path", ""),
-                "default_export_format": getattr(prefs, "default_export_format", None),
-                "enable_diagnostics": bool(getattr(prefs, "enable_diagnostics", False)),
                 "last_export_settings_json_valid": _json_is_valid(
                     getattr(prefs, "last_export_settings_json", "")
                 ),

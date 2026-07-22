@@ -110,7 +110,7 @@ Bake-export flags:
 | `--no-diagnostics` | off | Do not write diagnostics, even if enabled by settings |
 | `--bake-mode` | from settings (`LIT_IBL` for fresh scenes) | `UNLIT_ALBEDO` = Material Color Only - Unlit, `LIT_ALBEDO` = Material Color Only - Lit PBR, `LIT_IBL` = Lighting & Shadows |
 | `--resolution` | `2048` | `ORIGINAL`, `512`, `1024`, `2048`, `4096`, or any integer |
-| `--image-format` | `AVIF` | `ORIGINAL`, `AVIF`, or `PNG`; AVIF staging uses external `avifenc` when available and falls back to PNG |
+| `--image-format` | `AVIF` | `ORIGINAL`, `AVIF`, or `PNG`; AVIF is encoded natively by Blender — no external tools required |
 | `--margin` | `8` | Bake padding in pixels |
 | `--ibl-source` | `SCENE_WORLD` | Lighting source: `SCENE_WORLD` or `HDRI_FILE` |
 | `--ibl-filepath` | — | Path to HDRI file |
@@ -120,7 +120,11 @@ Bake-export flags:
 | `--no-base-color` | off | Skip base color channel |
 | `--no-opacity` | off | Skip opacity channel |
 | `--keep-materials` | off | Keep baked materials after export |
-| `--timeout` | `0` | Per-step timeout in seconds |
+| `--step-timeout` | `0` | Per-bake-step timeout stored in job settings (enforced by the Blender UI job watchdog, not the CLI) |
+| `--roughness-mode` | `TEXTURE` | LIT_ALBEDO roughness output: `TEXTURE` or `AVERAGE` |
+| `--apply-yup` | off | Bake a Y-up rotation into mesh data for native Y-up export |
+
+The global `--timeout <sec>` flag (place before the subcommand, default 600, `0` = unlimited) bounds the whole Blender subprocess — raise it for long bakes.
 
 Missing, unpacked external images fail before baking with `MISSING_EXTERNAL_TEXTURES`; pack or relink textures in Blender and rerun. `ORIGINAL` texture format/resolution is meaningful for existing texture staging: Export Scene can keep each source texture's format and/or dimensions. Bake Textures & Export creates new baked images, so `ORIGINAL` falls back to PNG/2048 for bake output where there is no source image to preserve.
 
@@ -158,7 +162,7 @@ blendertorcp settings list
 
 ```bash
 blendertorcp preferences get
-blendertorcp preferences set default_export_format=USDZ
+blendertorcp preferences set usdzip_path=/opt/usd/bin/usdzip
 ```
 
 ### Version
@@ -167,7 +171,7 @@ blendertorcp preferences set default_export_format=USDZ
 blendertorcp version
 ```
 
-On this branch, the add-on manifest and `bl_info` report version `1.1.0`.
+The extension manifest (`Plugin/blender_manifest.toml`) is the single source of version metadata; `version` reports it (currently `2.0.0`).
 
 ### Support bundle
 
@@ -239,7 +243,7 @@ fi
 
 **Texture:** `export_texture_settings_enabled`, `bake_resolution` (ORIGINAL/512/1024/2048/4096/CUSTOM), `bake_image_format` (ORIGINAL/AVIF/PNG), `bake_margin`
 
-**Bake:** `bake_mode` (`UNLIT_ALBEDO` = Material Color Only - Unlit, `LIT_ALBEDO` = Material Color Only - Lit PBR, `LIT_IBL` = Lighting & Shadows), `bake_roughness_mode` (`TEXTURE`/`AVERAGE`, `LIT_ALBEDO` only), `bake_ibl_source`, `bake_ibl_filepath`, `bake_ibl_strength`, `bake_ibl_rotation`, `bake_isolate_meshes_lit`, `bake_base_color`, `bake_opacity`, `bake_keep_materials`
+**Bake:** `bake_mode` (`UNLIT_ALBEDO` = Material Color Only - Unlit, `LIT_ALBEDO` = Material Color Only - Lit PBR, `LIT_IBL` = Lighting & Shadows), `bake_roughness_mode` (`TEXTURE`/`AVERAGE`, `LIT_ALBEDO` only), `bake_ibl_source`, `bake_ibl_filepath`, `bake_ibl_strength`, `bake_ibl_rotation`, `bake_isolate_meshes_lit`, `bake_base_color`, `bake_opacity`, `bake_keep_materials`, `bake_step_timeout_seconds`, `apply_yup_geometry`
 
 **Geometry:** `triangulate_meshes`, `export_normals`, `export_uvmaps`, `export_subdivision` (IGNORE/TESSELLATE/BEST_MATCH)
 

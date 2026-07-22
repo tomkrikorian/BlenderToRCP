@@ -143,29 +143,25 @@ def extract_blender_material_data(material) -> Dict[str, Any]:
             'Base Color': 'baseColor',
             'Metallic': 'metallic',
             'Roughness': 'roughness',
-            'Specular': 'specular',
             'Specular IOR Level': 'specular',
             'Normal': 'normal',
             'Alpha': 'opacity',
             'Emission Color': 'emissiveColor',
-            'Emission': 'emissiveColor',
         }
         expected_type_map = {
             'Base Color': 'color3',
             'Metallic': 'float',
             'Roughness': 'float',
-            'Specular': 'float',
             'Specular IOR Level': 'float',
             'Normal': 'vector3',
             'Alpha': 'float',
             'Emission Color': 'color3',
-            'Emission': 'color3',
         }
 
         base_color_socket = principled.inputs.get('Base Color')
         metallic_socket = principled.inputs.get('Metallic')
         roughness_socket = principled.inputs.get('Roughness')
-        specular_socket = principled.inputs.get('Specular') or principled.inputs.get('Specular IOR Level')
+        specular_socket = principled.inputs.get('Specular IOR Level')
         alpha_socket = principled.inputs.get('Alpha')
 
         if base_color_socket:
@@ -179,7 +175,7 @@ def extract_blender_material_data(material) -> Dict[str, Any]:
         if alpha_socket:
             data['alpha'] = alpha_socket.default_value
 
-        emission_color_socket = principled.inputs.get('Emission Color') or principled.inputs.get('Emission')
+        emission_color_socket = principled.inputs.get('Emission Color')
         emission_strength_socket = principled.inputs.get('Emission Strength')
         if emission_color_socket and emission_strength_socket:
             emission_color = list(emission_color_socket.default_value)[:3]
@@ -188,8 +184,8 @@ def extract_blender_material_data(material) -> Dict[str, Any]:
                 data['emission_color'] = [c * emission_strength for c in emission_color]
                 data['emission_strength'] = emission_strength
 
-        clearcoat_socket = principled.inputs.get('Clearcoat')
-        clearcoat_roughness_socket = principled.inputs.get('Clearcoat Roughness')
+        clearcoat_socket = principled.inputs.get('Coat Weight')
+        clearcoat_roughness_socket = principled.inputs.get('Coat Roughness')
         if clearcoat_socket:
             data['clearcoat'] = clearcoat_socket.default_value
         if clearcoat_roughness_socket:
@@ -220,22 +216,19 @@ def extract_blender_material_data(material) -> Dict[str, Any]:
             'Roughness': 'roughness_texture',
             'Normal': 'normal_texture',
             'Alpha': 'alpha_texture',
-            'Clearcoat Normal': 'clearcoat_normal_texture',
+            'Coat Normal': 'clearcoat_normal_texture',
             'Emission Color': 'emission_texture',
-            'Emission': 'emission_texture',
         }
         constant_map = {
             'Base Color': ('base_color', 'color'),
             'Metallic': ('metallic', 'float'),
             'Roughness': ('roughness', 'float'),
-            'Specular': ('specular', 'float'),
             'Specular IOR Level': ('specular', 'float'),
             'Alpha': ('alpha', 'float'),
             'Emission Color': ('emission_color', 'color'),
-            'Emission': ('emission_color', 'color'),
             'Emission Strength': ('emission_strength', 'float'),
-            'Clearcoat': ('clearcoat', 'float'),
-            'Clearcoat Roughness': ('clearcoat_roughness', 'float'),
+            'Coat Weight': ('clearcoat', 'float'),
+            'Coat Roughness': ('clearcoat_roughness', 'float'),
         }
         for input_name, input_socket in principled.inputs.items():
             if not input_socket.is_linked:
@@ -1886,52 +1879,6 @@ def _resolve_socket_value(
         )
         node_id = _nodedef_for("worleynoise3d", "float")
         return _make_node_expr(node_id, {"position": vector_expr, "jitter": jitter_expr})
-
-    if node_type == 'TEX_MUSGRAVE':
-        vector_expr = _expr_from_socket(
-            from_node.inputs.get('Vector') if hasattr(from_node, "inputs") else None,
-            visited,
-            channel,
-            provenance,
-            cache,
-        )
-        if vector_expr is None:
-            vector_expr = _default_texcoord_expr(vector_dim=3)
-        detail_expr = _expr_from_socket(
-            from_node.inputs.get('Detail') if hasattr(from_node, "inputs") else None,
-            visited,
-            channel,
-            provenance,
-            cache,
-            default=2.0,
-        )
-        lac_expr = _expr_from_socket(
-            from_node.inputs.get('Lacunarity') if hasattr(from_node, "inputs") else None,
-            visited,
-            channel,
-            provenance,
-            cache,
-            default=2.0,
-        )
-        dim_expr = _expr_from_socket(
-            from_node.inputs.get('Dimension') if hasattr(from_node, "inputs") else None,
-            visited,
-            channel,
-            provenance,
-            cache,
-            default=0.5,
-        )
-        node_id = _nodedef_for("fractal3d", "float")
-        return _make_node_expr(
-            node_id,
-            {
-                "position": vector_expr,
-                "octaves": detail_expr,
-                "lacunarity": lac_expr,
-                "diminish": dim_expr,
-                "amplitude": _constant_expr(1.0),
-            },
-        )
 
     if node_type == 'TEX_GRADIENT':
         vector_expr = _expr_from_socket(

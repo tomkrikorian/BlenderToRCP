@@ -26,7 +26,6 @@ SUPPORTED_TYPES = {
     'SEPXYZ',
     'TEX_NOISE',
     'TEX_VORONOI',
-    'TEX_MUSGRAVE',
     'TEX_GRADIENT',
     'TEX_ENVIRONMENT',
     'CLAMP',
@@ -129,6 +128,37 @@ UNSUPPORTED_TYPES = {
 }
 
 
+def _unsupported_principled_inputs(node) -> List[str]:
+    """Report Principled BSDF inputs that RealityKit PBR cannot represent.
+
+    Only inputs that are linked or deviate from their neutral default are
+    reported, so a stock Principled node stays silent.
+    """
+    issues: List[str] = []
+
+    def _active(name: str, neutral: float = 0.0) -> bool:
+        socket = node.inputs.get(name)
+        if socket is None:
+            return False
+        if socket.is_linked:
+            return True
+        try:
+            return abs(float(socket.default_value) - neutral) > 1e-6
+        except (TypeError, ValueError):
+            return False
+
+    thin_wall = node.inputs.get('Thin Wall')
+    if thin_wall is not None and (thin_wall.is_linked or bool(thin_wall.default_value)):
+        issues.append("Principled 'Thin Wall' is enabled; RealityKit has no thin-wall shading.")
+    if _active('Transmission Weight'):
+        issues.append("Principled 'Transmission Weight' is not exportable; the material will be opaque.")
+    if _active('Sheen Weight'):
+        issues.append("Principled 'Sheen Weight' is not exportable and will be ignored.")
+    if _active('Subsurface Weight'):
+        issues.append("Principled 'Subsurface Weight' is not exportable and will be ignored.")
+    return issues
+
+
 def validate_material(
     material,
     only_connected: bool = True,
@@ -152,9 +182,15 @@ def validate_material(
     else:
         used_nodes = set(material.node_tree.nodes)
 
-    def add_issue(kind: str, node, message: str, force_error: bool = False) -> None:
+    def add_issue(
+        kind: str,
+        node,
+        message: str,
+        force_error: bool = False,
+        removable: bool = True,
+    ) -> None:
         target = "errors" if force_error else kind
-        _add_issue(result, target, node, message)
+        _add_issue(result, target, node, message, removable=removable)
 
     for node in used_nodes:
         node_type = getattr(node, "type", "")
@@ -176,6 +212,18 @@ def validate_material(
                     node,
                     "Image Texture node has no image.",
                     force_error=strict,
+                )
+            if node_type == 'BSDF_PRINCIPLED':
+                for issue in _unsupported_principled_inputs(node):
+                    add_issue("warnings", node, issue, force_error=strict, removable=False)
+            if node_type == 'NORMAL_MAP' and getattr(node, "convention", 'OPENGL') == 'DIRECTX':
+                add_issue(
+                    "warnings",
+                    node,
+                    "Normal Map uses the DirectX green channel convention; "
+                    "RealityKit expects OpenGL normal maps.",
+                    force_error=strict,
+                    removable=False,
                 )
             continue
 
@@ -309,7 +357,13 @@ def collect_scene_materials(context) -> List[object]:
     return materials
 
 
-def _add_issue(result: Dict[str, object], kind: str, node, message: str) -> None:
+def _add_issue(
+    result: Dict[str, object],
+    kind: str,
+    node,
+    message: str,
+    removable: bool = True,
+) -> None:
     entry = {
         "node_name": getattr(node, "name", ""),
         "node_type": getattr(node, "type", ""),
@@ -317,9 +371,12 @@ def _add_issue(result: Dict[str, object], kind: str, node, message: str) -> None
         "node": node,
     }
     result[kind].append(entry)
-    if kind == "errors":
+    # Socket-level issues on otherwise-supported nodes (e.g. a Principled with
+    # Sheen enabled) must not land in offending_nodes: Remove Offenders would
+    # delete the whole node over one bad input.
+    if kind == "errors" and removable:
         result["offending_nodes"].append(entry)
-    else:
+    elif kind != "errors":
         result["warning_nodes"].append(entry)
 
 

@@ -3,6 +3,7 @@ Material rewrite orchestration for USD stages.
 """
 
 from ..usd_utils import UsdShade, UsdGeom
+from ..usd_hook import consume_captured_material_map
 from ...manifest.materialx_nodes import load_manifest
 from .graph import MaterialXGraphBuilder
 from .extract import extract_blender_material_data, collect_material_warnings
@@ -21,11 +22,16 @@ def rewrite_materials(stage, settings, context, diagnostics=None) -> None:
         for material in context.blend_data.materials
         if material
     }
+    # Exact {material prim path: Blender material name} recorded by the
+    # USDHook during export; empty when the export ran without the hook.
+    hook_material_map = consume_captured_material_map() or {}
 
     created_materials = {}
 
     for prim in stage.Traverse():
-        if not prim.IsA(UsdGeom.Mesh):
+        # Multi-material meshes bind materials on GeomSubset children, not on
+        # the mesh prim itself, so both prim kinds must be rewritten.
+        if not (prim.IsA(UsdGeom.Mesh) or prim.IsA(UsdGeom.Subset)):
             continue
 
         material_binding = UsdShade.MaterialBindingAPI(prim)
@@ -38,7 +44,12 @@ def rewrite_materials(stage, settings, context, diagnostics=None) -> None:
         blender_name = _get_blender_data_name(material_prim) or material_name
         material_key = str(material_prim.GetPath())
 
-        blender_material = blender_materials.get(blender_name) or blender_materials.get(material_name)
+        mapped_name = hook_material_map.get(material_key)
+        blender_material = blender_materials.get(mapped_name) if mapped_name else None
+        if blender_material:
+            blender_name = mapped_name
+        else:
+            blender_material = blender_materials.get(blender_name) or blender_materials.get(material_name)
         if not blender_material:
             continue
 
@@ -83,6 +94,15 @@ def rewrite_materials(stage, settings, context, diagnostics=None) -> None:
                     )
                     if diagnostics:
                         diagnostics.add_material_converted(blender_name)
+                else:
+                    # Cache the miss so other prims bound to this material
+                    # (e.g. GeomSubsets) don't re-extract and re-warn.
+                    created_materials[material_key] = None
+                    if diagnostics:
+                        diagnostics.add_material_failed(
+                            blender_name,
+                            f"Material type '{material_data.get('type')}' could not be mapped to a RealityKit graph.",
+                        )
             except Exception as e:
                 if diagnostics:
                     diagnostics.add_material_failed(blender_name, str(e))

@@ -546,7 +546,7 @@ class BlenderToRCPExportSettings(PropertyGroup):
         description="File format for texture overrides (Original keeps each source texture format)",
         items=[
             ('ORIGINAL', "Original", "Keep each existing exported texture's source file format"),
-            ('AVIF', ".avif", "Bake textures as AVIF with alpha (Blender 5.1+)"),
+            ('AVIF', ".avif", "Bake textures as AVIF with alpha"),
             ('PNG', ".png", "Bake textures as PNG with alpha"),
         ],
         default='AVIF',

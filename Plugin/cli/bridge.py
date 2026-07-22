@@ -96,7 +96,7 @@ def run(
     args: dict,
     blend_file: str | None = None,
     blender_path: str | None = None,
-    timeout: int = 600,
+    timeout: int | None = 600,
     verbose: bool = False,
 ) -> dict:
     """Execute a command via ``blender --background`` and return the result dict.

@@ -70,6 +70,31 @@ def _ensure_addon_loaded() -> None:
     _load_blendertorcp_addon()
 
 
+# Crash guard: while armed, an unexpected Blender shutdown writes a terminal
+# error status so the UI job monitor never hangs on a stale "running" state.
+_CRASH_GUARD: dict = {"status_path": None}
+
+
+def _on_blender_exit(_user_exit: bool) -> None:
+    status_path = _CRASH_GUARD.get("status_path")
+    if status_path is None:
+        return
+    _CRASH_GUARD["status_path"] = None
+    _update_status(
+        Path(status_path),
+        "error",
+        message="Blender exited before the bake/export job finished.",
+    )
+
+
+def _arm_crash_guard(status_path: Path) -> None:
+    import bpy
+
+    _CRASH_GUARD["status_path"] = str(status_path)
+    if _on_blender_exit not in bpy.app.handlers.exit_pre:
+        bpy.app.handlers.exit_pre.append(_on_blender_exit)
+
+
 def _update_status(
     status_path: Path,
     state: str,
@@ -80,6 +105,9 @@ def _update_status(
     diagnostics_path: str | None = None,
     step_elapsed_seconds: int | None = None,
 ) -> None:
+    if state in ("done", "error"):
+        # Terminal state reached normally: the crash guard is no longer needed.
+        _CRASH_GUARD["status_path"] = None
     payload = {
         "state": state,
         "time": time.time(),
@@ -241,6 +269,7 @@ def main() -> int:
 
     diagnostics_path = payload.get("diagnostics_path")
 
+    _arm_crash_guard(status_path)
     _update_status(
         status_path,
         "running",
