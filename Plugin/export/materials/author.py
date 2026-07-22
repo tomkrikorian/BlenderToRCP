@@ -28,6 +28,7 @@ from .textures import (
     _create_texture_connection,
     _texture_cache_key,
 )
+from .mapping import require_realitykit_mapping_contract
 
 
 def create_materialx_material(
@@ -39,7 +40,13 @@ def create_materialx_material(
     diagnostics=None,
 ):
     """Create a MaterialX material in USD stage."""
+    # RealityKit evaluates only the first 2D texture transform in a material.
+    # Validate the complete graph before even defining the Material prim so a
+    # direct authoring caller cannot leave a partially mutated USD layer.
+    require_realitykit_mapping_contract(graph, material_name)
+
     material_prim = stage.DefinePrim(material_path, "Material")
+    _author_materialx_profile_metadata(stage, material_prim, graph)
     material = UsdShade.Material(material_prim)
     nodes = graph.get('nodes', [])
     if not nodes:
@@ -67,6 +74,7 @@ def create_materialx_material(
                 texture_prefs[key] = "color4"
 
     texture_cache: Dict[Any, Dict[str, Any]] = {}
+    mapping_cache: Dict[Any, Any] = {}
 
     node_shaders: Dict[str, Any] = {}
     node_defs: Dict[str, Any] = {}
@@ -129,13 +137,31 @@ def create_materialx_material(
                     manifest,
                     material_name,
                     texture_cache,
-                    diagnostics
+                    diagnostics,
+                    mapping_cache=mapping_cache,
                 )
                 if texture_output:
                     shader_input = shader.CreateInput(
                         input_name,
                         input_type or texture_output.GetTypeName()
                     )
+                    source_type = _normalize_mtlx_type(
+                        _sdf_type_to_mtlx(texture_output.GetTypeName())
+                    )
+                    target_type = _normalize_mtlx_type(
+                        input_def.get('type') if input_def else None
+                    )
+                    if source_type and target_type and source_type != target_type:
+                        texture_output = _create_convert_output(
+                            manifest,
+                            stage,
+                            material_path,
+                            input_name,
+                            texture_output,
+                            source_type,
+                            target_type,
+                            diagnostics,
+                        )
                     shader_input.ConnectToSource(texture_output)
                 else:
                     default_value = _default_value_from_input_def(input_def)
@@ -247,3 +273,44 @@ def create_materialx_material(
     material_output.ConnectToSource(shader_output)
 
     return material
+
+
+def _author_materialx_profile_metadata(stage, material_prim, graph: Dict[str, Any]) -> None:
+    """Author the explicit MaterialX/color contract used by Blender 5.2/RCP3."""
+    materialx_version = graph.get("materialx_version")
+    if not materialx_version:
+        return
+
+    # MaterialXConfigAPI is understood by Blender 5.2 and RCP3, but older
+    # OpenUSD Python builds may not have a registered schema class for it.
+    # AddAppliedSchema still authors the correct apiSchemas list-op.
+    material_prim.AddAppliedSchema("MaterialXConfigAPI")
+    material_prim.AddAppliedSchema("ColorSpaceAPI")
+    material_prim.CreateAttribute(
+        "config:mtlx:version",
+        Sdf.ValueTypeNames.String,
+        custom=False,
+    ).Set(str(materialx_version))
+    material_prim.CreateAttribute(
+        "colorSpace:name",
+        Sdf.ValueTypeNames.Token,
+        custom=False,
+        variability=Sdf.VariabilityUniform,
+    ).Set("lin_rec709_scene")
+
+    surface_profile = graph.get("surface_profile")
+    if surface_profile:
+        material_prim.SetCustomDataByKey("BlenderToRCP:surfaceProfile", surface_profile)
+
+    root_prim = stage.GetDefaultPrim()
+    if not root_prim:
+        prefixes = material_prim.GetPath().GetPrefixes()
+        root_prim = stage.GetPrimAtPath(prefixes[0]) if prefixes else None
+    if root_prim:
+        root_prim.AddAppliedSchema("ColorSpaceAPI")
+        root_prim.CreateAttribute(
+            "colorSpace:name",
+            Sdf.ValueTypeNames.Token,
+            custom=False,
+            variability=Sdf.VariabilityUniform,
+        ).Set("lin_rec709_scene")

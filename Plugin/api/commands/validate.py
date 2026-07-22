@@ -2,14 +2,42 @@
 
 from __future__ import annotations
 
+from ._settings_common import (
+    MATERIALX_SURFACE_PROFILE_DEFAULT,
+    MATERIALX_SURFACE_PROFILES,
+    get_settings,
+)
+
+
+def _resolve_surface_profile(args: dict, settings) -> str:
+    """Resolve and validate the MaterialX profile used by this validation run."""
+    requested = args.get("materialx_surface_profile")
+    if requested is None:
+        requested = getattr(
+            settings,
+            "materialx_surface_profile",
+            MATERIALX_SURFACE_PROFILE_DEFAULT,
+        )
+
+    canonical = {
+        profile.casefold(): profile for profile in MATERIALX_SURFACE_PROFILES
+    }.get(str(requested).strip().casefold())
+    if canonical is None:
+        raise ValueError(
+            f"Invalid materialx_surface_profile '{requested}'. "
+            f"Allowed: {list(MATERIALX_SURFACE_PROFILES)}"
+        )
+    return canonical
+
 
 def handle(args: dict) -> dict:
     import bpy
-    from Plugin.nodes import validate as rk_validate
+    from ...nodes import validate as rk_validate
 
     material_name = args.get("material")
     strict = args.get("strict", False)
     only_errors = args.get("only_errors", False)
+    surface_profile = _resolve_surface_profile(args, get_settings())
 
     if material_name:
         mat = bpy.data.materials.get(material_name)
@@ -24,7 +52,11 @@ def handle(args: dict) -> dict:
     total_warnings = 0
 
     for mat in materials:
-        result = rk_validate.validate_material(mat, strict=strict)
+        result = rk_validate.validate_material(
+            mat,
+            strict=strict,
+            surface_profile=surface_profile,
+        )
         entry = {
             "name": result["material"],
             "ok": result["ok"],
@@ -54,6 +86,7 @@ def handle(args: dict) -> dict:
     summary = {
         "ok": all_ok,
         "error_count": total_errors,
+        "materialx_surface_profile": surface_profile,
         "materials": results,
     }
     if not only_errors:

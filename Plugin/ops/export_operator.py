@@ -2,6 +2,8 @@
 Export operator for BlenderToRCP
 """
 
+from __future__ import annotations
+
 import bpy
 import os
 import json
@@ -11,6 +13,7 @@ from bpy.types import Operator
 from bpy_extras.io_utils import ExportHelper
 
 from .. import prefs as addon_prefs
+from ..api.commands._settings_common import MATERIALX_SURFACE_PROFILE_DEFAULT
 
 class BLENDERTORCP_OT_export(Operator, ExportHelper):
     """Export scene to RealityKit-compatible USD/USDZ"""
@@ -82,6 +85,11 @@ class BLENDERTORCP_OT_export(Operator, ExportHelper):
             self.report({'ERROR'}, "Set Output Path before exporting.")
             return {'CANCELLED'}
         settings.filepath = self.filepath
+        surface_profile = getattr(
+            settings,
+            "materialx_surface_profile",
+            MATERIALX_SURFACE_PROFILE_DEFAULT,
+        )
 
         from ..export import diagnostics
         from ..export.support_bundle import collect_environment, collect_scene_snapshot
@@ -96,16 +104,55 @@ class BLENDERTORCP_OT_export(Operator, ExportHelper):
             resolved_output_path=self.filepath,
             export_format=export_format,
             selected_only=bool(getattr(settings, "selected_objects_only", False)),
+            materialx_surface_profile=surface_profile,
             blend_file=context.blend_data.filepath or None,
         )
         diag.set_environment(**collect_environment(context))
         diag.data["scene"] = collect_scene_snapshot(context)
 
+        from ..export import animation_export
+
+        validation_objects = None
+        if bool(getattr(settings, "selected_objects_only", False)):
+            try:
+                export_objects = animation_export.collect_export_objects(
+                    context,
+                    settings,
+                )
+                if export_objects:
+                    validation_objects = animation_export.collect_processing_objects(
+                        context,
+                        export_objects,
+                    )
+            except Exception as exc:
+                self.report({'ERROR'}, str(exc))
+                _save_diagnostics(diag, diag_path)
+                if diag_path:
+                    settings.last_diagnostics_path = str(diag_path)
+                return {'CANCELLED'}
+            if not export_objects:
+                self.report(
+                    {'ERROR'},
+                    "Selection Only is enabled, but no objects are selected.",
+                )
+                _save_diagnostics(diag, diag_path)
+                if diag_path:
+                    settings.last_diagnostics_path = str(diag_path)
+                return {'CANCELLED'}
+
         from ..nodes import validate as rk_validate
 
-        materials = rk_validate.collect_scene_materials(context)
+        materials = (
+            _collect_materials_from_objects(validation_objects)
+            if validation_objects is not None
+            else rk_validate.collect_scene_materials(context)
+        )
         for material in materials:
-            result = rk_validate.validate_material(material, strict=True)
+            result = rk_validate.validate_material(
+                material,
+                strict=True,
+                surface_profile=surface_profile,
+            )
             if result["errors"]:
                 error_count = len(result["errors"])
                 for issue in result["errors"]:
@@ -127,6 +174,7 @@ class BLENDERTORCP_OT_export(Operator, ExportHelper):
                 return {'CANCELLED'}
 
         yup_state = None
+        temp_usd_path = None
         try:
             # Import export modules
             from ..export import blender_usd_export, postprocess_usd, pack_usdz, bake_finalize
@@ -229,13 +277,18 @@ class BLENDERTORCP_OT_export(Operator, ExportHelper):
                     bake_finalize.restore_yup_geometry_bake(context, settings, yup_state)
                 except Exception:
                     pass
-            # Guarantee the .blendertorcp_temp staging tree is gone, even if the
-            # export failed above (publish/pack only clean it on success).
-            try:
-                from ..export import blender_usd_export
-                blender_usd_export.remove_export_staging_dir(self.filepath, diag)
-            except Exception:
-                pass
+            # A returned USD path identifies the exact unique attempt to clean.
+            # If native export fails before returning, it cleans its own attempt.
+            if temp_usd_path:
+                try:
+                    from ..export import blender_usd_export
+                    blender_usd_export.remove_export_staging_dir(
+                        self.filepath,
+                        diag,
+                        staging_dir=Path(temp_usd_path).parent,
+                    )
+                except Exception:
+                    pass
 
 class BLENDERTORCP_OT_show_diagnostics(Operator):
     """Show export diagnostics"""
@@ -467,57 +520,32 @@ def _save_diagnostics(diag, diag_path: Path | None) -> None:
     diag.save(diag_path)
 
 
+def _collect_materials_from_objects(objects) -> list:
+    """Collect each material referenced by an exact export object closure."""
+    materials = []
+    seen: set[int] = set()
+    for obj in objects or []:
+        for slot in getattr(obj, "material_slots", []) or []:
+            material = getattr(slot, "material", None)
+            if material is None:
+                continue
+            try:
+                identity = int(material.as_pointer())
+            except Exception:
+                identity = id(material)
+            if identity in seen:
+                continue
+            seen.add(identity)
+            materials.append(material)
+    return materials
+
+
 def _store_last_export_settings(context, settings) -> None:
-    prefs = addon_prefs.get_preferences(context)
-    if not prefs:
-        return
-    data = {}
-    for prop in settings.bl_rna.properties:
-        key = prop.identifier
-        if key in {"rna_type", "name", "history_applied", "last_diagnostics_path", "background_job_dir", "background_job_pid", "filepath"}:
-            continue
-        try:
-            data[key] = getattr(settings, key)
-        except Exception:
-            continue
-    try:
-        prefs.last_export_settings_json = json.dumps(data)
-    except Exception:
-        pass
-    addon_prefs.set_last_export_path(context, getattr(settings, "filepath", ""), getattr(context.blend_data, "filepath", None))
+    addon_prefs.persist_export_settings(context, settings)
 
 
 def _apply_persisted_settings(context, settings) -> None:
-    if getattr(settings, "history_applied", False):
-        return
-    prefs = addon_prefs.get_preferences(context)
-    if not prefs:
-        settings.history_applied = True
-        return
-    serialized = getattr(prefs, "last_export_settings_json", "")
-    prop_defs = {prop.identifier for prop in settings.bl_rna.properties}
-    settings.persist_suspended = True
-    try:
-        if serialized:
-            try:
-                data = json.loads(serialized)
-            except Exception:
-                data = {}
-            if isinstance(data, dict):
-                for key, value in data.items():
-                    if key in {"history_applied", "last_diagnostics_path", "persist_suspended", "background_job_dir", "background_job_pid", "filepath"}:
-                        continue
-                    if key not in prop_defs:
-                        continue
-                    try:
-                        setattr(settings, key, value)
-                    except Exception:
-                        continue
-        if not getattr(settings, "filepath", ""):
-            addon_prefs.apply_last_export_path(context, settings)
-    finally:
-        settings.persist_suspended = False
-    settings.history_applied = True
+    addon_prefs.apply_persisted_export_settings(context, settings)
 
 
 def _resolve_output_path_from_settings(context, settings, export_format: str, fallback: str = "") -> str:

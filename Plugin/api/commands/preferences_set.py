@@ -10,7 +10,7 @@ _PREF_KEYS = {
 
 def handle(args: dict) -> dict:
     import bpy
-    from Plugin import prefs as addon_prefs
+    from ... import prefs as addon_prefs
 
     settings_dict = args.get("settings", {})
     if not settings_dict:

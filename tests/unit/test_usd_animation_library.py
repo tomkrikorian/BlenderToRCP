@@ -8,7 +8,7 @@ from types import SimpleNamespace
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from pxr import Usd  # noqa: E402
+from pxr import Gf, Usd, UsdGeom  # noqa: E402
 
 from Plugin.export.usd_animation_library import author_animation_library  # noqa: E402
 
@@ -37,6 +37,20 @@ def _make_stage():
     stage.DefinePrim("/root/Character/Armature", "Skeleton")
     stage.DefinePrim("/root/Character/Armature/Animation", "SkelAnimation")
     stage.SetStartTimeCode(0)
+    stage.SetTimeCodesPerSecond(30)
+    return stage
+
+
+def _make_transform_stage(*, animate_child: bool):
+    stage = Usd.Stage.CreateInMemory()
+    root = UsdGeom.Xform.Define(stage, "/root")
+    stage.SetDefaultPrim(root.GetPrim())
+    animated = UsdGeom.Xform.Define(stage, "/root/Child") if animate_child else root
+    op = animated.AddTranslateOp()
+    op.Set(Gf.Vec3d(0, 0, 0), 0)
+    op.Set(Gf.Vec3d(1, 0, 0), 30)
+    stage.SetStartTimeCode(0)
+    stage.SetEndTimeCode(60)
     stage.SetTimeCodesPerSecond(30)
     return stage
 
@@ -85,3 +99,49 @@ def test_animation_library_opt_in_authors_single_source():
     assert clip_defs[0].GetAttribute("sourceAnimationName").Get() == "default subtree animation"
     assert clip_defs[0].GetAttribute("clipNames").Get() == ["Idle", "Run"]
     assert clip_defs[0].GetAttribute("startTimes").Get() == [0, 1]
+
+
+def test_root_transform_animation_uses_default_subtree_source():
+    stage = _make_transform_stage(animate_child=False)
+    diagnostics = _Diagnostics()
+    settings = SimpleNamespace(export_animation=True, author_animation_library=True)
+
+    author_animation_library(stage, settings, diagnostics)
+
+    clip = stage.GetPrimAtPath(
+        "/root/AnimationLibrary/Clip_default_subtree_animation"
+    )
+    assert clip
+    assert clip.GetAttribute("sourceAnimationName").Get() == "default subtree animation"
+
+
+def test_child_transform_animation_uses_default_subtree_source():
+    stage = _make_transform_stage(animate_child=True)
+    diagnostics = _Diagnostics()
+    settings = SimpleNamespace(export_animation=True, author_animation_library=True)
+
+    author_animation_library(stage, settings, diagnostics)
+
+    clip = stage.GetPrimAtPath(
+        "/root/AnimationLibrary/Clip_default_subtree_animation"
+    )
+    assert clip
+    assert clip.GetAttribute("sourceAnimationName").Get() == "default subtree animation"
+
+
+def test_clip_offsets_are_relative_to_nonzero_stage_start():
+    stage = _make_transform_stage(animate_child=True)
+    stage.SetStartTimeCode(1)
+    diagnostics = _Diagnostics()
+    diagnostics.data["animations"]["segments"] = [
+        {"name": "Idle", "start_frame": 1},
+        {"name": "Run", "start_frame": 31},
+    ]
+    settings = SimpleNamespace(export_animation=True, author_animation_library=True)
+
+    author_animation_library(stage, settings, diagnostics)
+
+    clip = stage.GetPrimAtPath(
+        "/root/AnimationLibrary/Clip_default_subtree_animation"
+    )
+    assert clip.GetAttribute("startTimes").Get() == [0, 1]

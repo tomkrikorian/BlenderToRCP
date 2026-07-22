@@ -1,39 +1,214 @@
-name: build-archive
+name: Release Blender extension
 
 on:
   workflow_dispatch:
-  release:
-    types: [published]
+    inputs:
+      release_tag:
+        description: "Bare release version matching blender_manifest.toml (for example 2.0.0)"
+        required: true
+        type: string
+  push:
+    tags:
+      - "*.*.*"
 
 permissions:
-  contents: write
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
-  build-archive:
-    runs-on: ubuntu-latest
+  validate-release-metadata:
+    name: Validate release tag and dev ancestry
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    outputs:
+      version: ${{ steps.metadata.outputs.version }}
+      archive_name: ${{ steps.metadata.outputs.archive_name }}
+    env:
+      RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.release_tag || github.ref_name }}
+      REQUESTED_EVENT: ${{ github.event_name }}
+      REQUESTED_REF: ${{ github.ref }}
+      REQUESTED_REF_TYPE: ${{ github.ref_type }}
+      REQUESTED_SHA: ${{ github.sha }}
     steps:
-      - name: Checkout
+      - name: Checkout release revision
         uses: actions/checkout@v4
         with:
-          lfs: true
+          fetch-depth: 0
 
-      - name: Install build deps
+      - name: Validate bare tag and manifest version
+        id: metadata
         run: |
-          sudo apt-get update
-          sudo apt-get install -y rsync zip
+          set -euo pipefail
 
-      - name: Build archive
-        run: bash scripts/build_archive.sh
+          if [[ ! "$RELEASE_TAG" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
+            echo "Release tag must be bare MAJOR.MINOR.PATCH without a v prefix: $RELEASE_TAG" >&2
+            exit 1
+          fi
 
-      - name: Upload archive
+          if [[ "$REQUESTED_REF" == "refs/heads/dev" ]]; then
+            if [[ "$REQUESTED_EVENT" != "workflow_dispatch" || "$REQUESTED_REF_TYPE" != "branch" ]]; then
+              echo "Only a manual dry run may use refs/heads/dev" >&2
+              exit 1
+            fi
+          elif [[ "$REQUESTED_REF" == "refs/tags/$RELEASE_TAG" ]]; then
+            if [[ "$REQUESTED_REF_TYPE" != "tag" ]]; then
+              echo "Release ref must be presented as a tag" >&2
+              exit 1
+            fi
+            case "$REQUESTED_EVENT" in
+              push|workflow_dispatch) ;;
+              *)
+                echo "Unsupported release event: $REQUESTED_EVENT" >&2
+                exit 1
+                ;;
+            esac
+          else
+            echo "Release validation is limited to refs/heads/dev or the exact release tag; got $REQUESTED_REF" >&2
+            exit 1
+          fi
+
+          manifest_version="$(python3 - <<'PY'
+          import tomllib
+          from pathlib import Path
+          print(tomllib.loads(Path("Plugin/blender_manifest.toml").read_text())["version"])
+          PY
+          )"
+          if [[ "$RELEASE_TAG" != "$manifest_version" ]]; then
+            echo "Release tag $RELEASE_TAG does not match manifest version $manifest_version" >&2
+            exit 1
+          fi
+
+          echo "version=$RELEASE_TAG" >> "$GITHUB_OUTPUT"
+          echo "archive_name=BlenderToRCP-${RELEASE_TAG}.zip" >> "$GITHUB_OUTPUT"
+
+      - name: Require requested revision to be reachable from dev
+        run: |
+          set -euo pipefail
+
+          requested_commit="$(git rev-parse "${REQUESTED_SHA}^{commit}")"
+          checked_out_commit="$(git rev-parse 'HEAD^{commit}')"
+          if [[ "$requested_commit" != "$checked_out_commit" ]]; then
+            echo "Checked-out commit does not match requested SHA" >&2
+            exit 1
+          fi
+
+          git fetch --no-tags --force origin \
+            '+refs/heads/dev:refs/remotes/origin/dev'
+          git merge-base --is-ancestor \
+            "$requested_commit" refs/remotes/origin/dev
+
+          if [[ "$REQUESTED_REF_TYPE" == "tag" ]]; then
+            git fetch --force origin \
+              "+refs/tags/${RELEASE_TAG}:refs/tags/${RELEASE_TAG}"
+            tag_commit="$(git rev-parse "refs/tags/${RELEASE_TAG}^{commit}")"
+            if [[ "$tag_commit" != "$requested_commit" ]]; then
+              echo "Release ref does not resolve to the requested commit" >&2
+              exit 1
+            fi
+          fi
+
+  portable-quality-gates:
+    name: Portable quality gates
+    needs: validate-release-metadata
+    uses: ./.github/workflows/ci.yml
+
+  apple-27-quality-gate:
+    name: Apple 27 quality gate
+    needs: validate-release-metadata
+    # Keep the protected runner workflow definition on the trusted dev ref.
+    # The reusable workflow still receives this caller's ref/SHA and validates
+    # the release commit before allocating the Apple runner.
+    uses: tomkrikorian/BlenderToRCP/.github/workflows/apple-platform-validation.yml@dev
+
+  build-release-archive:
+    name: Build tested release archive
+    needs:
+      - validate-release-metadata
+      - portable-quality-gates
+      - apple-27-quality-gate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    outputs:
+      version: ${{ needs.validate-release-metadata.outputs.version }}
+      archive_name: ${{ needs.validate-release-metadata.outputs.archive_name }}
+    env:
+      RELEASE_TAG: ${{ needs.validate-release-metadata.outputs.version }}
+    steps:
+      - name: Checkout release revision
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Build and verify the deterministic release bundle
+        run: |
+          bash scripts/check_release.sh --expected-tag "$RELEASE_TAG"
+          archive_name="BlenderToRCP-${RELEASE_TAG}.zip"
+          test -s "dist/$archive_name"
+          test -s "dist/$archive_name.sha256"
+          (cd dist && sha256sum --check "$archive_name.sha256")
+
+      - name: Upload tested release bundle
         uses: actions/upload-artifact@v4
         with:
-          name: BlenderToRCP
-          path: dist/BlenderToRCP.zip
+          name: BlenderToRCP-${{ needs.validate-release-metadata.outputs.version }}-release
+          path: |
+            dist/${{ needs.validate-release-metadata.outputs.archive_name }}
+            dist/${{ needs.validate-release-metadata.outputs.archive_name }}.sha256
+          if-no-files-found: error
+          retention-days: 90
+          compression-level: 0
 
-      - name: Upload release asset
-        if: github.event_name == 'release'
-        uses: softprops/action-gh-release@v2
+  publish-release:
+    name: Publish GitHub release
+    if: github.event_name == 'push' && github.ref_type == 'tag'
+    needs: build-release-archive
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - name: Check out the exact tested commit
+        uses: actions/checkout@v4
         with:
-          files: dist/BlenderToRCP.zip
-          overwrite_files: true
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+
+      - name: Download exact tested release bundle
+        uses: actions/download-artifact@v4
+        with:
+          name: BlenderToRCP-${{ needs.build-release-archive.outputs.version }}-release
+          path: dist
+
+      - name: Verify downloaded checksum
+        working-directory: dist
+        run: sha256sum --check "${{ needs.build-release-archive.outputs.archive_name }}.sha256"
+
+      - name: Revalidate release tag immediately before publication
+        shell: bash
+        run: |
+          set -euo pipefail
+          release_tag="${{ needs.build-release-archive.outputs.version }}"
+          git fetch --force origin \
+            "+refs/tags/${release_tag}:refs/tags/${release_tag}"
+          tag_commit="$(git rev-parse "refs/tags/${release_tag}^{commit}")"
+          if [[ "$tag_commit" != "$GITHUB_SHA" ]]; then
+            echo "Release tag moved after validation: expected $GITHUB_SHA, got $tag_commit" >&2
+            exit 1
+          fi
+
+      - name: Publish release and assets
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
+        with:
+          tag_name: ${{ needs.build-release-archive.outputs.version }}
+          target_commitish: ${{ github.sha }}
+          generate_release_notes: true
+          fail_on_unmatched_files: true
+          files: |
+            dist/${{ needs.build-release-archive.outputs.archive_name }}
+            dist/${{ needs.build-release-archive.outputs.archive_name }}.sha256

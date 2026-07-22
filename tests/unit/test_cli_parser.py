@@ -13,7 +13,7 @@ import pytest
 # Ensure Plugin package is importable
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from Plugin.cli.__main__ import build_parser  # noqa: E402
+from Plugin.cli.__main__ import CLIUsageError, build_parser  # noqa: E402
 
 
 @pytest.fixture
@@ -92,7 +92,7 @@ class TestInfoCommand:
         assert args.blend_file == "scene.blend"
 
     def test_requires_blend_file(self, parser):
-        with pytest.raises(SystemExit):
+        with pytest.raises(CLIUsageError):
             parser.parse_args(["info"])
 
 
@@ -166,7 +166,7 @@ class TestExportCommand:
         assert args.diagnostics is True
 
     def test_missing_output_raises(self, parser):
-        with pytest.raises(SystemExit):
+        with pytest.raises(CLIUsageError):
             parser.parse_args(["export", "scene.blend"])
 
     def test_overrides_plain(self, parser):
@@ -340,5 +340,5 @@ class TestPreferencesSetCommand:
 
 class TestMissingCommand:
     def test_no_command_raises(self, parser):
-        with pytest.raises(SystemExit):
+        with pytest.raises(CLIUsageError):
             parser.parse_args([])

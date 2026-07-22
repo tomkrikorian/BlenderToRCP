@@ -1,8 +1,14 @@
 """
 Animation export preparation for BlenderToRCP.
 
-Concatenates all actions into a single sequential timeline per target and
-bakes to a single action to improve compatibility with Reality Composer Pro.
+Concatenates compatible actions into a single sequential timeline and bakes
+each target independently to improve compatibility with Reality Composer Pro.
+
+Blender 5.2 Actions are layered and can contain multiple slots.  A slot is the
+ownership boundary: an Action that has an ``OBCharacter`` slot must never be
+broadcast to every object merely because they all have ``id_type == OBJECT``.
+This module therefore builds one global clip timeline, but applies only the
+``(Action, ActionSlot)`` bindings that belong to each target.
 """
 
 from __future__ import annotations
@@ -13,33 +19,199 @@ from typing import Any
 import bpy
 
 
+def _rna_identity(value) -> int:
+    """Stable Blender datablock identity, with a test-double fallback."""
+    try:
+        return int(value.as_pointer())
+    except Exception:
+        return id(value)
+
+
+def collect_export_objects(context, settings) -> list:
+    """Return the dependency-closed object set for the requested export.
+
+    Blender's ``selected_objects_only`` USD option already weak-exports parent
+    transform chains and expands collection instances without selecting their
+    prototypes.  Selecting either would change semantics by exporting parent
+    data or duplicating prototype objects.  Shape keys live on the selected
+    mesh data and likewise need no extra object selection.
+
+    The one dependency Blender 5.2 does require in the native selection is the
+    deforming armature for a selected skinned mesh.  Add only that dependency
+    (when armature export is enabled) so the exporter cannot emit an orphaned
+    SkelBinding.
+
+    An empty selected-only export is intentionally empty.  Callers treat that
+    as an error instead of silently falling back to the entire scene.
+    """
+    scene_objects = list(context.scene.objects)
+    if not bool(getattr(settings, "selected_objects_only", False)):
+        return [
+            obj for obj in scene_objects if _is_exportable_object(obj, settings)
+        ]
+
+    selected = [
+        obj
+        for obj in context.selected_objects
+        if _is_exportable_object(obj, settings)
+    ]
+    if not selected:
+        return []
+
+    closure: list = []
+    seen: set[int] = set()
+
+    def add(obj) -> bool:
+        if obj is None:
+            return False
+        key = _rna_identity(obj)
+        if key in seen:
+            return False
+        seen.add(key)
+        closure.append(obj)
+        return True
+
+    for obj in selected:
+        add(obj)
+
+    if bool(getattr(settings, "export_armatures", True)):
+        evaluation_mode = str(getattr(settings, "evaluation_mode", "RENDER"))
+        for obj in selected:
+            if getattr(obj, "type", None) != "MESH":
+                continue
+            for modifier in getattr(obj, "modifiers", []) or []:
+                if (
+                    getattr(modifier, "type", None) == "ARMATURE"
+                    and (
+                        getattr(modifier, "show_render", True)
+                        if evaluation_mode == "RENDER"
+                        else getattr(modifier, "show_viewport", True)
+                    )
+                ):
+                    armature = getattr(modifier, "object", None)
+                    if armature is None:
+                        raise RuntimeError(
+                            f"Selected skinned mesh '{obj.name}' has an enabled "
+                            "Armature modifier with no target object."
+                        )
+                    add(armature)
+
+    # Preserve scene order for deterministic exports, then retain a linked
+    # armature that is not directly linked into the active scene.  Selection
+    # application will reject an unavailable dependency rather than falling
+    # back to an incomplete rig export.
+    closed_ids = {_rna_identity(obj) for obj in closure}
+    ordered = [obj for obj in scene_objects if _rna_identity(obj) in closed_ids]
+    ordered_ids = {_rna_identity(obj) for obj in ordered}
+    ordered.extend(obj for obj in closure if _rna_identity(obj) not in ordered_ids)
+    return ordered
+
+
+def collect_processing_objects(context, export_objects: list) -> list:
+    """Expand native selection into non-selected processing dependencies.
+
+    Parents and collection prototypes are intentionally *not* selected for the
+    USD operator, but their transforms/materials/animation can still contribute
+    to the exported asset.  This scope is used for animation preparation and
+    Y-up safety checks only.
+    """
+    scene_objects = list(context.scene.objects)
+    closure: list = []
+    seen: set[int] = set()
+
+    def add(obj) -> bool:
+        if obj is None or _rna_identity(obj) in seen:
+            return False
+        seen.add(_rna_identity(obj))
+        closure.append(obj)
+        return True
+
+    for obj in export_objects:
+        add(obj)
+
+    changed = True
+    while changed:
+        changed = False
+        for obj in list(closure):
+            parent = getattr(obj, "parent", None)
+            while parent is not None:
+                changed = add(parent) or changed
+                parent = getattr(parent, "parent", None)
+
+            collection = getattr(obj, "instance_collection", None)
+            if collection is not None:
+                prototypes = getattr(collection, "all_objects", None)
+                if prototypes is None:
+                    prototypes = getattr(collection, "objects", [])
+                for prototype in prototypes or []:
+                    changed = add(prototype) or changed
+
+    closed_ids = {_rna_identity(obj) for obj in closure}
+    ordered = [obj for obj in scene_objects if _rna_identity(obj) in closed_ids]
+    ordered_ids = {_rna_identity(obj) for obj in ordered}
+    ordered.extend(obj for obj in closure if _rna_identity(obj) not in ordered_ids)
+    return ordered
+
+
 def prepare_animation_export(context, settings, diagnostics=None) -> dict:
     """Prepare animation data for export by concatenating and baking actions.
 
     Returns a state dictionary that must be passed to restore_animation_export().
     """
-    if not bool(getattr(settings, "export_animation", False)):
-        return {}
-
-    actions = _collect_actions()
-    if not actions:
-        if diagnostics:
-            diagnostics.add_warning("Export animation enabled but no actions found.")
-        return {}
-
-    schedule, total_frames = _build_schedule(actions, diagnostics)
-    if not schedule:
-        if diagnostics:
-            diagnostics.add_warning("Export animation schedule is empty; skipping bake.")
-        return {}
-
     state = _init_state(context)
     scene = state["scene"]
 
-    targets = _collect_targets(context, settings)
+    export_objects = collect_export_objects(context, settings)
+    state["export_objects"] = export_objects
+    if not export_objects:
+        if bool(getattr(settings, "selected_objects_only", False)):
+            raise RuntimeError(
+                "Selected-only export requires at least one selected object "
+                "whose object class is enabled for export."
+            )
+        raise RuntimeError(
+            "Export requires at least one scene object whose object class is "
+            "enabled for export."
+        )
+    if bool(getattr(settings, "selected_objects_only", False)):
+        _set_export_selection(context, export_objects)
+
+    # Selection closure is required even for a static export.  Returning the
+    # state lets the caller restore the user's exact selection transactionally
+    # after Blender's USD operator finishes.
+    if not bool(getattr(settings, "export_animation", False)):
+        return state
+
+    processing_objects = collect_processing_objects(context, export_objects)
+    state["processing_objects"] = processing_objects
+    try:
+        _link_processing_objects_for_bake(context, processing_objects, state)
+        targets = _collect_targets(processing_objects, settings)
+        actions = _collect_actions_for_targets(targets)
+        schedule, total_frames = _build_schedule(actions, diagnostics, targets)
+    except Exception:
+        _unlink_temporary_processing_objects(state)
+        raise
     if not targets and diagnostics:
         diagnostics.add_warning("Export animation enabled but no animated targets were found.")
-    total_frames_int = max(1, int(total_frames))
+
+    if not actions:
+        if diagnostics:
+            diagnostics.add_warning(
+                "Export animation enabled but no target-owned Action slots were found."
+            )
+        _unlink_temporary_processing_objects(state)
+        _finalize_export_selection(context, settings, state, export_objects)
+        return state
+
+    if not schedule:
+        if diagnostics:
+            diagnostics.add_warning("Export animation schedule is empty; skipping bake.")
+        _unlink_temporary_processing_objects(state)
+        _finalize_export_selection(context, settings, state, export_objects)
+        return state
+
+    total_frames_int = max(1, int(math.ceil(total_frames)))
     if diagnostics:
         diagnostics.set_animation_schedule(
             fps=scene.render.fps,
@@ -49,6 +221,7 @@ def prepare_animation_export(context, settings, diagnostics=None) -> dict:
                     "name": seg["name"],
                     "start_frame": seg["start_frame"],
                     "end_frame": seg["end_frame"],
+                    "end_frame_exclusive": seg["end_frame_exclusive"],
                 }
                 for seg in schedule
             ],
@@ -57,6 +230,7 @@ def prepare_animation_export(context, settings, diagnostics=None) -> dict:
                     "name": t.get("name"),
                     "kind": t.get("kind"),
                     "object_type": t.get("object_type"),
+                    "actions": [binding[0].name for binding in t.get("bindings", [])],
                 }
                 for t in targets
             ],
@@ -71,13 +245,33 @@ def prepare_animation_export(context, settings, diagnostics=None) -> dict:
 
     try:
         for target in targets:
-            _prepare_target(context, target, schedule, total_frames_int, state, diagnostics)
+            target_schedule = _schedule_for_target(schedule, target)
+            if target_schedule:
+                if diagnostics and len(target_schedule) > 1:
+                    diagnostics.add_warning(
+                        f"Target '{target.get('name', '<unknown>')}' has "
+                        f"{len(target_schedule)} aggregate takes. Their final "
+                        "and next-first poses are retained on adjacent integer "
+                        "samples, but one baked USD animation cannot represent "
+                        "a discontinuous hard cut without interpolation. Export "
+                        "separate per-take assets when a lossless hard cut is "
+                        "required."
+                    )
+                _prepare_target(
+                    context,
+                    target,
+                    target_schedule,
+                    total_frames_int,
+                    state,
+                    diagnostics,
+                )
     except Exception:
         restore_animation_export(state)
         raise
 
-    _restore_selection(context, state)
     _ensure_object_mode(context)
+    _unlink_temporary_processing_objects(state)
+    _finalize_export_selection(context, settings, state, export_objects)
     return state
 
 
@@ -122,10 +316,9 @@ def restore_animation_export(state: dict) -> None:
             except Exception:
                 continue
 
-        # Restore action + NLA evaluation mode.
+        # Restore action, its exact Blender 5.2 slot, and NLA evaluation mode.
         try:
-            anim_data.action = item.get("original_action")
-            anim_data.use_nla = bool(item.get("original_use_nla"))
+            _restore_anim_assignment(anim_data, item)
         except Exception:
             pass
 
@@ -146,96 +339,370 @@ def restore_animation_export(state: dict) -> None:
             except Exception:
                 pass
 
+    _unlink_temporary_processing_objects(state)
     _restore_selection_from_state(state)
     _restore_mode_from_state(state)
 
 
-def _collect_actions() -> list:
-    actions = list(bpy.data.actions)
-    actions.sort(key=lambda action: action.name.lower())
-    return actions
+def _collect_actions_for_targets(targets: list[dict]) -> list:
+    """Return only Actions with an explicit target-owned slot binding."""
+    by_identity: dict[int, Any] = {}
+    for target in targets:
+        for action, _slot in target.get("bindings", []):
+            by_identity.setdefault(_rna_identity(action), action)
+    return sorted(by_identity.values(), key=lambda action: action.name.lower())
 
 
-def _build_schedule(actions: list, diagnostics=None) -> tuple[list, int]:
+def _schedule_for_target(schedule: list[dict], target: dict) -> list[dict]:
+    slots_by_action = {
+        _rna_identity(action): slot for action, slot in target.get("bindings", [])
+    }
+    out: list[dict] = []
+    for segment in schedule:
+        action = segment["action"]
+        action_id = _rna_identity(action)
+        if action_id not in slots_by_action:
+            continue
+        target_segment = dict(segment)
+        target_segment["slot"] = slots_by_action[action_id]
+        out.append(target_segment)
+    return out
+
+
+def _build_schedule(actions: list, diagnostics=None, targets=None) -> tuple[list, int]:
     schedule = []
     current = 1
     for action in actions:
-        start, end = action.frame_range
-        length = float(end) - float(start)
-        if length <= 0.0:
-            length = 1.0
+        start, end = _action_frame_range(action, targets or [])
+        source_start = float(start)
+        source_end = float(end)
+        source_length = source_end - source_start
+        if source_length <= 0.0:
+            source_length = 1.0
             if diagnostics:
                 diagnostics.add_warning(
                     f"Action '{action.name}' has zero-length range; clamped to 1 frame."
                 )
-        length_frames = max(1, int(math.ceil(length)))
+        bake_frame_count = max(1, int(math.ceil(source_length)))
+
+        # Blender's NLA bake operator samples integer frames only. Sharing one
+        # aggregate timecode between the prior take's final pose and the next
+        # take's first pose necessarily drops one of them when they differ.
+        # Give every take an integer output span with a distinct inclusive final
+        # sample; the next take starts on the following timecode. NLA scales the
+        # exact source_start..source_end range across that quantized span.
+        final_sample_frame = current + bake_frame_count
+        end_frame_exclusive = final_sample_frame + 1
+        if diagnostics and (
+            not _is_integral_frame(source_start)
+            or not _is_integral_frame(source_end)
+            or not _is_integral_frame(source_length)
+            or not math.isclose(
+                source_length,
+                float(bake_frame_count),
+                rel_tol=0.0,
+                abs_tol=1e-7,
+            )
+        ):
+            diagnostics.add_warning(
+                f"Action '{action.name}' fractional source range "
+                f"[{_format_frame(source_start)}, {_format_frame(source_end)}] "
+                f"(duration {_format_frame(source_length)} frames) was mapped "
+                f"to integer exported sample range [{current}, "
+                f"{final_sample_frame}] ({bake_frame_count} frame intervals; "
+                f"next take starts at {end_frame_exclusive}); the exported take "
+                "is time-scaled to retain explicit first and final pose samples."
+            )
         segment = {
             "name": action.name,
             "action": action,
-            "action_start": float(start),
-            "action_end": float(end),
-            "start_frame": int(current),
-            "end_frame": int(current + length_frames),
-            "length": float(length),
-            "length_frames": int(length_frames),
+            "action_start": source_start,
+            "action_end": source_end,
+            "start_frame": current,
+            "end_frame": final_sample_frame,
+            "end_frame_exclusive": end_frame_exclusive,
+            "length": source_length,
+            "length_frames": bake_frame_count,
         }
         schedule.append(segment)
-        current += length_frames
+        current = end_frame_exclusive
 
     total_frames = schedule[-1]["end_frame"] if schedule else 0
     return schedule, total_frames
 
 
-def _collect_targets(context, settings) -> list[dict]:
-    selected_only = bool(getattr(settings, "selected_objects_only", False))
-    objects = list(context.selected_objects) if selected_only else list(context.scene.objects)
+def _is_integral_frame(value: float) -> bool:
+    return math.isclose(float(value), round(float(value)), rel_tol=0.0, abs_tol=1e-7)
 
+
+def _format_frame(value: float) -> str:
+    value = float(value)
+    if _is_integral_frame(value):
+        return str(int(round(value)))
+    return f"{value:.6f}".rstrip("0").rstrip(".")
+
+
+def _collect_targets(objects: list, settings) -> list[dict]:
     targets: list[dict] = []
+    seen_owners: set[tuple[str, int]] = set()
     for obj in objects:
         if not _is_exportable_object(obj, settings):
             continue
 
         if obj.type == "ARMATURE":
-            targets.append({
+            target = {
                 "kind": "ARMATURE",
                 "name": obj.name,
                 "object": obj,
+                "owner": obj,
                 "object_type": obj.type,
-            })
+            }
+            target["bindings"] = _action_bindings_for_owner(obj)
+            owner_key = ("ARMATURE", _rna_identity(obj))
+            if target["bindings"] and owner_key not in seen_owners:
+                seen_owners.add(owner_key)
+                targets.append(target)
         else:
-            anim_data = getattr(obj, "animation_data", None)
-            if anim_data and (anim_data.action or anim_data.nla_tracks):
+            bindings = _action_bindings_for_owner(obj)
+            owner_key = ("OBJECT", _rna_identity(obj))
+            if bindings and owner_key not in seen_owners:
+                seen_owners.add(owner_key)
                 targets.append({
                     "kind": "OBJECT",
                     "name": obj.name,
                     "object": obj,
+                    "owner": obj,
                     "object_type": obj.type,
+                    "bindings": bindings,
                 })
 
         if _has_shapekeys(obj, settings):
-            targets.append({
-                "kind": "SHAPEKEYS",
-                "name": obj.name,
-                "object": obj,
-                "object_type": obj.type,
-            })
+            owner = _get_shape_key_block(obj)
+            bindings = _action_bindings_for_owner(owner)
+            owner_key = ("SHAPEKEYS", _rna_identity(owner))
+            if bindings and owner_key not in seen_owners:
+                seen_owners.add(owner_key)
+                targets.append({
+                    "kind": "SHAPEKEYS",
+                    "name": obj.name,
+                    "object": obj,
+                    "owner": owner,
+                    "object_type": obj.type,
+                    "bindings": bindings,
+                })
 
     return targets
 
 
+def _action_bindings_for_owner(owner) -> list[tuple[Any, Any]]:
+    """Find ``(Action, ActionSlot)`` pairs that explicitly belong to *owner*.
+
+    Only actual active-Action and NLA-strip associations are export intent.
+    Merely finding a same-type or similarly named slot in ``bpy.data.actions``
+    is deliberately insufficient; doing so is the global-broadcast bug this
+    function prevents.
+    """
+    if owner is None:
+        return []
+
+    anim_data = getattr(owner, "animation_data", None)
+    if anim_data is None:
+        return []
+    if bool(getattr(anim_data, "use_tweak_mode", False)):
+        raise RuntimeError(
+            f"Cannot export animation for '{owner.name}' while NLA tweak mode is active."
+        )
+
+    associations: list[tuple[Any, Any]] = []
+    active_action = getattr(anim_data, "action", None)
+    if active_action is not None:
+        associations.append((active_action, getattr(anim_data, "action_slot", None)))
+    for track in getattr(anim_data, "nla_tracks", []) or []:
+        for strip in getattr(track, "strips", []) or []:
+            action = getattr(strip, "action", None)
+            if action is not None:
+                associations.append((action, getattr(strip, "action_slot", None)))
+
+    # Slots remain the ownership authority for logical takes that are not the
+    # active Action and are not currently staged as NLA strips. ActionSlot.users
+    # maps them to the datablock without falling back to unsafe name/type guesses.
+    for action in getattr(getattr(bpy, "data", None), "actions", []) or []:
+        for slot in getattr(action, "slots", []) or []:
+            try:
+                users = list(slot.users())
+            except Exception:
+                continue
+            if any(_rna_identity(user) == _rna_identity(owner) for user in users):
+                associations.append((action, slot))
+
+    bindings_by_action: dict[int, tuple[Any, Any]] = {}
+    for action, slot in associations:
+        _validate_action_binding(owner, action, slot)
+        action_identity = _rna_identity(action)
+        previous = bindings_by_action.get(action_identity)
+        if (
+            previous is not None
+            and _rna_identity(previous[1]) != _rna_identity(slot)
+        ):
+            raise RuntimeError(
+                f"Action '{action.name}' is associated with multiple slots on "
+                f"'{owner.name}'; make the take ownership unambiguous before export."
+            )
+        bindings_by_action[action_identity] = (action, slot)
+
+    return sorted(
+        bindings_by_action.values(),
+        key=lambda pair: pair[0].name.lower(),
+    )
+
+
+def _iter_slot_fcurves(action, slot):
+    if action is None or slot is None:
+        return
+    for layer in getattr(action, "layers", []) or []:
+        for strip in getattr(layer, "strips", []) or []:
+            if str(getattr(strip, "type", "")) != "KEYFRAME":
+                continue
+            channelbag = strip.channelbag(slot)
+            if channelbag is not None:
+                yield from channelbag.fcurves
+
+
+def _validate_action_binding(owner, action, slot) -> None:
+    owner_name = str(getattr(owner, "name", "<unknown>"))
+    action_name = str(getattr(action, "name", "<unknown>"))
+    if slot is None:
+        raise RuntimeError(
+            f"Action '{action_name}' assigned to '{owner_name}' has no Action slot."
+        )
+    if not any(
+        _rna_identity(candidate) == _rna_identity(slot)
+        for candidate in getattr(action, "slots", []) or []
+    ):
+        raise RuntimeError(
+            f"Action slot for '{action_name}' does not belong to that Action."
+        )
+    owner_id_type = str(getattr(owner, "id_type", ""))
+    slot_id_type = str(getattr(slot, "target_id_type", ""))
+    if slot_id_type not in {owner_id_type, "UNSPECIFIED"}:
+        raise RuntimeError(
+            f"Action '{action_name}' slot targets {slot_id_type}, not "
+            f"{owner_id_type} for '{owner_name}'."
+        )
+
+    fcurves = list(_iter_slot_fcurves(action, slot))
+    if not fcurves:
+        raise RuntimeError(
+            f"Action '{action_name}' slot for '{owner_name}' has no F-Curves."
+        )
+    for fcurve in fcurves:
+        data_path = str(getattr(fcurve, "data_path", ""))
+        try:
+            owner.path_resolve(data_path)
+        except Exception as exc:
+            raise RuntimeError(
+                f"Action '{action_name}' is incompatible with '{owner_name}': "
+                f"cannot resolve '{data_path}'."
+            ) from exc
+
+
+def _action_frame_range(action, targets: list[dict]) -> tuple[float, float]:
+    if bool(getattr(action, "use_frame_range", False)):
+        start, end = action.frame_range
+        return float(start), float(end)
+
+    ranges: list[tuple[float, float]] = []
+    seen_slots: set[int] = set()
+    for target in targets:
+        for candidate, slot in target.get("bindings", []):
+            slot_identity = _rna_identity(slot)
+            if (
+                _rna_identity(candidate) != _rna_identity(action)
+                or slot_identity in seen_slots
+            ):
+                continue
+            seen_slots.add(slot_identity)
+            for fcurve in _iter_slot_fcurves(action, slot):
+                start, end = fcurve.range()
+                ranges.append((float(start), float(end)))
+
+    if not ranges:
+        start, end = action.frame_range
+        return float(start), float(end)
+    return min(start for start, _end in ranges), max(end for _start, end in ranges)
+
+
+def _slot_matches_owner(slot, owner) -> bool:
+    owner_id_type = str(getattr(owner, "id_type", "") or "")
+    slot_id_type = str(getattr(slot, "target_id_type", "") or "")
+    if owner_id_type and slot_id_type and owner_id_type != slot_id_type:
+        return False
+
+    try:
+        if any(
+            _rna_identity(user) == _rna_identity(owner)
+            for user in slot.users()
+        ):
+            return True
+    except Exception:
+        pass
+
+    owner_name = str(getattr(owner, "name", "") or "")
+    if not owner_name:
+        return False
+    display_name = str(getattr(slot, "name_display", "") or "")
+    if display_name == owner_name:
+        return True
+
+    identifier = str(getattr(slot, "identifier", "") or "")
+    # Blender prefixes Action slot identifiers by ID type (OB, KE, ...).
+    return len(identifier) > 2 and identifier[2:] == owner_name
+
+
 def _is_exportable_object(obj, settings) -> bool:
+    object_type = str(getattr(obj, "type", ""))
     export_flags = {
         "MESH": bool(getattr(settings, "export_meshes", True)),
-        "LIGHT": bool(getattr(settings, "export_lights", True)),
-        "CAMERA": bool(getattr(settings, "export_cameras", True)),
-        "CURVE": bool(getattr(settings, "export_curves", True)),
-        "POINTCLOUD": bool(getattr(settings, "export_points", True)),
-        "VOLUME": bool(getattr(settings, "export_volumes", True)),
+        "LIGHT": False,
+        "CAMERA": False,
+        # Raw curve, Hair Curves, and point-cloud USD schemas are outside the
+        # RealityKit/RCP3 delivery contract. The native exporter flags are also
+        # hard-disabled, so selection filtering must never admit these types.
+        "CURVE": False,
+        "CURVES": False,
+        "POINTCLOUD": False,
+        "VOLUME": False,
         "ARMATURE": bool(getattr(settings, "export_armatures", True)),
     }
-    if obj.type in export_flags:
-        return export_flags[obj.type]
-    return True
+    if object_type == "MESH":
+        return (
+            export_flags["MESH"]
+            or (
+                export_flags["ARMATURE"]
+                and _has_enabled_armature_modifier(obj, settings)
+            )
+        )
+    if object_type in export_flags:
+        return export_flags[object_type]
+    # Empties are real USD Xforms and collection-instance roots. Unsupported
+    # Blender object classes must not make selected-only validation succeed and
+    # then publish a file containing only the synthetic export root.
+    return object_type == "EMPTY"
+
+
+def _has_enabled_armature_modifier(obj, settings) -> bool:
+    evaluation_mode = str(getattr(settings, "evaluation_mode", "RENDER"))
+    for modifier in getattr(obj, "modifiers", []) or []:
+        if getattr(modifier, "type", None) != "ARMATURE":
+            continue
+        enabled = (
+            getattr(modifier, "show_render", True)
+            if evaluation_mode == "RENDER"
+            else getattr(modifier, "show_viewport", True)
+        )
+        if enabled:
+            return True
+    return False
 
 
 def _has_shapekeys(obj, settings) -> bool:
@@ -266,10 +733,16 @@ def _prepare_armature(context, target: dict, schedule: list, total_frames: int, 
         raise RuntimeError(f"Failed to create animation data for armature '{obj.name}'.")
 
     target_state = _snapshot_anim_data(anim_data, obj)
-    export_track_name = _apply_schedule(anim_data, schedule)
+    export_track_name = _unique_nla_track_name(
+        anim_data,
+        "__BlenderToRCP_Export__",
+    )
     target_state["export_track_name"] = export_track_name
     target_state["created_anim_data"] = created
+    # Register before the first NLA mutation. The outer transaction can now
+    # restore this target even if track/strip creation fails midway.
     state["targets"].append(target_state)
+    _apply_schedule(anim_data, schedule, track_name=export_track_name)
 
     _solo_export_track(anim_data, export_track_name)
 
@@ -283,7 +756,11 @@ def _prepare_armature(context, target: dict, schedule: list, total_frames: int, 
 
     _mute_all_tracks(anim_data)
     anim_data.use_nla = False
-    anim_data.action = baked_action
+    _assign_action_and_slot(
+        anim_data,
+        baked_action,
+        _slot_for_owner(baked_action, obj),
+    )
 
 
 def _prepare_object(context, target: dict, schedule: list, total_frames: int, state: dict, diagnostics=None) -> None:
@@ -293,10 +770,14 @@ def _prepare_object(context, target: dict, schedule: list, total_frames: int, st
         raise RuntimeError(f"Failed to create animation data for object '{obj.name}'.")
 
     target_state = _snapshot_anim_data(anim_data, obj)
-    export_track_name = _apply_schedule(anim_data, schedule)
+    export_track_name = _unique_nla_track_name(
+        anim_data,
+        "__BlenderToRCP_Export__",
+    )
     target_state["export_track_name"] = export_track_name
     target_state["created_anim_data"] = created
     state["targets"].append(target_state)
+    _apply_schedule(anim_data, schedule, track_name=export_track_name)
 
     _solo_export_track(anim_data, export_track_name)
 
@@ -310,7 +791,11 @@ def _prepare_object(context, target: dict, schedule: list, total_frames: int, st
 
     _mute_all_tracks(anim_data)
     anim_data.use_nla = False
-    anim_data.action = baked_action
+    _assign_action_and_slot(
+        anim_data,
+        baked_action,
+        _slot_for_owner(baked_action, obj),
+    )
 
 
 def _prepare_shapekeys(context, target: dict, schedule: list, total_frames: int, state: dict, diagnostics=None) -> None:
@@ -324,10 +809,14 @@ def _prepare_shapekeys(context, target: dict, schedule: list, total_frames: int,
         raise RuntimeError(f"Failed to create animation data for shape keys on '{obj.name}'.")
 
     target_state = _snapshot_anim_data(anim_data, key)
-    export_track_name = _apply_schedule(anim_data, schedule)
+    export_track_name = _unique_nla_track_name(
+        anim_data,
+        "__BlenderToRCP_Export__",
+    )
     target_state["export_track_name"] = export_track_name
     target_state["created_anim_data"] = created
     state["targets"].append(target_state)
+    _apply_schedule(anim_data, schedule, track_name=export_track_name)
 
     _solo_export_track(anim_data, export_track_name)
 
@@ -341,7 +830,11 @@ def _prepare_shapekeys(context, target: dict, schedule: list, total_frames: int,
 
     _mute_all_tracks(anim_data)
     anim_data.use_nla = False
-    anim_data.action = baked_action
+    _assign_action_and_slot(
+        anim_data,
+        baked_action,
+        _slot_for_owner(baked_action, key),
+    )
 
 
 def _ensure_anim_data(owner) -> tuple[Any, bool]:
@@ -361,9 +854,7 @@ def _snapshot_anim_data(anim_data, owner) -> dict:
         track_states.append((track, getattr(track, "mute", False), getattr(track, "is_solo", False)))
     return {
         "owner": owner,
-        "anim_data": anim_data,
-        "original_action": getattr(anim_data, "action", None),
-        "original_use_nla": getattr(anim_data, "use_nla", False),
+        **_snapshot_anim_assignment(anim_data),
         "track_states": track_states,
         "export_track_name": None,
         "baked_action": None,
@@ -371,28 +862,141 @@ def _snapshot_anim_data(anim_data, owner) -> dict:
     }
 
 
-def _apply_schedule(anim_data, schedule: list) -> str:
-    track_name = _unique_nla_track_name(anim_data, "__BlenderToRCP_Export__")
-    export_track = anim_data.nla_tracks.new()
-    export_track.name = track_name
+def _snapshot_anim_assignment(anim_data) -> dict:
+    return {
+        "anim_data": anim_data,
+        "original_action": getattr(anim_data, "action", None),
+        "original_action_slot": getattr(anim_data, "action_slot", None),
+        "original_last_slot_identifier": getattr(
+            anim_data,
+            "last_slot_identifier",
+            "",
+        ),
+        "original_use_nla": getattr(anim_data, "use_nla", False),
+        "action_blend_type": getattr(anim_data, "action_blend_type", None),
+        "action_extrapolation": getattr(anim_data, "action_extrapolation", None),
+        "action_influence": getattr(anim_data, "action_influence", None),
+    }
 
-    for seg in schedule:
-        strip = export_track.strips.new(seg["name"], seg["start_frame"], seg["action"])
-        strip.frame_start = seg["start_frame"]
-        strip.frame_end = seg["end_frame"]
-        try:
-            action_start = seg["action_start"]
-            action_end = seg["action_end"]
+
+def _restore_anim_assignment(anim_data, snapshot: dict) -> None:
+    original_action = snapshot.get("original_action")
+    original_slot = snapshot.get("original_action_slot")
+    original_last = snapshot.get("original_last_slot_identifier", "")
+    _assign_action_and_slot(anim_data, None, None)
+    if hasattr(anim_data, "last_slot_identifier"):
+        anim_data.last_slot_identifier = original_last
+    if original_action is not None:
+        _assign_action_and_slot(anim_data, original_action, original_slot)
+    if hasattr(anim_data, "last_slot_identifier"):
+        anim_data.last_slot_identifier = original_last
+    anim_data.use_nla = bool(snapshot.get("original_use_nla"))
+    for attr in (
+        "action_blend_type",
+        "action_extrapolation",
+        "action_influence",
+    ):
+        if (
+            attr in snapshot
+            and snapshot[attr] is not None
+            and hasattr(anim_data, attr)
+        ):
+            setattr(anim_data, attr, snapshot[attr])
+
+
+def _apply_schedule(
+    anim_data,
+    schedule: list,
+    *,
+    track_name: str | None = None,
+) -> str:
+    assignment_snapshot = _snapshot_anim_assignment(anim_data)
+    track_name = track_name or _unique_nla_track_name(
+        anim_data,
+        "__BlenderToRCP_Export__",
+    )
+    export_track = None
+    try:
+        export_track = anim_data.nla_tracks.new()
+        export_track.name = track_name
+
+        for seg in schedule:
+            logical_start = float(seg["start_frame"])
+            final_sample_frame = float(seg["end_frame"])
+            strip = export_track.strips.new(
+                seg["name"],
+                int(logical_start),
+                seg["action"],
+            )
+            slot = seg.get("slot")
+            if slot is not None and hasattr(strip, "action_slot"):
+                strip.action_slot = slot
+            action_start = float(seg["action_start"])
+            action_end = float(seg["action_end"])
             if action_end <= action_start:
-                action_end = action_start + float(seg.get("length", seg.get("length_frames", 1)))
+                action_end = action_start + float(seg.get("length", 1.0))
+
+            # Assignment order matters in Blender 5.2: changing the source
+            # Action range can rewrite frame_end, so set it before the final
+            # integer output range. The differing ranges intentionally scale a
+            # fractional source duration onto integer bake samples.
             strip.action_frame_start = action_start
             strip.action_frame_end = action_end
-        except Exception:
-            pass
+            strip.frame_start = logical_start
 
-    anim_data.use_nla = True
-    anim_data.action = None
-    return track_name
+            # The final pose and the next take's first pose occupy distinct
+            # integer samples. This avoids the lossy shared-boundary choice NLA
+            # would otherwise make for discontinuous takes.
+            strip.frame_end = final_sample_frame
+
+        anim_data.use_nla = True
+        _assign_action_and_slot(anim_data, None, None)
+        return track_name
+    except Exception as schedule_error:
+        cleanup_errors: list[str] = []
+        if export_track is not None:
+            try:
+                anim_data.nla_tracks.remove(export_track)
+            except Exception as exc:
+                cleanup_errors.append(f"remove partial NLA track: {exc}")
+        try:
+            _restore_anim_assignment(anim_data, assignment_snapshot)
+        except Exception as exc:
+            cleanup_errors.append(f"restore Action assignment: {exc}")
+        if cleanup_errors:
+            raise RuntimeError(
+                "Animation schedule failed and transactional cleanup was "
+                f"incomplete ({'; '.join(cleanup_errors)})."
+            ) from schedule_error
+        raise
+
+
+def _assign_action_and_slot(anim_data, action, slot) -> None:
+    """Assign an Action and its exact slot without relying on name guessing."""
+    try:
+        anim_data.action = None
+    except Exception:
+        return
+    if action is None:
+        return
+    try:
+        anim_data.action = action
+        if hasattr(anim_data, "action_slot"):
+            # Explicitly assign None as well: Blender may otherwise auto-pick a
+            # same-name/last-used slot and change a slotless original state.
+            anim_data.action_slot = slot
+    except Exception:
+        # Do not silently continue with an Action whose slot could not be
+        # assigned; that evaluates as an empty animation in Blender 5.2.
+        anim_data.action = None
+        raise
+
+
+def _slot_for_owner(action, owner):
+    for slot in getattr(action, "slots", []) or []:
+        if _slot_matches_owner(slot, owner):
+            return slot
+    return None
 
 
 def _solo_export_track(anim_data, export_track_name: str) -> None:
@@ -420,8 +1024,12 @@ def _bake_armature(context, obj, anim_data, total_frames: int):
     except Exception:
         pass
 
-    baked_action = _new_action(f"__B2RCP_BAKED_ARMATURE_{obj.name}")
-    anim_data.action = baked_action
+    baked_action = _new_action(f"__B2RCP_BAKED_ARMATURE_{obj.name}", obj)
+    _assign_action_and_slot(
+        anim_data,
+        baked_action,
+        _slot_for_owner(baked_action, obj),
+    )
 
     try:
         bpy.ops.nla.bake(
@@ -454,8 +1062,12 @@ def _bake_object(context, obj, anim_data, total_frames: int):
     _set_active(context, obj)
     _ensure_mode(context, "OBJECT")
 
-    baked_action = _new_action(f"__B2RCP_BAKED_OBJECT_{obj.name}")
-    anim_data.action = baked_action
+    baked_action = _new_action(f"__B2RCP_BAKED_OBJECT_{obj.name}", obj)
+    _assign_action_and_slot(
+        anim_data,
+        baked_action,
+        _slot_for_owner(baked_action, obj),
+    )
 
     try:
         bpy.ops.nla.bake(
@@ -483,8 +1095,12 @@ def _bake_object(context, obj, anim_data, total_frames: int):
 
 
 def _bake_shapekeys(scene, obj, key, anim_data, total_frames: int):
-    baked_action = _new_action(f"__B2RCP_BAKED_SHAPEKEYS_{obj.name}")
-    anim_data.action = baked_action
+    baked_action = _new_action(f"__B2RCP_BAKED_SHAPEKEYS_{obj.name}", key)
+    _assign_action_and_slot(
+        anim_data,
+        baked_action,
+        _slot_for_owner(baked_action, key),
+    )
 
     key_blocks = [kb for kb in key.key_blocks if kb.name != "Basis"]
     if not key_blocks:
@@ -531,9 +1147,23 @@ def _get_shape_key_block(obj):
     return getattr(data, "shape_keys", None)
 
 
-def _new_action(base_name: str):
+def _new_action(base_name: str, owner=None):
     name = _unique_action_name(base_name)
-    return bpy.data.actions.new(name)
+    action = bpy.data.actions.new(name)
+    if owner is not None:
+        slots = getattr(action, "slots", None)
+        if slots is not None:
+            try:
+                slots.new(
+                    id_type=str(getattr(owner, "id_type", "")),
+                    name=str(getattr(owner, "name", base_name)),
+                )
+            except Exception:
+                # fcurve_ensure_for_datablock / nla.bake can materialize a slot
+                # after the Action has been assigned, so creation failure is
+                # non-fatal here.
+                pass
+    return action
 
 
 def _unique_action_name(base: str) -> str:
@@ -570,7 +1200,43 @@ def _init_state(context) -> dict:
         "active": active.name if active else None,
         "mode": mode,
         "targets": [],
+        "temporary_scene_links": [],
     }
+
+
+def _link_processing_objects_for_bake(context, objects: list, state: dict) -> None:
+    """Temporarily make animated collection prototypes operator-evaluable."""
+    scene_ids = {_rna_identity(obj) for obj in context.scene.objects}
+    linked: list = state.setdefault("temporary_scene_links", [])
+    for obj in objects:
+        if _rna_identity(obj) in scene_ids:
+            continue
+        try:
+            context.scene.collection.objects.link(obj)
+        except Exception as exc:
+            raise RuntimeError(
+                f"Animated instance dependency '{obj.name}' cannot be made "
+                "evaluable in the export scene."
+            ) from exc
+        linked.append(obj)
+        scene_ids.add(_rna_identity(obj))
+    try:
+        context.view_layer.update()
+    except Exception:
+        pass
+
+
+def _unlink_temporary_processing_objects(state: dict) -> None:
+    scene = state.get("scene")
+    if scene is None:
+        return
+    linked = list(state.get("temporary_scene_links", []) or [])
+    for obj in reversed(linked):
+        try:
+            scene.collection.objects.unlink(obj)
+        except Exception:
+            pass
+    state["temporary_scene_links"] = []
 
 
 def _restore_selection(context, state: dict) -> None:
@@ -594,6 +1260,47 @@ def _restore_selection(context, state: dict) -> None:
                 context.view_layer.objects.active = obj
             except Exception:
                 pass
+
+
+def _set_export_selection(context, objects: list) -> None:
+    """Select exactly *objects*, failing if a required dependency is hidden."""
+    try:
+        for obj in context.view_layer.objects:
+            obj.select_set(False)
+    except Exception:
+        pass
+
+    failures: list[str] = []
+    for obj in objects:
+        try:
+            obj.select_set(True)
+            select_get = getattr(obj, "select_get", None)
+            if callable(select_get) and not select_get():
+                failures.append(str(getattr(obj, "name", "<unknown>")))
+        except Exception:
+            failures.append(str(getattr(obj, "name", "<unknown>")))
+
+    if failures:
+        names = ", ".join(repr(name) for name in failures[:5])
+        if len(failures) > 5:
+            names += f", and {len(failures) - 5} more"
+        raise RuntimeError(
+            "Selected-only export dependencies are unavailable in the active "
+            f"view layer: {names}."
+        )
+
+    if objects:
+        try:
+            context.view_layer.objects.active = objects[0]
+        except Exception:
+            pass
+
+
+def _finalize_export_selection(context, settings, state: dict, objects: list) -> None:
+    if bool(getattr(settings, "selected_objects_only", False)):
+        _set_export_selection(context, objects)
+    else:
+        _restore_selection(context, state)
 
 
 def _restore_selection_from_state(state: dict) -> None:

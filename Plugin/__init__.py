@@ -15,6 +15,33 @@ except Exception:  # Allows importing non-Blender utilities from this package.
 else:
     bpy = _bpy
 
+
+MINIMUM_BLENDER_VERSION = (5, 2, 0)
+
+
+def require_supported_blender_version() -> tuple[int, int, int]:
+    """Fail closed unless Blender 5.2 or newer is running.
+
+    The extension manifest prevents normal installation in older Blender
+    versions, but command-line and source-tree execution can bypass that UI
+    check. Keep a runtime gate as the authoritative safety boundary before any
+    classes are registered or an export mutates scene/output state.
+    """
+    if bpy is None:
+        raise RuntimeError("BlenderToRCP must be run inside Blender (bpy not available).")
+
+    app = getattr(bpy, "app", None)
+    version = tuple(int(part) for part in getattr(app, "version", (0, 0, 0))[:3])
+    if version < MINIMUM_BLENDER_VERSION:
+        required = ".".join(str(part) for part in MINIMUM_BLENDER_VERSION)
+        detected = ".".join(str(part) for part in version)
+        raise RuntimeError(
+            f"BlenderToRCP 2.0 requires Blender {required} or newer; "
+            f"detected Blender {detected}."
+        )
+    return version
+
+
 if bpy is not None:
     from . import prefs as prefs_module
     from . import ui as ui_module
@@ -34,8 +61,7 @@ if bpy is not None and _needs_reload:
 
 def register():
     """Register the add-on's classes and properties."""
-    if bpy is None:
-        raise RuntimeError("BlenderToRCP must be run inside Blender (bpy not available).")
+    require_supported_blender_version()
 
     prefs_module.register()
     ops_module.register()

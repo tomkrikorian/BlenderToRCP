@@ -56,16 +56,73 @@ _TRANSFORM_DATA_PATHS = (
 )
 
 
-def _action_has_transform_fcurves(action) -> bool:
+def _iter_action_fcurves(action, slot=None):
+    """Yield F-Curves from Blender 5.2 layered Actions for one slot.
+
+    Blender 5.2 no longer exposes ``Action.fcurves``. Curves live under
+    ``Action.layers -> ActionKeyframeStrip.channelbags -> fcurves`` and each
+    channelbag belongs to one Action slot.
+    """
+    if action is None or slot is None:
+        raise RuntimeError("Layered Action inspection requires an assigned slot.")
+
+    for layer in getattr(action, "layers", []) or []:
+        for strip in getattr(layer, "strips", []) or []:
+            if str(getattr(strip, "type", "")) != "KEYFRAME":
+                continue
+            channelbag = strip.channelbag(slot)
+            if channelbag is not None:
+                yield from getattr(channelbag, "fcurves", []) or []
+
+
+def _action_has_transform_fcurves(action, slot=None) -> bool:
+    if action is None:
+        return False
     try:
         return any(
             str(fcurve.data_path).startswith(_TRANSFORM_DATA_PATHS)
-            for fcurve in getattr(action, "fcurves", []) or []
+            for fcurve in _iter_action_fcurves(action, slot)
         )
     except Exception:
         # Can't inspect the action (e.g. a future layered-action API change):
         # treat it as animated, skipping the bake is always safe.
         return True
+
+
+def _rna_identity(value) -> int:
+    """Stable identity for Blender RNA values, with a test-double fallback."""
+    try:
+        return int(value.as_pointer())
+    except Exception:
+        return id(value)
+
+
+def _iter_owned_action_slots(owner):
+    """Yield every Blender 5.2 Action slot explicitly owned by *owner*.
+
+    A slot can remain associated with an ID after its Action is no longer the
+    active Action and is not present in an NLA strip.  Animation export treats
+    those loose, owner-backed slots as logical takes, so the Y-up safety check
+    must inspect the same ownership source.  Keep this small lookup local
+    rather than importing animation_export's private binding machinery.  The
+    export orchestration loads both modules, and keeping this safety primitive
+    dependency-free avoids private cross-module and import-order coupling.
+    """
+    actions = getattr(getattr(bpy, "data", None), "actions", []) or []
+    owner_identity = _rna_identity(owner)
+    for action in actions:
+        for slot in getattr(action, "slots", []) or []:
+            try:
+                users = list(slot.users())
+            except Exception as exc:
+                # A loose take is not necessarily active or staged in NLA, so
+                # skipping a slot whose ownership cannot be inspected would
+                # let an unseen transform Action pass the Y-up safety gate.
+                raise RuntimeError(
+                    "Unable to inspect Blender Action-slot ownership."
+                ) from exc
+            if any(_rna_identity(user) == owner_identity for user in users):
+                yield action, slot
 
 
 def _yup_unsafe_reason(obj) -> str | None:
@@ -82,7 +139,10 @@ def _yup_unsafe_reason(obj) -> str | None:
     anim = getattr(obj, "animation_data", None)
     if anim is not None:
         action = getattr(anim, "action", None)
-        if action is not None and _action_has_transform_fcurves(action):
+        if action is not None and _action_has_transform_fcurves(
+            action,
+            getattr(anim, "action_slot", None),
+        ):
             return "animated transform"
         try:
             for driver in getattr(anim, "drivers", []) or []:
@@ -93,10 +153,21 @@ def _yup_unsafe_reason(obj) -> str | None:
         try:
             for track in getattr(anim, "nla_tracks", []) or []:
                 for strip in getattr(track, "strips", []) or []:
-                    if _action_has_transform_fcurves(getattr(strip, "action", None)):
+                    if _action_has_transform_fcurves(
+                        getattr(strip, "action", None),
+                        getattr(strip, "action_slot", None),
+                    ):
                         return "NLA-animated transform"
         except Exception:
             return "NLA-animated transform"
+        try:
+            for action, slot in _iter_owned_action_slots(obj):
+                if _action_has_transform_fcurves(action, slot):
+                    return "animated transform"
+        except Exception:
+            # If Blender changes the Action-slot ownership API after 5.2, do
+            # not risk baking geometry beneath an uninspected transform take.
+            return "animated transform"
     try:
         if any(not getattr(c, "mute", False) for c in getattr(obj, "constraints", []) or []):
             return "constrained transform"
@@ -132,11 +203,16 @@ def maybe_apply_yup_geometry_bake(context, settings, objects_to_export=None, dia
         return None
 
     if getattr(settings, "selected_objects_only", False):
-        scope = (
+        native_scope = (
             list(objects_to_export)
             if objects_to_export is not None
-            else list(context.selected_objects)
+            else None
         )
+        from .animation_export import collect_export_objects, collect_processing_objects
+
+        if native_scope is None:
+            native_scope = collect_export_objects(context, settings)
+        scope = collect_processing_objects(context, native_scope)
     else:
         scope = None
 
@@ -166,7 +242,23 @@ def maybe_apply_yup_geometry_bake(context, settings, objects_to_export=None, dia
     return apply_yup_geometry_bake(context, settings, scope, diagnostics=diagnostics)
 
 
-def apply_yup_geometry_bake(context, settings, objects=None, diagnostics=None) -> dict:
+def _assign_matrix_parent_inverse(obj, matrix) -> None:
+    obj.matrix_parent_inverse = matrix
+
+
+def _assign_matrix_basis(obj, matrix) -> None:
+    obj.matrix_basis = matrix
+
+
+def _assign_matrix_world(obj, matrix) -> None:
+    obj.matrix_world = matrix
+
+
+def _update_view_layer(context) -> None:
+    context.view_layer.update()
+
+
+def apply_yup_geometry_bake(context, settings, objects=None, diagnostics=None) -> dict | None:
     """Bake a -90deg X rotation into geometry so the export is natively Y-up.
 
     Every exported object's world geometry ends up rotated -90deg about X (Z-up
@@ -211,14 +303,10 @@ def apply_yup_geometry_bake(context, settings, objects=None, diagnostics=None) -
     orig_convert_orientation = bool(getattr(settings, "convert_orientation", False))
     scope = list(objects) if objects is not None else list(context.scene.objects)
     if not scope:
-        settings.convert_orientation = False
-        return {
-            "baked_meshes": set(),
-            "orig_basis": {},
-            "orig_parent_inverse": {},
-            "rg_inv": None,
-            "orig_convert_orientation": orig_convert_orientation,
-        }
+        # Nothing was baked, so keep the exporter's root conversion enabled.
+        # Returning None also keeps callers from marking the stage as already
+        # geometry-converted.
+        return None
     scope_set = set(scope)
 
     Rg = Matrix.Rotation(math.radians(-90), 4, 'X')
@@ -241,18 +329,13 @@ def apply_yup_geometry_bake(context, settings, objects=None, diagnostics=None) -
             mesh_users.setdefault(obj.data, set()).add(obj)
 
     baked_meshes = set()
+    bake_meshes = []
     for obj in scope:
         if obj.type == 'MESH' and obj.data is not None and obj.data not in baked_meshes:
             mesh = obj.data
             if mesh_users.get(mesh, set()) <= scope_set:
-                try:
-                    ## shape_keys=True so shape-key coordinates rotate with the
-                    ## base mesh; otherwise keyed meshes would deform wrongly.
-                    mesh.transform(Rg, shape_keys=True)
-                    mesh.update()
-                    baked_meshes.add(mesh)
-                except Exception as exc:
-                    print("apply_yup_geometry: mesh.transform failed:", exc)
+                baked_meshes.add(mesh)
+                bake_meshes.append(mesh)
 
     ## Snapshot world matrices before moving anything.
     old_world = {obj: obj.matrix_world.copy() for obj in scope}
@@ -367,30 +450,54 @@ def apply_yup_geometry_bake(context, settings, objects=None, diagnostics=None) -
             return True
         return parent in scope_set and classes.get(parent) == 'conjugate'
 
-    ## Per-object guards keep one failing rewrite (e.g. a library-linked /
-    ## locked object) from aborting before the restore state is returned: a
-    ## skipped object is just un-rotated in the export, never an un-restorable
-    ## scene.
-    fallback_objects = []
-    for obj in scope:
-        cls = classes[obj]
-        if cls == 'fallback' or not _closed_form_applies(obj):
-            fallback_objects.append(obj)
-            continue
-        try:
-            if obj.parent is not None:
-                obj.matrix_parent_inverse = Rg @ orig_parent_inverse[obj] @ Rg_inv
-            if cls == 'conjugate':
-                obj.matrix_basis = Rg @ orig_basis[obj] @ Rg_inv
-            else:
-                obj.matrix_basis = Rg @ orig_basis[obj]
-        except Exception as exc:
-            print("apply_yup_geometry: basis rewrite failed:", exc)
+    ## Every mutation below is one transaction.  Silently continuing after a
+    ## library-linked object rejects a matrix assignment (or after depsgraph
+    ## evaluation fails) would export a mixture of baked and unbaked frames,
+    ## then incorrectly disable the exporter's root conversion.  Track every
+    ## mesh actually transformed so any failure can restore geometry plus the
+    ## complete object-transform snapshot before the exception escapes.
+    transformed_meshes = []
 
-    try:
-        context.view_layer.update()
-    except Exception as exc:
-        print("apply_yup_geometry: view_layer.update failed:", exc)
+    def _rollback_partial_bake():
+        rollback_errors = []
+
+        for mesh in reversed(transformed_meshes):
+            try:
+                mesh.transform(Rg_inv, shape_keys=True)
+                mesh.update()
+            except Exception as rollback_exc:
+                rollback_errors.append(
+                    f"mesh '{getattr(mesh, 'name', '<unknown>')}': {rollback_exc}"
+                )
+
+        for obj, parent_inverse in orig_parent_inverse.items():
+            try:
+                obj.matrix_parent_inverse = parent_inverse
+            except Exception as rollback_exc:
+                rollback_errors.append(
+                    f"parent inverse '{getattr(obj, 'name', '<unknown>')}': "
+                    f"{rollback_exc}"
+                )
+
+        for obj, basis in orig_basis.items():
+            try:
+                obj.matrix_basis = basis
+            except Exception as rollback_exc:
+                rollback_errors.append(
+                    f"basis '{getattr(obj, 'name', '<unknown>')}': {rollback_exc}"
+                )
+
+        try:
+            settings.convert_orientation = orig_convert_orientation
+        except Exception as rollback_exc:
+            rollback_errors.append(f"orientation setting: {rollback_exc}")
+
+        try:
+            context.view_layer.update()
+        except Exception as rollback_exc:
+            rollback_errors.append(f"view-layer update: {rollback_exc}")
+
+        return rollback_errors
 
     ## Remaining objects get their world assigned exactly, parents before
     ## children (by in-scope depth) with a view-layer update per level, so each
@@ -404,27 +511,71 @@ def apply_yup_geometry_bake(context, settings, objects=None, diagnostics=None) -
             parent = parent.parent
         return depth
 
-    if fallback_objects:
-        by_depth = {}
-        for obj in fallback_objects:
-            by_depth.setdefault(_in_scope_depth(obj), []).append(obj)
+    fallback_objects = []
+    try:
+        for mesh in bake_meshes:
+            ## shape_keys=True so shape-key coordinates rotate with the base
+            ## mesh; otherwise keyed meshes would deform wrongly.  Record the
+            ## mesh immediately after the transform so an update failure still
+            ## rolls its geometry back.
+            mesh.transform(Rg, shape_keys=True)
+            transformed_meshes.append(mesh)
+            mesh.update()
 
-        for depth in sorted(by_depth):
-            for obj in by_depth[depth]:
-                try:
-                    obj.matrix_world = _target_world(obj)
-                except Exception as exc:
-                    print("apply_yup_geometry: matrix_world failed:", exc)
+        for obj in scope:
+            cls = classes[obj]
+            if cls == 'fallback' or not _closed_form_applies(obj):
+                fallback_objects.append(obj)
+                continue
+            if obj.parent is not None:
+                _assign_matrix_parent_inverse(
+                    obj,
+                    Rg @ orig_parent_inverse[obj] @ Rg_inv,
+                )
+            if cls == 'conjugate':
+                _assign_matrix_basis(obj, Rg @ orig_basis[obj] @ Rg_inv)
+            else:
+                _assign_matrix_basis(obj, Rg @ orig_basis[obj])
+
+        _update_view_layer(context)
+
+        if fallback_objects:
+            by_depth = {}
+            for obj in fallback_objects:
+                by_depth.setdefault(_in_scope_depth(obj), []).append(obj)
+
+            for depth in sorted(by_depth):
+                for obj in by_depth[depth]:
+                    _assign_matrix_world(obj, _target_world(obj))
+                _update_view_layer(context)
+
+        ## Geometry is now natively Y-up; only after every geometry, matrix,
+        ## and depsgraph operation succeeds may we disable root conversion.
+        settings.convert_orientation = False
+    except Exception as exc:
+        rollback_errors = _rollback_partial_bake()
+        if rollback_errors:
+            message = (
+                "Y-up geometry bake failed and its rollback reported errors; "
+                "export is aborted to avoid mixed orientation: "
+                f"{exc}. Rollback errors: " + "; ".join(rollback_errors)
+            )
+        else:
+            message = (
+                "Y-up geometry bake failed; all completed geometry and transform "
+                "mutations were rolled back and root orientation conversion remains "
+                f"enabled: {exc}"
+            )
+        print(message)
+        if diagnostics is not None:
             try:
-                context.view_layer.update()
-            except Exception as exc:
-                print("apply_yup_geometry: view_layer.update failed:", exc)
-
-    ## Geometry is now natively Y-up; don't let the exporter add its own root -90deg.
-    settings.convert_orientation = False
+                diagnostics.add_error(message)
+            except Exception:
+                pass
+        raise RuntimeError(message) from exc
 
     return {
-        "baked_meshes": baked_meshes,
+        "baked_meshes": set(transformed_meshes),
         "orig_basis": orig_basis,
         "orig_parent_inverse": orig_parent_inverse,
         "rg_inv": Rg_inv,

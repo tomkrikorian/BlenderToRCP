@@ -6,45 +6,83 @@ import os
 import time
 from pathlib import Path
 
-from ._settings_common import INTERNAL_KEYS, get_settings, coerce_value
-from Plugin.api.errors import CommandError
+from ._settings_common import (
+    INTERNAL_KEYS,
+    MATERIALX_SURFACE_PROFILE_DEFAULT,
+    apply_setting_updates_transactionally,
+    get_settings,
+    prepare_setting_update,
+    setting_value_issue,
+    suspend_setting_persistence,
+)
+from ..errors import CommandError
 
 
 def handle(args: dict) -> dict:
-    import bpy
-    from Plugin.export import blender_usd_export, postprocess_usd, pack_usdz, diagnostics, bake_finalize
-    from Plugin.export.support_bundle import collect_environment, collect_scene_snapshot
-    from Plugin.nodes import validate as rk_validate
+    settings = get_settings()
+    with suspend_setting_persistence(settings):
+        return _handle(args, settings)
 
+
+def _handle(args: dict, settings) -> dict:
     filepath = args.get("filepath")
     if not filepath:
         raise ValueError("'filepath' is required (output path).")
 
-    settings = get_settings()
     no_diagnostics = args.get("no_diagnostics", False)
 
     # Apply overrides without persisting them
     overrides = args.get("overrides", {})
     prop_defs = {prop.identifier: prop for prop in settings.bl_rna.properties}
-    invalid_overrides = []
+    prepared_overrides = []
+    invalid_keys = []
+    invalid_values = []
     for key, value in overrides.items():
         if key in INTERNAL_KEYS:
-            invalid_overrides.append({"key": key, "reason": "internal setting"})
+            invalid_keys.append(
+                setting_value_issue(key, value, "internal setting")
+            )
             continue
         prop = prop_defs.get(key)
         if prop is None:
-            invalid_overrides.append({"key": key, "reason": "unknown setting"})
+            invalid_keys.append(
+                setting_value_issue(key, value, "unknown setting")
+            )
             continue
         try:
-            setattr(settings, key, coerce_value(prop, value))
+            prepared_overrides.append(
+                prepare_setting_update(
+                    prop,
+                    value,
+                    key=key,
+                    source="override",
+                )
+            )
         except Exception as exc:
-            invalid_overrides.append({"key": key, "reason": str(exc)})
+            invalid_values.append(setting_value_issue(key, value, exc))
 
-    if invalid_overrides:
+    if invalid_keys:
         raise CommandError(
             "Invalid export setting override.",
             code="INVALID_SETTING_OVERRIDE",
-            details=invalid_overrides,
+            details=invalid_keys + invalid_values,
+        )
+    if invalid_values:
+        raise CommandError(
+            "Invalid export setting value.",
+            code="INVALID_SETTING_VALUE",
+            details=invalid_values,
+        )
+
+    assignment_errors = apply_setting_updates_transactionally(
+        settings,
+        prepared_overrides,
+    )
+    if assignment_errors:
+        raise CommandError(
+            "Invalid export setting value.",
+            code="INVALID_SETTING_VALUE",
+            details=assignment_errors,
         )
 
     # Apply format override
@@ -64,6 +102,24 @@ def handle(args: dict) -> dict:
     filepath = str(Path(filepath).with_suffix(ext))
     settings.filepath = filepath
 
+    import bpy
+    from ...export import (
+        animation_export,
+        bake_finalize,
+        blender_usd_export,
+        diagnostics,
+        pack_usdz,
+        postprocess_usd,
+    )
+    from ...export.support_bundle import collect_environment, collect_scene_snapshot
+    from ...nodes import validate as rk_validate
+
+    surface_profile = getattr(
+        settings,
+        "materialx_surface_profile",
+        MATERIALX_SURFACE_PROFILE_DEFAULT,
+    )
+
     diag = diagnostics.ExportDiagnostics()
     diagnostics_enabled = bool(getattr(settings, "diagnostics_enabled", False)) and not no_diagnostics
     diagnostics_path = str(Path(filepath).with_suffix(".diagnostics.json")) if diagnostics_enabled else None
@@ -73,15 +129,57 @@ def handle(args: dict) -> dict:
         resolved_output_path=filepath,
         export_format=settings.export_format,
         selected_only=bool(getattr(settings, "selected_objects_only", False)),
+        materialx_surface_profile=surface_profile,
         blend_file=bpy.data.filepath or None,
     )
     diag.set_environment(**collect_environment(bpy.context))
     diag.data["scene"] = collect_scene_snapshot(bpy.context)
 
+    validation_objects = None
+    if bool(getattr(settings, "selected_objects_only", False)):
+        try:
+            export_objects = animation_export.collect_export_objects(
+                bpy.context,
+                settings,
+            )
+            if export_objects:
+                validation_objects = animation_export.collect_processing_objects(
+                    bpy.context,
+                    export_objects,
+                )
+        except Exception as exc:
+            _save_diagnostics(diag, diagnostics_path)
+            raise CommandError(
+                str(exc),
+                code="INVALID_EXPORT_SELECTION",
+                stage="validation",
+                artifacts=_artifacts(
+                    diagnostics_path,
+                    filepath,
+                    bpy.data.filepath,
+                ),
+            ) from exc
+        if not export_objects:
+            _save_diagnostics(diag, diagnostics_path)
+            raise CommandError(
+                "Selection Only is enabled, but no objects are selected.",
+                code="NO_EXPORTABLE_OBJECTS",
+                stage="validation",
+                artifacts=_artifacts(diagnostics_path, filepath, bpy.data.filepath),
+            )
+
     # Validate materials (strict mode — same as the operator)
-    materials = rk_validate.collect_scene_materials(bpy.context)
+    materials = (
+        _collect_materials_from_objects(validation_objects)
+        if validation_objects is not None
+        else rk_validate.collect_scene_materials(bpy.context)
+    )
     for mat in materials:
-        result = rk_validate.validate_material(mat, strict=True)
+        result = rk_validate.validate_material(
+            mat,
+            strict=True,
+            surface_profile=surface_profile,
+        )
         if result["errors"]:
             for issue in result["errors"]:
                 diag.add_validation_issue(mat.name, issue, severity="error")
@@ -101,6 +199,7 @@ def handle(args: dict) -> dict:
 
     start_time = time.time()
     yup_state = None
+    temp_usd_path = None
     try:
         # Bake a -90deg X rotation into geometry for a native Y-up export when
         # requested (and safe - the helper owns the settings gate, scope and
@@ -187,12 +286,17 @@ def handle(args: dict) -> dict:
                 bake_finalize.restore_yup_geometry_bake(bpy.context, settings, yup_state)
             except Exception:
                 pass
-        # Guarantee the .blendertorcp_temp staging tree is gone, even if the
-        # export raised above (publish/pack only clean it on success).
-        try:
-            blender_usd_export.remove_export_staging_dir(filepath, diag)
-        except Exception:
-            pass
+        # A returned USD path identifies the exact unique attempt to clean.
+        # If native export fails before returning, it cleans its own attempt.
+        if temp_usd_path:
+            try:
+                blender_usd_export.remove_export_staging_dir(
+                    filepath,
+                    diag,
+                    staging_dir=Path(temp_usd_path).parent,
+                )
+            except Exception:
+                pass
 
     duration = time.time() - start_time
 
@@ -210,6 +314,26 @@ def handle(args: dict) -> dict:
         "diagnostics_path": saved_diagnostics_path,
         "support_bundle_hint": _support_hint(bpy.data.filepath, filepath, saved_diagnostics_path),
     }
+
+
+def _collect_materials_from_objects(objects) -> list:
+    """Collect each material referenced by an exact export object closure."""
+    materials = []
+    seen: set[int] = set()
+    for obj in objects or []:
+        for slot in getattr(obj, "material_slots", []) or []:
+            material = getattr(slot, "material", None)
+            if material is None:
+                continue
+            try:
+                identity = int(material.as_pointer())
+            except Exception:
+                identity = id(material)
+            if identity in seen:
+                continue
+            seen.add(identity)
+            materials.append(material)
+    return materials
 
 
 def _save_diagnostics(diag, diagnostics_path: str | None) -> None:

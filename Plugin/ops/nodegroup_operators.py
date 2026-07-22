@@ -10,23 +10,43 @@ from ..core.paths import nodegroups_asset_path
 from ..nodes import metadata as rk_metadata
 from ..nodes import nodegroups as rk_nodegroups
 
-def _load_nodegroup_from_asset(group_name: str):
+
+def _group_matches_entry(group, entry) -> bool:
+    """Return whether a group is the current packaged form of a catalog entry."""
+    return bool(
+        group
+        and group.get("rk_id") == entry["id"]
+        and group.get("rk_node_id") == entry.get("export_id")
+        and group.get("rk_version") == rk_nodegroups.RK_NODE_VERSION
+        and group.nodes
+    )
+
+
+def _load_nodegroup_from_asset(entry):
     """Load a node group from the bundled asset file."""
     asset_path = nodegroups_asset_path()
-    if not asset_path.exists():
+    if not asset_path.is_file():
         return None
 
+    group_name = entry["group_name"]
+    loaded_group = None
     try:
         with bpy.data.libraries.load(str(asset_path), link=False) as (data_from, data_to):
-            if group_name in data_from.node_groups:
-                data_to.node_groups = [group_name]
+            if group_name not in data_from.node_groups:
+                return None
+            data_to.node_groups = [group_name]
+        loaded_group = data_to.node_groups[0]
     except Exception:
         return None
 
-    group = bpy.data.node_groups.get(group_name)
-    if group:
-        return group
-    return None
+    if loaded_group is None or loaded_group.name != group_name:
+        if loaded_group is not None:
+            bpy.data.node_groups.remove(loaded_group, do_unlink=True)
+        return None
+    if not _group_matches_entry(loaded_group, entry):
+        bpy.data.node_groups.remove(loaded_group, do_unlink=True)
+        return None
+    return loaded_group
 
 
 def _ensure_active_material(context):
@@ -68,10 +88,15 @@ def _insert_group_node(context, node_id: str, auto_connect: bool = False):
     if not entry:
         return None
 
-    rk_nodegroups.ensure_nodegroups()
-
     group_name = entry["group_name"]
-    group = bpy.data.node_groups.get(group_name) or _load_nodegroup_from_asset(group_name)
+    group = bpy.data.node_groups.get(group_name)
+    if group is not None and not _group_matches_entry(group, entry):
+        # Never mutate or replace an embedded stale group behind existing user
+        # nodes.  This 2.0 pipeline has no legacy migration path; fail closed so
+        # the file can be repaired explicitly.
+        return None
+    if group is None:
+        group = _load_nodegroup_from_asset(entry)
     if not group:
         return None
 
@@ -109,11 +134,30 @@ def _auto_connect_to_output(node_tree, group_node):
     if not active_output:
         active_output = output_nodes[0]
 
-    if "Shader" not in group_node.outputs or "Surface" not in active_output.inputs:
+    surface = active_output.inputs.get("Surface")
+    if surface is None:
         return
-    if active_output.inputs["Surface"].is_linked:
+    if surface.is_linked:
         return
-    node_tree.links.new(group_node.outputs["Shader"], active_output.inputs["Surface"])
+
+    # MaterialX surface definitions use the conventional output name ``out``;
+    # older hand-authored groups used ``Shader``.  Only connect a shader or
+    # closure socket, and keep the preference order deterministic so a group
+    # with multiple outputs cannot accidentally feed a numeric value into the
+    # material surface.
+    shader_output = None
+    for output_name in ("Shader", "out"):
+        candidate = group_node.outputs.get(output_name)
+        if candidate is None:
+            continue
+        if getattr(candidate, "type", "") in {"SHADER", "CLOSURE"} or getattr(
+            candidate, "bl_idname", ""
+        ) in {"NodeSocketShader", "NodeSocketClosure"}:
+            shader_output = candidate
+            break
+    if shader_output is None:
+        return
+    node_tree.links.new(shader_output, surface)
 
 
 class BLENDERTORCP_OT_add_rk_node(Operator):

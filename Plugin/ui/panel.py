@@ -9,6 +9,11 @@ import os
 from pathlib import Path
 
 from .. import prefs as addon_prefs
+from ..api.commands._settings_common import (
+    MATERIALX_SURFACE_PROFILE_DEFAULT,
+    REALITYKIT_OS27_DEFAULTS,
+    realitykit_os27_profile_deviations,
+)
 from bpy.app.handlers import persistent
 from bpy.props import StringProperty, BoolProperty, EnumProperty, FloatProperty, IntProperty
 from bpy.types import Panel, PropertyGroup
@@ -56,25 +61,8 @@ def _bake_mode_help_lines(settings) -> tuple[str, str]:
 
 
 def _persist_settings(context, settings) -> None:
-    """Persist settings to add-on preferences."""
-    prefs = addon_prefs.get_preferences(context) if context else None
-    if not prefs:
-        return
-    data = {}
-    for prop in settings.bl_rna.properties:
-        key = prop.identifier
-        if key in {"rna_type", "name", "history_applied", "last_diagnostics_path", "persist_suspended", "background_job_dir", "background_job_pid", "filepath"}:
-            continue
-        try:
-            data[key] = getattr(settings, key)
-        except Exception:
-            continue
-    try:
-        prefs.last_export_settings_json = json.dumps(data)
-    except Exception:
-        pass
-    if context and getattr(context.blend_data, "filepath", None):
-        addon_prefs.set_last_export_path(context, getattr(settings, "filepath", ""))
+    """Persist settings using the shared versioned 2.0 profile."""
+    addon_prefs.persist_export_settings(context, settings)
 
 
 def _normalize_export_format(export_format: str) -> str:
@@ -215,10 +203,34 @@ class BlenderToRCPExportSettings(PropertyGroup):
         update=_on_settings_changed,
     )
 
+    materialx_surface_profile: EnumProperty(
+        name="Surface Profile",
+        description="MaterialX surface contract used when rewriting Blender materials",
+        items=[
+            (
+                'realitykit_portable',
+                "RealityKit Portable (Recommended)",
+                "Verified portable RealityKit PBR profile (recommended)",
+            ),
+            (
+                'realitykit_pbr2',
+                "RealityKit PBR Surface 2 (Experimental)",
+                "Experimental OS 27 PBR Surface 2 profile; currently incompatible with Quick Look and USDKit, and may be rejected by strict USD/USDZ validation",
+            ),
+            (
+                'openpbr_1_1',
+                "OpenPBR 1.1 / MaterialX 1.39 (Experimental)",
+                "Experimental OpenPBR 1.1 profile; some MaterialX 1.39 nodes remain unsupported in current Apple betas",
+            ),
+        ],
+        default=MATERIALX_SURFACE_PROFILE_DEFAULT,
+        update=_on_settings_changed,
+    )
+
     convert_orientation: BoolProperty(
         name="Convert Orientation",
-        description="Convert scene orientation for USD export",
-        default=False,
+        description="Convert Blender's Z-up scene to the RealityKit Y-up USD convention",
+        default=REALITYKIT_OS27_DEFAULTS["convert_orientation"],
         update=_on_settings_changed,
     )
 
@@ -233,7 +245,7 @@ class BlenderToRCPExportSettings(PropertyGroup):
             ('-Y', "-Y", "Negative Y"),
             ('-Z', "-Z", "Negative Z"),
         ],
-        default='-Z',
+        default=REALITYKIT_OS27_DEFAULTS["forward_axis"],
         update=_on_settings_changed,
     )
 
@@ -248,7 +260,7 @@ class BlenderToRCPExportSettings(PropertyGroup):
             ('-Y', "-Y", "Negative Y"),
             ('-Z', "-Z", "Negative Z"),
         ],
-        default='Y',
+        default=REALITYKIT_OS27_DEFAULTS["up_axis"],
         update=_on_settings_changed,
     )
 
@@ -265,7 +277,7 @@ class BlenderToRCPExportSettings(PropertyGroup):
             ('YARDS', "Yards", "Scene meters per unit to 0.9144"),
             ('CUSTOM', "Custom", "Specify a custom meters-per-unit value"),
         ],
-        default='METERS',
+        default=REALITYKIT_OS27_DEFAULTS["convert_scene_units"],
         update=_on_settings_changed,
     )
 
@@ -274,7 +286,7 @@ class BlenderToRCPExportSettings(PropertyGroup):
         description="Custom meters-per-unit value for USD stage",
         min=0.0001,
         max=1000.0,
-        default=1.0,
+        default=REALITYKIT_OS27_DEFAULTS["meters_per_unit"],
         update=_on_settings_changed,
     )
 
@@ -304,56 +316,7 @@ class BlenderToRCPExportSettings(PropertyGroup):
     export_meshes: BoolProperty(
         name="Meshes",
         description="Export meshes",
-        default=True,
-        update=_on_settings_changed,
-    )
-
-    export_lights: BoolProperty(
-        name="Lights",
-        description="Export lights",
-        default=True,
-        update=_on_settings_changed,
-    )
-
-    convert_world_material: BoolProperty(
-        name="World Dome Light",
-        description="Convert world material to a USD dome light",
-        default=True,
-        update=_on_settings_changed,
-    )
-
-    export_cameras: BoolProperty(
-        name="Cameras",
-        description="Export cameras",
-        default=True,
-        update=_on_settings_changed,
-    )
-
-    export_curves: BoolProperty(
-        name="Curves",
-        description="Export curves",
-        default=True,
-        update=_on_settings_changed,
-    )
-
-    export_points: BoolProperty(
-        name="Point Clouds",
-        description="Export point clouds",
-        default=True,
-        update=_on_settings_changed,
-    )
-
-    export_volumes: BoolProperty(
-        name="Volumes",
-        description="Export volumes",
-        default=True,
-        update=_on_settings_changed,
-    )
-
-    export_hair: BoolProperty(
-        name="Hair",
-        description="Export hair particle systems as curves",
-        default=False,
+        default=REALITYKIT_OS27_DEFAULTS["export_meshes"],
         update=_on_settings_changed,
     )
 
@@ -543,9 +506,9 @@ class BlenderToRCPExportSettings(PropertyGroup):
 
     bake_image_format: EnumProperty(
         name="Image Format",
-        description="File format for texture overrides (Original keeps each source texture format)",
+        description="File format for texture overrides (Original keeps Apple-compatible encodings and normalizes unsupported LDR inputs to PNG)",
         items=[
-            ('ORIGINAL', "Original", "Keep each existing exported texture's source file format"),
+            ('ORIGINAL', "Original", "Keep AVIF, PNG, JPEG, and OpenEXR encodings; normalize unsupported LDR inputs to PNG"),
             ('AVIF', ".avif", "Bake textures as AVIF with alpha"),
             ('PNG', ".png", "Bake textures as PNG with alpha"),
         ],
@@ -649,14 +612,14 @@ class BlenderToRCPExportSettings(PropertyGroup):
         name="History Applied",
         description="Whether persisted settings were applied",
         default=False,
-        options={'HIDDEN'}
+        options={'HIDDEN', 'SKIP_SAVE'}
     )
 
     persist_suspended: BoolProperty(
         name="Persist Suspended",
         description="Suspend settings persistence while loading",
         default=False,
-        options={'HIDDEN'}
+        options={'HIDDEN', 'SKIP_SAVE'}
     )
     
 
@@ -825,6 +788,11 @@ class BLENDERTORCP_PT_export_usd_root(Panel):
 
 
 def _draw_usd_general_section(layout, settings):
+    deviations = realitykit_os27_profile_deviations(settings)
+    if deviations:
+        layout.label(text="Custom profile (differs from OS 27 defaults)", icon='INFO')
+    else:
+        layout.label(text="RealityKit OS 27 profile: Y-up, meters", icon='CHECKMARK')
     layout.prop(settings, "root_prim_name", placeholder="Scene")
 
     include_row = layout.row(align=True)
@@ -863,13 +831,6 @@ def _draw_usd_general_section(layout, settings):
 
 def _draw_usd_object_types_section(layout, settings):
     layout.prop(settings, "export_meshes")
-    layout.prop(settings, "export_lights")
-    layout.prop(settings, "convert_world_material")
-    layout.prop(settings, "export_cameras")
-    layout.prop(settings, "export_curves")
-    layout.prop(settings, "export_points")
-    layout.prop(settings, "export_volumes")
-    layout.prop(settings, "export_hair")
 
 
 def _draw_usd_geometry_section(layout, settings):
@@ -900,6 +861,29 @@ def _draw_usd_texture_section(layout, settings):
     if settings.bake_resolution == 'CUSTOM':
         column.prop(settings, "bake_resolution_custom")
     column.prop(settings, "bake_margin")
+
+
+def _draw_usd_material_section(layout, settings):
+    profile = getattr(
+        settings,
+        "materialx_surface_profile",
+        MATERIALX_SURFACE_PROFILE_DEFAULT,
+    )
+    layout.prop(settings, "materialx_surface_profile")
+
+    caveats = layout.box()
+    if profile == MATERIALX_SURFACE_PROFILE_DEFAULT:
+        layout.label(
+            text="Portable RealityKit PBR is the verified shipping profile.",
+            icon='CHECKMARK',
+        )
+        caveats.label(text="Experimental profile caveats", icon='INFO')
+    else:
+        caveats.alert = True
+        caveats.label(text="Experimental Apple beta material path", icon='ERROR')
+    caveats.label(text="PBR Surface 2: incompatible with Quick Look and USDKit.")
+    caveats.label(text="PBR Surface 2: use USDC/RCP3; strict USDZ validation may reject it.")
+    caveats.label(text="OpenPBR: some MaterialX 1.39 nodes remain unsupported.")
 
 
 def _draw_usd_bake_section(layout, settings):
@@ -941,6 +925,7 @@ _USD_EXPORT_SECTIONS = (
     ("blendertorcp_usd_object_types", "Object Types", _draw_usd_object_types_section),
     ("blendertorcp_usd_geometry", "Geometry", _draw_usd_geometry_section),
     ("blendertorcp_usd_rigging", "Rigging", _draw_usd_rigging_section),
+    ("blendertorcp_usd_materials", "Materials (Advanced)", _draw_usd_material_section),
     ("blendertorcp_usd_texture", "Texture", _draw_usd_texture_section),
     ("blendertorcp_usd_baking", "Baking", _draw_usd_bake_section),
 )
@@ -1022,48 +1007,21 @@ def unregister():
 
 def _apply_persisted_settings_now(context, settings) -> None:
     """Apply persisted export settings immediately (safe outside draw)."""
-    if settings.history_applied:
-        return
-
-    prefs = addon_prefs.get_preferences(context)
-    if not prefs:
-        settings.history_applied = True
-        return
-
-    serialized = getattr(prefs, "last_export_settings_json", "")
-    prop_defs = {prop.identifier for prop in settings.bl_rna.properties}
-    settings.persist_suspended = True
-    try:
-        if serialized:
-            try:
-                data = json.loads(serialized)
-            except Exception:
-                data = {}
-            if isinstance(data, dict):
-                for key, value in data.items():
-                    if key in {"history_applied", "last_diagnostics_path", "persist_suspended", "background_job_dir", "background_job_pid", "filepath"}:
-                        continue
-                    if key not in prop_defs:
-                        continue
-                    try:
-                        setattr(settings, key, value)
-                    except Exception:
-                        continue
-        addon_prefs.apply_last_export_path(context, settings)
-    finally:
-        settings.persist_suspended = False
+    result = addon_prefs.apply_persisted_export_settings(context, settings)
 
     if _sync_output_path_extension(settings):
         _persist_settings(context, settings)
-
-    settings.history_applied = True
+    return result
 
 
 def _apply_persisted_settings(context) -> None:
     """Schedule applying persisted export settings once per scene."""
     scene = context.scene
     settings = scene.blender_to_rcp_export_settings
-    if settings.history_applied:
+    if (
+        settings.history_applied
+        and addon_prefs.export_settings_scene_is_current(settings)
+    ):
         return
 
     key = scene.as_pointer()

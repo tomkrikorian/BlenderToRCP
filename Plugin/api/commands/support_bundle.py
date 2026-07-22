@@ -5,7 +5,7 @@ from __future__ import annotations
 
 def handle(args: dict) -> dict:
     import bpy
-    from Plugin.export.support_bundle import create_support_bundle
+    from ...export.support_bundle import create_support_bundle
 
     return create_support_bundle(
         context=bpy.context,

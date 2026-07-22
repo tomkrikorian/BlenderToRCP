@@ -6,10 +6,10 @@ import PackageDescription
 let package = Package(
     name: "RealityComposerProProject",
     platforms: [
-        .visionOS(.v26),
-        .macOS(.v26),
-        .iOS(.v26),
-        .tvOS(.v26)
+        .visionOS("27.0"),
+        .macOS("27.0"),
+        .iOS("27.0"),
+        .tvOS("27.0")
     ],
     products: [
         // Products define the executables and libraries a package produces, and make them visible to other packages.
@@ -26,6 +26,9 @@ let package = Package(
         // Targets can depend on other targets in this package, and on products in packages this package depends on.
         .target(
             name: "RealityComposerProProject",
-            dependencies: []),
+            dependencies: [],
+            resources: [
+                .process("RealityComposerProProject.rkassets")
+            ]),
     ]
 )

@@ -33,19 +33,30 @@ def _map_mtlx_type_to_sdf(type_name: Optional[str]):
         return None
 
     color4_type = getattr(Sdf.ValueTypeNames, "Color4f", Sdf.ValueTypeNames.Float4)
+    half_types = {
+        'half': 'Half',
+        'half2': 'Half2',
+        'half3': 'Half3',
+        'half4': 'Half4',
+    }
+    if type_name in half_types:
+        sdf_type = getattr(Sdf.ValueTypeNames, half_types[type_name], None)
+        if sdf_type is None:
+            raise RuntimeError(
+                f"OpenUSD lacks required {half_types[type_name]} support for the OS 27 "
+                "RealityKit material contract"
+            )
+        return sdf_type
+
     mapping = {
         'boolean': Sdf.ValueTypeNames.Bool,
         'integer': Sdf.ValueTypeNames.Int,
         'float': Sdf.ValueTypeNames.Float,
-        'half': Sdf.ValueTypeNames.Float,
         'color3': Sdf.ValueTypeNames.Color3f,
         'color4': color4_type,
         'vector2': Sdf.ValueTypeNames.Float2,
         'vector3': Sdf.ValueTypeNames.Float3,
         'vector4': Sdf.ValueTypeNames.Float4,
-        'half2': Sdf.ValueTypeNames.Float2,
-        'half3': Sdf.ValueTypeNames.Color3f,
-        'half4': color4_type,
         'vector2array': Sdf.ValueTypeNames.Float2Array,
         'vector3array': Sdf.ValueTypeNames.Float3Array,
         'string': Sdf.ValueTypeNames.String,
@@ -63,14 +74,6 @@ def _normalize_mtlx_type(type_name: Optional[str]) -> Optional[str]:
     if not type_name:
         return None
     type_name = type_name.lower()
-    if type_name in ('half',):
-        return 'float'
-    if type_name in ('half2',):
-        return 'vector2'
-    if type_name in ('half3',):
-        return 'color3'
-    if type_name in ('half4',):
-        return 'color4'
     if type_name in ('integer', 'int'):
         return 'integer'
     return type_name
@@ -79,6 +82,18 @@ def _normalize_mtlx_type(type_name: Optional[str]) -> Optional[str]:
 def _sdf_type_to_mtlx(sdf_type):
     """Map Sdf value types back to MaterialX type strings."""
     color4_type = getattr(Sdf.ValueTypeNames, "Color4f", None)
+    half_type = getattr(Sdf.ValueTypeNames, 'Half', None)
+    half2_type = getattr(Sdf.ValueTypeNames, 'Half2', None)
+    half3_type = getattr(Sdf.ValueTypeNames, 'Half3', None)
+    half4_type = getattr(Sdf.ValueTypeNames, 'Half4', None)
+    if half_type and sdf_type == half_type:
+        return 'half'
+    if half2_type and sdf_type == half2_type:
+        return 'half2'
+    if half3_type and sdf_type == half3_type:
+        return 'half3'
+    if half4_type and sdf_type == half4_type:
+        return 'half4'
     if sdf_type == Sdf.ValueTypeNames.Float:
         return 'float'
     if sdf_type == Sdf.ValueTypeNames.Int:
@@ -111,12 +126,31 @@ def _set_shader_input_value(shader_input, value: Any) -> None:
                     return
             shader_input.Set(value)
             return
+        input_type = shader_input.GetTypeName()
+        half2_type = getattr(Sdf.ValueTypeNames, 'Half2', None)
+        half3_type = getattr(Sdf.ValueTypeNames, 'Half3', None)
+        half4_type = getattr(Sdf.ValueTypeNames, 'Half4', None)
         if len(value) == 2:
-            shader_input.Set(Gf.Vec2f(*value))
+            if half2_type and input_type == half2_type:
+                if not hasattr(Gf, 'Vec2h'):
+                    raise RuntimeError("OpenUSD lacks Gf.Vec2h required by the OS 27 contract")
+                shader_input.Set(Gf.Vec2h(*value))
+            else:
+                shader_input.Set(Gf.Vec2f(*value))
         elif len(value) == 3:
-            shader_input.Set(Gf.Vec3f(*value))
+            if half3_type and input_type == half3_type:
+                if not hasattr(Gf, 'Vec3h'):
+                    raise RuntimeError("OpenUSD lacks Gf.Vec3h required by the OS 27 contract")
+                shader_input.Set(Gf.Vec3h(*value))
+            else:
+                shader_input.Set(Gf.Vec3f(*value))
         elif len(value) == 4:
-            shader_input.Set(Gf.Vec4f(*value))
+            if half4_type and input_type == half4_type:
+                if not hasattr(Gf, 'Vec4h'):
+                    raise RuntimeError("OpenUSD lacks Gf.Vec4h required by the OS 27 contract")
+                shader_input.Set(Gf.Vec4h(*value))
+            else:
+                shader_input.Set(Gf.Vec4f(*value))
         else:
             shader_input.Set(value)
     else:
@@ -175,17 +209,31 @@ def _coerce_value_to_input_type(value: Any, input_def: Optional[Dict[str, Any]])
 
     type_name = (input_def.get('type') or '').lower()
     if not isinstance(value, (list, tuple)):
+        if type_name in ('float', 'half') and isinstance(value, (bool, int, float)):
+            return float(value)
+        if type_name in ('integer', 'int') and isinstance(value, (bool, int, float)):
+            return int(value)
+        if type_name in ('boolean', 'bool') and isinstance(value, (bool, int, float)):
+            return bool(value)
         return value
 
-    if type_name in ('color3', 'vector3', 'half3') and len(value) >= 3:
-        return list(value[:3])
+    if type_name in ('color3', 'vector3', 'half3'):
+        padded = list(value[:3])
+        padded.extend([0.0] * (3 - len(padded)))
+        return padded
     if type_name in ('color4', 'vector4', 'half4'):
         if len(value) == 3:
-            return [value[0], value[1], value[2], 1.0]
+            fill = 1.0 if type_name == 'color4' else 0.0
+            return [value[0], value[1], value[2], fill]
         if len(value) >= 4:
             return list(value[:4])
-    if type_name in ('vector2', 'half2') and len(value) >= 2:
-        return list(value[:2])
+        padded = list(value)
+        padded.extend([0.0] * (4 - len(padded)))
+        return padded[:4]
+    if type_name in ('vector2', 'half2'):
+        padded = list(value[:2])
+        padded.extend([0.0] * (2 - len(padded)))
+        return padded
     if type_name in ('float', 'half', 'integer') and len(value) >= 1:
         return value[0]
 

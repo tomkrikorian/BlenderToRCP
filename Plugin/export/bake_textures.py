@@ -45,6 +45,7 @@ class BakeResult:
         self.original_materials: Dict[object, List[Optional[object]]] = {}
         self.baked_materials: List[object] = []
         self.baked_images: List[object] = []
+        self.temporary_images: List[object] = []
 
 
 def bake_materials_for_objects(
@@ -55,8 +56,54 @@ def bake_materials_for_objects(
     diagnostics=None,
     progress_callback=None,
 ) -> BakeResult:
-    """Bake textures for mesh objects and replace their materials with baked versions."""
+    """Bake atomically, restoring every material slot when baking fails.
+
+    Callers normally restore a successful result in their own ``finally`` block.
+    Before this wrapper existed, an exception inside the bake meant no result was
+    returned, so those callers had no handle with which to restore slots or
+    remove partially-built material datablocks. Keep the result alive across the
+    implementation call and roll it back here before re-raising.
+    """
+    object_list = list(objects)
     result = BakeResult()
+    result.original_materials = {
+        obj: [slot.material for slot in obj.material_slots]
+        for obj in object_list
+        if getattr(obj, "type", None) == 'MESH'
+    }
+    try:
+        return _bake_materials_for_objects_impl(
+            context,
+            settings,
+            object_list,
+            output_dir,
+            diagnostics,
+            progress_callback,
+            result=result,
+        )
+    except BaseException:
+        try:
+            restore_baked_materials(result, keep_baked_materials=False)
+        except Exception:
+            # Cleanup must never replace the original bake failure. Individual
+            # datablock operations are already best-effort below; this final
+            # guard also covers an object being deleted by a failing operator.
+            pass
+        raise
+
+
+def _bake_materials_for_objects_impl(
+    context,
+    settings,
+    objects,
+    output_dir: Path,
+    diagnostics=None,
+    progress_callback=None,
+    *,
+    result: Optional[BakeResult] = None,
+) -> BakeResult:
+    """Bake textures for mesh objects and replace their materials with baked versions."""
+    result = result or BakeResult()
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -106,6 +153,11 @@ def bake_materials_for_objects(
     def _analyze_material(mat) -> Dict[str, object]:
         info = material_analysis.get(mat)
         if info is None:
+            passthrough = _validate_bake_material_contract(
+                mat,
+                bake_mode=bake_mode,
+                diagnostics=diagnostics,
+            )
             info = {
                 # Flat short-circuiting only applies in the material-color-only
                 # modes; LIT_IBL bakes lighting onto every surface, flat or not.
@@ -118,6 +170,8 @@ def bake_materials_for_objects(
                 "resolution": (
                     resolution if resolution > 0 else _material_source_resolution(mat)
                 ),
+                "normal": passthrough.get("normal"),
+                "metallic": passthrough.get("metallic"),
             }
             material_analysis[mat] = info
         return info
@@ -301,6 +355,10 @@ def bake_materials_for_objects(
                     "roughness_image": None,
                     "roughness_value": None,
                     "use_opacity": info["needs_opacity"],
+                    "surface_render_method": _surface_render_method(
+                        source_mat,
+                        transparent=bool(info["needs_opacity"]),
+                    ),
                     "uv_layer": uv_layer_name,
                     "flat": flat_constants,
                     "throwaway_image": None,
@@ -309,16 +367,8 @@ def bake_materials_for_objects(
                     # Pass the source normal map through untouched - we never
                     # bake a normal pass, and only LIT_ALBEDO authors a lit
                     # material that uses it (Unlit output ignores normals).
-                    "normal": (
-                        _source_normal_passthrough(source_mat)
-                        if bake_mode == "LIT_ALBEDO"
-                        else None
-                    ),
-                    "metallic": (
-                        _source_metallic_passthrough(source_mat)
-                        if bake_mode == "LIT_ALBEDO"
-                        else None
-                    ),
+                    "normal": info.get("normal"),
+                    "metallic": info.get("metallic"),
                 }
 
                 if flat_constants is not None:
@@ -341,6 +391,7 @@ def bake_materials_for_objects(
                         file_format=image_format["file_format"],
                     )
                     entry["throwaway_image"] = throwaway
+                    result.temporary_images.append(throwaway)
                     _set_active_image_node(baked_mat, throwaway, uv_layer_name)
                 elif bake_base:
                     base_image_path = _make_image_path(
@@ -423,6 +474,7 @@ def bake_materials_for_objects(
                                 file_format=image_format["file_format"],
                             )
                             entry["roughness_image"] = rough_image
+                            result.temporary_images.append(rough_image)
                             _set_active_image_node(baked_mat, rough_image, entry["uv_layer"])
 
                         _select_object(context, obj)
@@ -529,6 +581,7 @@ def bake_materials_for_objects(
                                 file_format=image_format["file_format"],
                             )
                             emit_throwaways.append(throwaway)
+                            result.temporary_images.append(throwaway)
                             _set_active_image_node(baked_mat, throwaway, entry["uv_layer"])
                             continue
                         opacity_image_path = _make_image_path(
@@ -613,6 +666,7 @@ def bake_materials_for_objects(
                     flat=entry.get("flat"),
                     normal=entry.get("normal"),
                     metallic=entry.get("metallic"),
+                    surface_render_method=entry.get("surface_render_method", "DITHERED"),
                 )
                 # First object to bake this key owns the shared baked material;
                 # later objects with the same key reuse it (see the pre-pass
@@ -643,19 +697,13 @@ def _temporary_ibl_world(context, settings, diagnostics=None, enabled: bool = Tr
         yield
         return
 
-    hdri_path = str(getattr(settings, "bake_ibl_filepath", "") or "").strip()
-    if not hdri_path:
-        msg = "Bake mode is 'Lighting & Shadows' but no HDRI file is set."
+    try:
+        hdri_file = _resolve_hdri_filepath(settings)
+    except RuntimeError as exc:
+        msg = str(exc)
         if diagnostics:
             diagnostics.add_error(msg)
-        raise RuntimeError(msg)
-
-    hdri_file = Path(hdri_path)
-    if not hdri_file.exists():
-        msg = f"HDRI file not found: {hdri_path}"
-        if diagnostics:
-            diagnostics.add_error(msg)
-        raise RuntimeError(msg)
+        raise
 
     strength = float(getattr(settings, "bake_ibl_strength", 1.0))
     rotation = float(getattr(settings, "bake_ibl_rotation", 0.0))  # stored in radians (ANGLE subtype)
@@ -664,7 +712,7 @@ def _temporary_ibl_world(context, settings, diagnostics=None, enabled: bool = Tr
     original_world = scene.world
     temp_world = None
     try:
-        temp_world = _create_hdri_world(hdri_path, strength, rotation)
+        temp_world = _create_hdri_world(str(hdri_file), strength, rotation)
         scene.world = temp_world
         yield
     finally:
@@ -677,6 +725,54 @@ def _temporary_ibl_world(context, settings, diagnostics=None, enabled: bool = Tr
                 bpy.data.worlds.remove(temp_world)
             except Exception:
                 pass
+
+
+def _resolve_hdri_filepath(settings, *, blend_file: str | Path | None = None) -> Path:
+    """Resolve the explicit bake HDRI without losing Blender ``//`` semantics.
+
+    ``pathlib`` treats ``//studio.hdr`` as a filesystem-root path, while Blender
+    means "next to the current .blend".  Resolve that form explicitly while the
+    source scene is still active.  Background jobs serialize the returned
+    absolute path before saving their temporary scene copy, so loading the copy
+    from a private job directory cannot retarget the lighting source.
+    """
+    raw_path = str(getattr(settings, "bake_ibl_filepath", "") or "").strip()
+    if not raw_path:
+        raise RuntimeError(
+            "Bake mode is 'Lighting & Shadows' but no HDRI file is set."
+        )
+
+    expanded = Path(raw_path).expanduser()
+    if raw_path.startswith("//"):
+        source_blend = str(
+            blend_file
+            if blend_file is not None
+            else getattr(getattr(bpy, "data", None), "filepath", "")
+            or ""
+        ).strip()
+        if not source_blend:
+            raise RuntimeError(
+                f"HDRI path '{raw_path}' is relative to a .blend file, but the "
+                "scene has never been saved. Save the .blend or choose an "
+                "absolute HDRI path before baking."
+            )
+        expanded = Path(source_blend).expanduser().parent / raw_path[2:]
+    elif not expanded.is_absolute():
+        # Ordinary CLI-relative paths retain normal shell/CWD semantics. Blender
+        # ``//`` paths are the only form that is relative to the source .blend.
+        expanded = Path.cwd() / expanded
+
+    try:
+        resolved = expanded.resolve(strict=False)
+    except (OSError, RuntimeError):
+        resolved = expanded.absolute()
+
+    if not resolved.is_file():
+        raise RuntimeError(
+            f"HDRI file not found: {raw_path} (resolved to {resolved}). "
+            "Relink it, or choose an existing absolute path."
+        )
+    return resolved
 
 
 @contextmanager
@@ -815,9 +911,12 @@ def restore_baked_materials(result: BakeResult, keep_baked_materials: bool) -> N
 
     for obj, materials in result.original_materials.items():
         for idx, mat in enumerate(materials):
-            if idx >= len(obj.material_slots):
-                continue
-            obj.material_slots[idx].material = mat
+            try:
+                if idx >= len(obj.material_slots):
+                    continue
+                obj.material_slots[idx].material = mat
+            except (ReferenceError, Exception):
+                pass
 
     for mat in list(result.baked_materials):
         try:
@@ -830,6 +929,16 @@ def restore_baked_materials(result: BakeResult, keep_baked_materials: bool) -> N
         try:
             if image.users == 0:
                 bpy.data.images.remove(image)
+        except (ReferenceError, Exception):
+            pass
+
+    # Throwaway flat/opaque targets and averaged-roughness targets are never
+    # export artifacts. They may still be linked from a partially-built copied
+    # material when a bake operator raises, so unlink them unconditionally as
+    # part of the atomic rollback.
+    for image in list(result.temporary_images):
+        try:
+            bpy.data.images.remove(image, do_unlink=True)
         except (ReferenceError, Exception):
             pass
 
@@ -857,6 +966,51 @@ def _resolve_bake_resolution(settings) -> int:
 
 
 _BAKED_CHANNEL_INPUTS = ("Base Color", "Roughness", "Alpha")
+
+
+def _active_material_output(material):
+    """Return the active Material Output node, with a deterministic fallback."""
+    node_tree = getattr(material, "node_tree", None)
+    if node_tree is None:
+        return None
+    outputs = [
+        node
+        for node in node_tree.nodes
+        if getattr(node, "type", None) == 'OUTPUT_MATERIAL'
+    ]
+    if not outputs:
+        return None
+    return next(
+        (node for node in outputs if bool(getattr(node, "is_active_output", False))),
+        outputs[0],
+    )
+
+
+def _surface_principled_node(material):
+    """Resolve the Principled shader feeding the active material surface.
+
+    Blender files commonly retain disconnected test or legacy shader nodes. The
+    opacity bake must follow the active Material Output instead of picking the
+    first Principled node in collection order. Only a directly connected
+    Principled surface is supported: choosing one branch from a Mix/Add/Group
+    graph would bake the wrong opacity. Unsupported active surface graphs are
+    rejected by ``_validate_bake_material_contract`` before material mutation.
+    """
+    if not getattr(material, "use_nodes", False):
+        return None
+    node_tree = getattr(material, "node_tree", None)
+    if node_tree is None:
+        return None
+
+    output = _active_material_output(material)
+    if output is None:
+        return None
+    surface = getattr(output, "inputs", {}).get('Surface')
+    links = list(getattr(surface, "links", ()) or ()) if surface is not None else []
+    if len(links) != 1:
+        return None
+    node = getattr(links[0], "from_node", None)
+    return node if getattr(node, "type", None) == 'BSDF_PRINCIPLED' else None
 
 
 def _make_cache_key(
@@ -920,10 +1074,7 @@ def _material_source_resolution(material, fallback: int = _DEFAULT_BAKE_RESOLUTI
     if not getattr(material, "use_nodes", False) or material.node_tree is None:
         return fallback
 
-    principled = next(
-        (node for node in material.node_tree.nodes if node.type == 'BSDF_PRINCIPLED'),
-        None,
-    )
+    principled = _surface_principled_node(material)
     if principled is None:
         return fallback
 
@@ -1070,10 +1221,7 @@ def _flat_material_constants(material, *, lit: bool = True) -> Optional[Dict[str
     if any(node.type == 'TEX_IMAGE' for node in node_tree.nodes):
         return None
 
-    principled = next(
-        (node for node in node_tree.nodes if node.type == 'BSDF_PRINCIPLED'),
-        None,
-    )
+    principled = _surface_principled_node(material)
     if principled is None:
         return None
 
@@ -1111,7 +1259,131 @@ def _flat_material_constants(material, *, lit: bool = True) -> Optional[Dict[str
     }
 
 
-def _source_normal_passthrough(material) -> Optional[Dict[str, object]]:
+def _validate_bake_material_contract(
+    material,
+    *,
+    bake_mode: str,
+    diagnostics=None,
+) -> Dict[str, Optional[Dict[str, object]]]:
+    """Validate semantics the rebuilt bake material must preserve exactly.
+
+    Base color and roughness have real bake passes, but opacity, normal, and
+    metallic are reconstructed. A shader mix or an unsupported normal/metallic
+    chain must therefore stop before material slots are changed; guessing would
+    produce a visually plausible but semantically different RealityKit asset.
+    """
+    result = {"normal": None, "metallic": None}
+    if not getattr(material, "use_nodes", False):
+        return result
+
+    output = _active_material_output(material)
+    surface = getattr(output, "inputs", {}).get("Surface") if output is not None else None
+    links = list(getattr(surface, "links", ()) or ()) if surface is not None else []
+    surface_node = getattr(links[0], "from_node", None) if len(links) == 1 else None
+    if surface_node is None or getattr(surface_node, "type", None) != "BSDF_PRINCIPLED":
+        node_type = getattr(surface_node, "type", "unconnected surface")
+        message = (
+            f"Bake Textures cannot preserve material '{getattr(material, 'name', '<unnamed>')}' "
+            f"because its active surface is {node_type}, not one directly connected Principled "
+            "BSDF. Shader mixes (including Transparent BSDF fallbacks) require an explicit "
+            "opacity bake that this pipeline does not provide. Use Export Scene or simplify "
+            "the active surface before baking."
+        )
+        if diagnostics:
+            diagnostics.add_error(message)
+        raise RuntimeError(message)
+
+    if bake_mode == "LIT_ALBEDO":
+        try:
+            _validate_lit_albedo_principled_inputs(material, surface_node)
+            result["normal"] = _source_normal_passthrough(material, principled=surface_node)
+            result["metallic"] = _source_metallic_passthrough(material, principled=surface_node)
+        except RuntimeError as exc:
+            if diagnostics:
+                diagnostics.add_error(str(exc))
+            raise
+    return result
+
+
+def _validate_lit_albedo_principled_inputs(material, principled) -> None:
+    """Reject active controls the Material Color Only rebuild would discard."""
+    # Reuse the portable graph capability policy first: the rebuilt material is
+    # itself exported through that profile, so accepting a value which portable
+    # export rejects would merely move the same silent loss into the bake path.
+    from ..nodes.validate import _unsupported_principled_inputs, _values_differ
+
+    issues = list(_unsupported_principled_inputs(principled, "realitykit_portable"))
+
+    def _active(name: str, neutral) -> bool:
+        socket = principled.inputs.get(name)
+        if socket is None:
+            return False
+        if bool(getattr(socket, "is_linked", False)):
+            return True
+        return _values_differ(getattr(socket, "default_value", None), neutral)
+
+    # Material Color Only bakes Base Color/Roughness/Alpha and handles a narrow
+    # normal/metallic passthrough below. It does not bake or copy these otherwise
+    # portable controls, so even constants must not be reset to fresh-node values.
+    omitted = (
+        ("Weight", 1.0, None),
+        ("Specular IOR Level", 0.5, None),
+        ("Coat Weight", 0.0, None),
+        ("Coat Roughness", 0.03, "Coat Weight"),
+        ("Coat Normal", (0.0, 0.0, 0.0), "Coat Weight"),
+    )
+    for name, neutral, controller in omitted:
+        if controller is not None and not _active(controller, 0.0):
+            continue
+        if _active(name, neutral):
+            issues.append(f"Principled '{name}' is not preserved by Material Color Only bake.")
+
+    # Blender 5.2 defaults Emission Color to white and uses Strength=0 as the
+    # lobe controller. Color is dormant while Strength is zero.
+    if _active("Emission Strength", 0.0):
+        issues.append("Principled 'Emission Strength' is not preserved by Material Color Only bake.")
+
+    if issues:
+        preview = "; ".join(issues)
+        raise _passthrough_error(
+            material,
+            "Material Color Only shading",
+            f"{preview} Use Lighting & Shadows bake to flatten the full lit appearance instead",
+        )
+
+
+def _passthrough_error(material, channel: str, detail: str) -> RuntimeError:
+    return RuntimeError(
+        f"Bake Textures cannot preserve {channel} for material "
+        f"'{getattr(material, 'name', '<unnamed>')}': {detail}. "
+        "Use Export Scene, bake that channel to a supported direct image first, or simplify the graph."
+    )
+
+
+def _validate_direct_passthrough_image(material, image_node, channel: str) -> None:
+    if getattr(image_node, "image", None) is None:
+        raise _passthrough_error(material, channel, "the Image Texture has no image")
+
+    vector_socket = getattr(image_node, "inputs", {}).get("Vector")
+    if vector_socket is not None and bool(getattr(vector_socket, "is_linked", False)):
+        raise _passthrough_error(
+            material,
+            channel,
+            "Mapping, UV Map, or other linked Vector chains are not reconstructed",
+        )
+
+    projection = str(getattr(image_node, "projection", "FLAT") or "FLAT").upper()
+    extension = str(getattr(image_node, "extension", "REPEAT") or "REPEAT").upper()
+    interpolation = str(getattr(image_node, "interpolation", "LINEAR") or "LINEAR").upper()
+    if projection != "FLAT" or extension != "REPEAT" or interpolation != "LINEAR":
+        raise _passthrough_error(
+            material,
+            channel,
+            "non-default Image Texture projection, extension, or interpolation would be lost",
+        )
+
+
+def _source_normal_passthrough(material, *, principled=None) -> Optional[Dict[str, object]]:
     """Capture the source material's normal map so the bake can pass it through.
 
     The bake only renders base color / roughness / opacity - it never bakes a
@@ -1123,44 +1395,79 @@ def _source_normal_passthrough(material) -> Optional[Dict[str, object]]:
     """
     if not getattr(material, "use_nodes", False) or material.node_tree is None:
         return None
-    principled = next(
-        (node for node in material.node_tree.nodes if node.type == 'BSDF_PRINCIPLED'),
-        None,
-    )
+    principled = principled or _surface_principled_node(material)
     if principled is None:
         return None
     normal_socket = principled.inputs.get('Normal')
     if normal_socket is None or not normal_socket.is_linked:
         return None
 
-    from_node = normal_socket.links[0].from_node
+    links = list(getattr(normal_socket, "links", ()) or ())
+    if len(links) != 1:
+        raise _passthrough_error(material, "normal", "the Principled Normal input has multiple links")
+    from_node = links[0].from_node
     strength = 1.0
     uv_layer = None
     tex_node = None
     if from_node.type == 'NORMAL_MAP':
+        convention = str(getattr(from_node, "convention", "OPENGL") or "OPENGL").upper()
+        if convention != "OPENGL":
+            raise _passthrough_error(
+                material,
+                "normal",
+                "RealityKit requires OpenGL normal maps but the source uses DirectX convention",
+            )
+        space = str(getattr(from_node, "space", "TANGENT") or "TANGENT").upper()
+        if space != "TANGENT":
+            raise _passthrough_error(
+                material,
+                "normal",
+                f"Normal Map space '{space}' is not the supported tangent space",
+            )
         strength_socket = from_node.inputs.get('Strength')
-        if strength_socket is not None and not strength_socket.is_linked:
+        if strength_socket is not None and bool(getattr(strength_socket, "is_linked", False)):
+            raise _passthrough_error(material, "normal", "linked Normal Map Strength is not reconstructed")
+        if strength_socket is not None:
             try:
                 strength = float(strength_socket.default_value)
             except Exception:
                 strength = 1.0
         uv_layer = getattr(from_node, "uv_map", None) or None
         color_socket = from_node.inputs.get('Color')
-        if color_socket is not None and color_socket.is_linked:
-            candidate = color_socket.links[0].from_node
+        color_links = list(getattr(color_socket, "links", ()) or ()) if color_socket is not None else []
+        if len(color_links) == 1:
+            candidate = color_links[0].from_node
             if candidate.type == 'TEX_IMAGE':
+                output_name = str(
+                    getattr(getattr(color_links[0], "from_socket", None), "name", "Color") or "Color"
+                )
+                if output_name != "Color":
+                    raise _passthrough_error(
+                        material,
+                        "normal",
+                        f"the Normal Map is driven by Image Texture output '{output_name}', not Color",
+                    )
                 tex_node = candidate
-    elif from_node.type == 'TEX_IMAGE':
-        tex_node = from_node
+        if tex_node is None:
+            raise _passthrough_error(
+                material,
+                "normal",
+                "only a direct Image Texture Color -> Normal Map -> Principled chain is supported",
+            )
+    else:
+        raise _passthrough_error(
+            material,
+            "normal",
+            "only a direct Image Texture Color -> Normal Map -> Principled chain is supported",
+        )
 
-    if tex_node is None or getattr(tex_node, "image", None) is None:
-        return None
+    _validate_direct_passthrough_image(material, tex_node, "normal")
     if not uv_layer:
         uv_layer = getattr(tex_node, "uv_map", None) or None
     return {"image": tex_node.image, "uv_layer": uv_layer, "strength": strength}
 
 
-def _source_metallic_passthrough(material) -> Optional[Dict[str, object]]:
+def _source_metallic_passthrough(material, *, principled=None) -> Optional[Dict[str, object]]:
     """Capture the source material's metallic input for passthrough.
 
     Like the normal map, metallic is never baked, so a textured or non-default
@@ -1171,10 +1478,7 @@ def _source_metallic_passthrough(material) -> Optional[Dict[str, object]]:
     """
     if not getattr(material, "use_nodes", False) or material.node_tree is None:
         return None
-    principled = next(
-        (node for node in material.node_tree.nodes if node.type == 'BSDF_PRINCIPLED'),
-        None,
-    )
+    principled = principled or _surface_principled_node(material)
     if principled is None:
         return None
     metallic_socket = principled.inputs.get('Metallic')
@@ -1187,20 +1491,54 @@ def _source_metallic_passthrough(material) -> Optional[Dict[str, object]]:
             return None
         return {"value": value} if value else None
 
-    from_node = metallic_socket.links[0].from_node
+    links = list(getattr(metallic_socket, "links", ()) or ())
+    if len(links) != 1:
+        raise _passthrough_error(material, "metallic", "the Principled Metallic input has multiple links")
+    link = links[0]
+    from_node = link.from_node
     if from_node.type == 'TEX_IMAGE' and getattr(from_node, "image", None) is not None:
+        output_name = str(
+            getattr(getattr(link, "from_socket", None), "name", "Color") or "Color"
+        )
+        if output_name != "Color":
+            raise _passthrough_error(
+                material,
+                "metallic",
+                f"the source uses Image Texture output '{output_name}', not Color",
+            )
+        _validate_direct_passthrough_image(material, from_node, "metallic")
         return {
             "image": from_node.image,
             "uv_layer": getattr(from_node, "uv_map", None) or None,
         }
-    return None
+    raise _passthrough_error(
+        material,
+        "metallic",
+        "packed channel, Math/Separate Color, or procedural chains are not reconstructed and would become zero",
+    )
 
 
 def _material_needs_opacity(material) -> bool:
-    # Detect transparency from the real Alpha input. ``blend_method`` is a
-    # deprecated alias on Blender 4.2+/5.x that never reports OPAQUE, so it
-    # cannot be used to decide whether a material actually needs an opacity bake.
+    # Detect transparency from the active surface's real Alpha input. Render
+    # method selects how transparency is displayed; it does not establish that
+    # the material actually contains alpha below one.
     return material_has_transparency(material)
+
+
+def _surface_render_method(material, *, transparent: bool) -> str:
+    """Resolve Blender 5.2's two-value surface transparency method.
+
+    Fully opaque baked materials use Blender's ray-tracing-compatible DITHERED
+    mode with alpha fixed to one. Transparent materials preserve the source's
+    DITHERED versus BLENDED choice. There is intentionally no legacy render-mode
+    fallback: this release targets Blender 5.2 and later only.
+    """
+    if not transparent:
+        return "DITHERED"
+    value = str(material.surface_render_method)
+    if value not in {"DITHERED", "BLENDED"}:
+        raise ValueError(f"Unsupported Blender 5.2 surface render method: {value}")
+    return value
 
 
 def _set_active_image_node(material, image, uv_layer: Optional[str]) -> None:
@@ -1233,24 +1571,19 @@ def _configure_emission_for_alpha(material) -> None:
     """Route alpha into an Emission output for opacity baking."""
     nodes = material.node_tree.nodes
     links = material.node_tree.links
-    output_node = None
-    for node in nodes:
-        if node.type == 'OUTPUT_MATERIAL':
-            output_node = node
-            break
-    if output_node is None:
-        output_node = nodes.new("ShaderNodeOutputMaterial")
+    output_node = _active_material_output(material)
+    principled = _surface_principled_node(material)
+    if output_node is None or principled is None:
+        raise RuntimeError(
+            f"Material '{getattr(material, 'name', '<unnamed>')}' has no Principled "
+            "shader connected to its active Material Output; opacity cannot be baked."
+        )
 
     for link in list(output_node.inputs['Surface'].links):
         links.remove(link)
 
     emission_node = nodes.new("ShaderNodeEmission")
-
-    alpha_socket = None
-    for node in nodes:
-        if node.type == 'BSDF_PRINCIPLED':
-            alpha_socket = node.inputs.get('Alpha')
-            break
+    alpha_socket = principled.inputs.get('Alpha')
 
     if alpha_socket and alpha_socket.is_linked:
         from_socket = alpha_socket.links[0].from_socket
@@ -1299,7 +1632,12 @@ def _build_baked_material(
     flat: Optional[Dict[str, object]] = None,
     normal: Optional[Dict[str, object]] = None,
     metallic: Optional[Dict[str, object]] = None,
+    surface_render_method: str = "DITHERED",
 ) -> None:
+    if surface_render_method not in {"DITHERED", "BLENDED"}:
+        raise ValueError(
+            f"Unsupported Blender 5.2 surface render method: {surface_render_method}"
+        )
     material.use_nodes = True
     nodes = material.node_tree.nodes
     links = material.node_tree.links
@@ -1332,7 +1670,9 @@ def _build_baked_material(
             principled.inputs['Alpha'].default_value = alpha_value
         except Exception:
             pass
-        material.blend_method = 'BLEND' if (use_opacity and alpha_value < 1.0) else 'OPAQUE'
+        material.surface_render_method = (
+            surface_render_method if (use_opacity and alpha_value < 1.0) else 'DITHERED'
+        )
         return
 
     # Carry the source normal map through untouched (the bake never renders a
@@ -1398,7 +1738,7 @@ def _build_baked_material(
             alpha_output = base_node.outputs.get('Alpha')
             if alpha_output is not None:
                 links.new(alpha_output, principled.inputs['Alpha'])
-                material.blend_method = 'BLEND'
+                material.surface_render_method = surface_render_method
                 return
 
     if use_opacity and opacity_image:
@@ -1410,13 +1750,19 @@ def _build_baked_material(
         separate.mode = 'RGB'
         links.new(opacity_node.outputs['Color'], separate.inputs['Color'])
         links.new(separate.outputs['Red'], principled.inputs['Alpha'])
-        material.blend_method = 'BLEND'
+        material.surface_render_method = surface_render_method
     else:
-        material.blend_method = 'OPAQUE'
+        material.surface_render_method = 'DITHERED'
 
 
 def _merge_opacity_into_base_image(base_image, opacity_image) -> bool:
-    """Copy a grayscale opacity bake into the alpha channel of the base image."""
+    """Merge opacity as straight alpha while leaving base-color RGB unchanged.
+
+    The exported bake convention is explicitly straight (unassociated) alpha:
+    RGB retains the material-color bake and the opacity pass supplies only A.
+    This avoids baking premultiplication into the pixels and then asking
+    RealityKit/MaterialX to apply alpha a second time.
+    """
     if base_image is None or opacity_image is None:
         return False
 
@@ -1442,11 +1788,13 @@ def _merge_opacity_into_base_image(base_image, opacity_image) -> bool:
     except Exception:
         return False
 
-    # Opacity bakes are grayscale: red carries the value.
+    # Opacity bakes are grayscale: red carries the value. RGB is deliberately
+    # not multiplied, making the resulting image straight/unassociated RGBA.
     base_pixels[3::4] = opacity_pixels[0::4]
 
     try:
         base_image.pixels.foreach_set(base_pixels)
+        base_image.alpha_mode = 'STRAIGHT'
         base_image.save()
     except Exception:
         return False

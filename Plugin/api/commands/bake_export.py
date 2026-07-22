@@ -1,70 +1,120 @@
 """bake_export command — bake textures and export scene.
 
-This runs synchronously inside background Blender (blocking).
-The CLI invocation already runs Blender in the background so the caller
-(the bridge) can handle timeouts externally.
+This runs synchronously inside background Blender (blocking).  The global CLI
+timeout is enforced by the bridge, while the per-step timeout is enforced here
+inside the Blender worker so every bake/export stage gets its own budget.
 """
 
 from __future__ import annotations
 
-import os
+import json
+import sys
 import time
 from pathlib import Path
 
-from ._settings_common import INTERNAL_KEYS, get_settings, coerce_value
-from Plugin.api.errors import CommandError
+from ._settings_common import (
+    INTERNAL_KEYS,
+    PreparedSettingUpdate,
+    apply_setting_updates_transactionally,
+    get_settings,
+    prepare_setting_update,
+    setting_value_issue,
+    suspend_setting_persistence,
+)
+from ..errors import CommandError
+from ...cli.bridge import (
+    OUTPUT_MARKER,
+    StepTimeoutWatchdog,
+    write_timeout_diagnostics,
+)
 
 
-def handle(args: dict) -> dict:
-    import bpy
-    from Plugin.export import (
-        asset_preflight,
-        bake_finalize,
-        bake_textures,
-        blender_usd_export,
-        postprocess_usd,
-        pack_usdz,
-        diagnostics,
-    )
-    from Plugin.export.support_bundle import collect_environment, collect_scene_snapshot
-    from Plugin.ops import bake_export_operator as bake_ops
-
-    filepath = args.get("filepath")
-    if not filepath:
-        raise ValueError("'filepath' is required (output path).")
-
-    settings = get_settings()
-    no_diagnostics = args.get("no_diagnostics", False)
-
-    # Apply overrides
-    overrides = args.get("overrides", {})
-    prop_defs = {prop.identifier: prop for prop in settings.bl_rna.properties}
-    invalid_overrides = []
+def _prepare_positional_setting_overrides(
+    prop_defs: dict,
+    overrides: dict,
+) -> tuple[list[PreparedSettingUpdate], list[dict], list[dict]]:
+    """Stage positional ``key=value`` overrides without mutating settings."""
+    prepared = []
+    invalid_keys = []
+    invalid_values = []
     for key, value in overrides.items():
         if key in INTERNAL_KEYS:
-            invalid_overrides.append({"key": key, "reason": "internal setting"})
+            invalid_keys.append(
+                setting_value_issue(key, value, "internal setting")
+            )
             continue
         prop = prop_defs.get(key)
         if prop is None:
-            invalid_overrides.append({"key": key, "reason": "unknown setting"})
+            invalid_keys.append(
+                setting_value_issue(key, value, "unknown setting")
+            )
             continue
         try:
-            setattr(settings, key, coerce_value(prop, value))
+            prepared.append(
+                prepare_setting_update(
+                    prop,
+                    value,
+                    key=key,
+                    source="override",
+                )
+            )
         except Exception as exc:
-            invalid_overrides.append({"key": key, "reason": str(exc)})
+            invalid_values.append(setting_value_issue(key, value, exc))
+    return prepared, invalid_keys, invalid_values
 
-    if invalid_overrides:
-        raise CommandError(
-            "Invalid bake-export setting override.",
-            code="INVALID_SETTING_OVERRIDE",
-            details=invalid_overrides,
-        )
 
-    # Apply direct args as setting overrides
-    _DIRECT_OVERRIDES = {
+def _prepare_direct_setting_overrides(
+    prop_defs: dict,
+    args: dict,
+) -> tuple[list[PreparedSettingUpdate], list[dict]]:
+    """Validate and stage all bake-export named arguments as one transaction."""
+    prepared: list[PreparedSettingUpdate] = []
+    invalid: list[dict] = []
+
+    def stage(
+        arg_key: str,
+        setting_key: str,
+        setting_value,
+        *,
+        input_value=None,
+    ) -> PreparedSettingUpdate | None:
+        prop = prop_defs.get(setting_key)
+        shown_value = setting_value if input_value is None else input_value
+        if prop is None:
+            invalid.append(
+                setting_value_issue(
+                    arg_key,
+                    shown_value,
+                    "target setting is unavailable",
+                    setting_key=setting_key,
+                )
+            )
+            return None
+        try:
+            update = prepare_setting_update(
+                prop,
+                setting_value,
+                key=setting_key,
+                input_key=arg_key,
+                input_value=shown_value,
+                source="direct",
+            )
+        except Exception as exc:
+            invalid.append(
+                setting_value_issue(
+                    arg_key,
+                    shown_value,
+                    exc,
+                    setting_key=setting_key,
+                )
+            )
+            return None
+        prepared.append(update)
+        return update
+
+    direct_settings = {
         "format": "export_format",
         "bake_mode": "bake_mode",
-        "resolution": None,  # handled specially
         "image_format": "bake_image_format",
         "margin": "bake_margin",
         "ibl_source": "bake_ibl_source",
@@ -74,52 +124,192 @@ def handle(args: dict) -> dict:
         "isolate_meshes": "bake_isolate_meshes_lit",
         "timeout": "bake_step_timeout_seconds",
     }
-    for arg_key, setting_key in _DIRECT_OVERRIDES.items():
-        if arg_key in args and setting_key is not None:
-            prop = prop_defs.get(setting_key)
-            if prop:
-                try:
-                    setattr(settings, setting_key, coerce_value(prop, args[arg_key]))
-                except Exception:
-                    pass
+    for arg_key, setting_key in direct_settings.items():
+        if arg_key in args:
+            stage(arg_key, setting_key, args[arg_key])
 
-    # Handle resolution: could be a preset or custom int
     if "resolution" in args:
-        settings.export_texture_settings_enabled = True
-        res = args["resolution"]
-        res_str = str(res)
-        if res_str.upper().replace("-", "_") in {"ORIGINAL", "KEEP_ORIGINAL"}:
-            settings.bake_resolution = "ORIGINAL"
-        elif res_str in ("512", "1024", "2048", "4096"):
-            settings.bake_resolution = res_str
+        raw_resolution = args["resolution"]
+        normalized = str(raw_resolution).strip().upper().replace("-", "_")
+        stage(
+            "resolution",
+            "export_texture_settings_enabled",
+            True,
+            input_value=raw_resolution,
+        )
+        if normalized in {"ORIGINAL", "KEEP_ORIGINAL"}:
+            stage(
+                "resolution",
+                "bake_resolution",
+                "ORIGINAL",
+                input_value=raw_resolution,
+            )
+        elif normalized in {"512", "1024", "2048", "4096"}:
+            stage(
+                "resolution",
+                "bake_resolution",
+                normalized,
+                input_value=raw_resolution,
+            )
         else:
-            settings.bake_resolution = "CUSTOM"
-            settings.bake_resolution_custom = int(res)
-    if "image_format" in args:
-        settings.export_texture_settings_enabled = True
-    if "margin" in args:
-        settings.export_texture_settings_enabled = True
+            try:
+                if isinstance(raw_resolution, float) and not raw_resolution.is_integer():
+                    raise ValueError("custom resolution must be a whole number")
+                custom_resolution = int(raw_resolution)
+            except (TypeError, ValueError) as exc:
+                invalid.append(
+                    setting_value_issue("resolution", raw_resolution, exc)
+                )
+            else:
+                stage(
+                    "resolution",
+                    "bake_resolution",
+                    "CUSTOM",
+                    input_value=raw_resolution,
+                )
+                stage(
+                    "resolution",
+                    "bake_resolution_custom",
+                    custom_resolution,
+                    input_value=raw_resolution,
+                )
 
-    if args.get("selected_only"):
-        settings.selected_objects_only = True
-    if args.get("no_base_color"):
-        settings.bake_base_color = False
-    if args.get("no_opacity"):
-        settings.bake_opacity = False
-    if args.get("keep_materials"):
-        settings.bake_keep_materials = True
-    if args.get("diagnostics"):
-        settings.diagnostics_enabled = True
+    for arg_key in ("image_format", "margin"):
+        if arg_key in args:
+            stage(
+                arg_key,
+                "export_texture_settings_enabled",
+                True,
+                input_value=args[arg_key],
+            )
 
-    # Set format
-    if "format" in args:
-        settings.export_format = args["format"].upper()
+    # These are convenience flags rather than full setting replacements.  A
+    # false token is a validated no-op, matching argparse's absent flag.
+    flag_settings = {
+        "selected_only": ("selected_objects_only", True),
+        "no_base_color": ("bake_base_color", False),
+        "no_opacity": ("bake_opacity", False),
+        "keep_materials": ("bake_keep_materials", True),
+        "diagnostics": ("diagnostics_enabled", True),
+    }
+    for arg_key, (setting_key, value_when_enabled) in flag_settings.items():
+        if arg_key not in args:
+            continue
+        prop = prop_defs.get(setting_key)
+        if prop is None:
+            invalid.append(
+                setting_value_issue(
+                    arg_key,
+                    args[arg_key],
+                    "target setting is unavailable",
+                    setting_key=setting_key,
+                )
+            )
+            continue
+        try:
+            enabled = prepare_setting_update(
+                prop,
+                args[arg_key],
+                key=setting_key,
+                input_key=arg_key,
+                source="direct",
+            ).value
+        except Exception as exc:
+            invalid.append(
+                setting_value_issue(
+                    arg_key,
+                    args[arg_key],
+                    exc,
+                    setting_key=setting_key,
+                )
+            )
+            continue
+        if enabled:
+            stage(
+                arg_key,
+                setting_key,
+                value_when_enabled,
+                input_value=args[arg_key],
+            )
+
+    return prepared, invalid
+
+
+def handle(args: dict) -> dict:
+    settings = get_settings()
+    with suspend_setting_persistence(settings):
+        return _handle(args, settings)
+
+
+def _handle(args: dict, settings) -> dict:
+    filepath = args.get("filepath")
+    if not filepath:
+        raise ValueError("'filepath' is required (output path).")
+
+    no_diagnostics = args.get("no_diagnostics", False)
+
+    # Stage positional and named arguments before the first live RNA write.
+    overrides = args.get("overrides", {})
+    prop_defs = {prop.identifier: prop for prop in settings.bl_rna.properties}
+    prepared_overrides, invalid_keys, invalid_values = (
+        _prepare_positional_setting_overrides(prop_defs, overrides)
+    )
+    prepared_direct, invalid_direct = _prepare_direct_setting_overrides(
+        prop_defs,
+        args,
+    )
+
+    if invalid_keys or invalid_direct:
+        raise CommandError(
+            "Invalid bake-export setting override.",
+            code="INVALID_SETTING_OVERRIDE",
+            details=invalid_keys + invalid_values + invalid_direct,
+        )
+    if invalid_values:
+        raise CommandError(
+            "Invalid bake-export setting value.",
+            code="INVALID_SETTING_VALUE",
+            details=invalid_values,
+        )
+
+    assignment_errors = apply_setting_updates_transactionally(
+        settings,
+        prepared_overrides + prepared_direct,
+    )
+    if assignment_errors:
+        has_direct_failure = any(
+            issue.get("source") in {"direct", "transaction"}
+            for issue in assignment_errors
+        )
+        raise CommandError(
+            "Invalid bake-export setting override.",
+            code=(
+                "INVALID_SETTING_OVERRIDE"
+                if has_direct_failure
+                else "INVALID_SETTING_VALUE"
+            ),
+            details=assignment_errors,
+        )
 
     # Enforce extension
     ext_map = {"USDA": ".usda", "USDC": ".usdc", "USDZ": ".usdz"}
     ext = ext_map.get(settings.export_format, ".usdz")
     filepath = str(Path(filepath).with_suffix(ext))
     settings.filepath = filepath
+
+    import bpy
+    from ...export import (
+        animation_export,
+        asset_preflight,
+        bake_finalize,
+        bake_textures,
+        blender_usd_export,
+        postprocess_usd,
+        pack_usdz,
+        diagnostics,
+    )
+    from ...export.support_bundle import collect_environment, collect_scene_snapshot
+    from ...ops import bake_export_operator as bake_ops
 
     diag = diagnostics.ExportDiagnostics()
     diagnostics_enabled = bool(getattr(settings, "diagnostics_enabled", False)) and not no_diagnostics
@@ -141,6 +331,10 @@ def handle(args: dict) -> dict:
     )
 
     # Collect objects
+    # Keep the native USD selection scope separate from the processing scope.
+    # Blender expands collection instances itself; selecting their prototype
+    # objects as well would export those objects twice.  Baking and asset
+    # preflight, however, must still inspect those prototype meshes/materials.
     objects_to_export = bake_ops._collect_export_objects(bpy.context, settings)
     if not objects_to_export:
         _save_diagnostics(diag, diagnostics_path)
@@ -151,13 +345,20 @@ def handle(args: dict) -> dict:
             artifacts=_artifacts(diagnostics_path, filepath, bpy.data.filepath),
         )
 
-    missing_images = asset_preflight.collect_missing_image_files_for_objects(objects_to_export, bpy)
+    processing_objects = animation_export.collect_processing_objects(
+        bpy.context,
+        objects_to_export,
+    )
+    missing_images = asset_preflight.collect_missing_image_files_for_objects(
+        processing_objects,
+        bpy,
+    )
     if missing_images:
         asset_preflight.record_missing_image_files(diag, missing_images)
         _save_diagnostics(diag, diagnostics_path)
         raise CommandError(
             asset_preflight.missing_images_status_message(missing_images),
-            code="MISSING_EXTERNAL_TEXTURES",
+            code=asset_preflight.missing_assets_error_code(missing_images),
             stage="asset_preflight",
             details=missing_images,
             artifacts=_artifacts(diagnostics_path, filepath, bpy.data.filepath),
@@ -169,20 +370,119 @@ def handle(args: dict) -> dict:
     original_mode = original_active.mode if original_active else "OBJECT"
     original_engine = bpy.context.scene.render.engine
     original_force_unlit = getattr(settings, "force_unlit_materials", False)
+    processing_link_state = {
+        "scene": bpy.context.scene,
+        "temporary_scene_links": [],
+    }
 
     bake_result = None
+    staging_dir = None
+    temp_usd_path = None
     start_time = time.time()
 
     try:
+        step_timeout_seconds = max(
+            0,
+            int(getattr(settings, "bake_step_timeout_seconds", 0) or 0),
+        )
+    except (TypeError, ValueError):
+        step_timeout_seconds = 0
+
+    # The timeout callback runs off Blender's main thread. Capture anything
+    # that touches bpy now; the callback itself must use immutable Python data.
+    timeout_artifacts = _artifacts(
+        diagnostics_path,
+        filepath,
+        bpy.data.filepath,
+    )
+    timeout_diagnostic_base = json.loads(json.dumps(diag.data, default=str))
+
+    def _step_timed_out(step: str, elapsed: float, limit: float) -> None:
+        """Flush a structured response before best-effort diagnostics."""
+        limit_seconds = int(limit)
+        elapsed_seconds = round(float(elapsed), 2)
+        message = (
+            f"Bake/export step '{step}' timed out after {limit_seconds}s; "
+            "the Blender worker was terminated."
+        )
+        timeout_details = {
+            "code": "BAKE_STEP_TIMEOUT",
+            "stage": step,
+            "timeout_seconds": limit_seconds,
+            "elapsed_seconds": elapsed_seconds,
+        }
+
+        response = {
+            "ok": False,
+            "schema_version": "1.0",
+            "command": "bake_export",
+            "error": {
+                "code": "BAKE_STEP_TIMEOUT",
+                "type": "CommandError",
+                "message": message,
+                "stage": step,
+                "details": {
+                    "timeout_seconds": limit_seconds,
+                    "elapsed_seconds": elapsed_seconds,
+                },
+            },
+            "context": {
+                "stage": step,
+                "timeout_seconds": limit_seconds,
+                "elapsed_seconds": elapsed_seconds,
+            },
+            "artifacts": timeout_artifacts,
+        }
+        # This envelope is the CLI contract and must be emitted before any
+        # optional diagnostic I/O. The bridge treats BAKE_STEP_TIMEOUT as
+        # authoritative even if another response raced with process exit.
+        print(
+            f"{OUTPUT_MARKER}{json.dumps(response, default=str)}{OUTPUT_MARKER}",
+            flush=True,
+        )
+        print(message, file=sys.stderr, flush=True)
+
+        # Diagnostic persistence is best-effort: a disk error must never hide
+        # the already-flushed structured timeout response.
+        try:
+            write_timeout_diagnostics(
+                diagnostics_path,
+                timeout_diagnostic_base,
+                timeout_details,
+                message,
+            )
+        except Exception as exc:
+            print(
+                f"Unable to write timeout diagnostics: {exc}",
+                file=sys.stderr,
+                flush=True,
+            )
+
+    step_watchdog = StepTimeoutWatchdog(
+        step_timeout_seconds,
+        _step_timed_out,
+    )
+    step_watchdog.start("Preparing bake")
+
+    try:
+        step_watchdog.enter_step("Preparing Blender scene")
         bake_ops._ensure_object_mode(bpy.context)
         bake_ops._set_render_engine(bpy.context.scene, "CYCLES")
-
-        ## Reset the staging dir ONCE before baking textures into it; the export
-        ## below passes reset_staging=False so it won't delete the baked textures.
-        blender_usd_export._reset_export_staging_dir(
-            blender_usd_export.get_export_staging_dir(filepath), diag
+        # Collection prototypes are commonly not linked into the active scene,
+        # which makes them unavailable to bpy's bake operators.  Link only for
+        # processing and remove the links again before invoking the native USD
+        # exporter, whose selected-only scope must remain exact.
+        animation_export._link_processing_objects_for_bake(
+            bpy.context,
+            processing_objects,
+            processing_link_state,
         )
-        texture_dir = blender_usd_export.get_export_staging_dir(filepath) / "textures"
+
+        # Allocate one unique staging attempt before baking. The exact same
+        # directory is passed to the native export below so it preserves the
+        # freshly baked textures without sharing state with another attempt.
+        staging_dir = blender_usd_export.create_export_staging_dir(filepath, diag)
+        texture_dir = staging_dir / "textures"
         resolved_image_format = bake_textures._resolve_bake_image_format(settings, diag, safe_for_blender_save=True)
         diag.data["bake"] = {
             "mode": getattr(settings, "bake_mode", None),
@@ -193,35 +493,64 @@ def handle(args: dict) -> dict:
             "opacity": bool(getattr(settings, "bake_opacity", False)),
             "isolate_meshes_lit": bool(getattr(settings, "bake_isolate_meshes_lit", False)),
             "texture_settings_enabled": bool(getattr(settings, "export_texture_settings_enabled", False)),
-            "object_count": len(objects_to_export),
+            "object_count": len(processing_objects),
+            "native_export_object_count": len(objects_to_export),
             "texture_dir": str(texture_dir),
         }
 
         # Bake
+        step_watchdog.enter_step("Baking textures")
         diag.begin_phase("bake_textures", {"texture_dir": str(texture_dir)})
+
+        def _bake_progress(_progress: float, message: str) -> None:
+            # bake_textures emits a distinct label immediately before every
+            # blocking bpy bake operation, giving each one a fresh budget.
+            step_watchdog.enter_step(message)
+
         bake_result = bake_textures.bake_materials_for_objects(
-            bpy.context, settings, objects_to_export, texture_dir, diag
+            bpy.context,
+            settings,
+            processing_objects,
+            texture_dir,
+            diag,
+            progress_callback=_bake_progress,
         )
         diag.end_phase("bake_textures")
 
         # Author Lit PBR only for "Material Color Only - Lit PBR"; every other
         # bake mode stays Unlit — same as the interactive path.
+        step_watchdog.enter_step("Finalizing baked materials")
         bake_finalize.apply_force_unlit(settings)
 
         # Y-up geometry bake when requested (and safe). This runs in a throwaway
         # background scene, so the returned restore state is only used to decide
         # whether to author upAxis=Y below - never to restore.
+        step_watchdog.enter_step("Applying Y-up geometry conversion")
         yup_state = bake_finalize.maybe_apply_yup_geometry_bake(
             bpy.context, settings, objects_to_export, diag
         )
 
+        _unlink_processing_scope(
+            animation_export,
+            processing_link_state,
+            strict=True,
+        )
         if getattr(settings, "selected_objects_only", False):
-            bake_ops._set_selection(bpy.context, objects_to_export)
+            animation_export._set_export_selection(
+                bpy.context,
+                objects_to_export,
+            )
 
         # Export
+        step_watchdog.enter_step("Exporting USD")
         diag.begin_phase("blender_usd_export", {"output_path": filepath})
         temp_usd_path = blender_usd_export.export_blender_scene(
-            bpy.context, settings, filepath, diag, reset_staging=False
+            bpy.context,
+            settings,
+            filepath,
+            diag,
+            reset_staging=False,
+            staging_dir=staging_dir,
         )
         if not temp_usd_path or not Path(temp_usd_path).exists():
             raise CommandError(
@@ -238,6 +567,7 @@ def handle(args: dict) -> dict:
         )
 
         # Post-process (authors upAxis=Y when the Y-up geometry bake ran)
+        step_watchdog.enter_step("Post-processing USD")
         diag.begin_phase("postprocess_usd", {"usd_path": temp_usd_path})
         postprocess_usd.process_usd_stage(
             temp_usd_path, settings, bpy.context, diag,
@@ -259,6 +589,7 @@ def handle(args: dict) -> dict:
 
         # Package
         if settings.export_format == "USDZ":
+            step_watchdog.enter_step("Packaging USDZ")
             diag.begin_phase("pack_usdz", {"output_path": filepath})
             pack_usdz.create_usdz(
                 temp_usd_path, filepath, settings, bpy.context, diag
@@ -268,6 +599,7 @@ def handle(args: dict) -> dict:
                 context={"file_size": Path(filepath).stat().st_size if Path(filepath).exists() else None},
             )
         else:
+            step_watchdog.enter_step("Publishing USD export")
             if temp_usd_path != filepath:
                 blender_usd_export.publish_unpacked_export(temp_usd_path, filepath, diag)
             else:
@@ -278,12 +610,16 @@ def handle(args: dict) -> dict:
         # Diagnostics
         saved_diagnostics_path = None
         if diagnostics_enabled:
+            step_watchdog.enter_step("Writing diagnostics")
             _save_diagnostics(diag, diagnostics_path)
             saved_diagnostics_path = diagnostics_path
 
         # Bake stats
         bake_stats = {
-            "objects_baked": len(objects_to_export),
+            "objects_baked": sum(
+                1 for obj in processing_objects
+                if getattr(obj, "type", None) == "MESH"
+            ),
             "resolution": bake_textures._resolve_bake_resolution(settings),
             "image_format": bake_textures._resolve_bake_image_format(settings, diag, safe_for_blender_save=True)["file_format"],
         }
@@ -315,6 +651,21 @@ def handle(args: dict) -> dict:
         ) from exc
 
     finally:
+        step_watchdog.enter_step("Restoring Blender scene")
+        try:
+            _unlink_processing_scope(
+                animation_export,
+                processing_link_state,
+                strict=True,
+            )
+        except Exception as exc:
+            # Cleanup must not mask the primary failure, but it does belong in
+            # diagnostics because a leaked scene link would be user-visible.
+            try:
+                diag.add_error(f"Could not unlink temporary bake dependencies: {exc}")
+                _save_diagnostics(diag, diagnostics_path)
+            except Exception:
+                pass
         settings.force_unlit_materials = original_force_unlit
         try:
             bpy.context.scene.render.engine = original_engine
@@ -327,12 +678,70 @@ def handle(args: dict) -> dict:
             )
         bake_ops._restore_selection(bpy.context, original_selection, original_active)
         bake_ops._restore_mode(bpy.context, original_active, original_mode)
-        # Guarantee the .blendertorcp_temp staging tree is gone, even if the
-        # export failed or raised above (publish/pack only clean it on success).
-        try:
-            blender_usd_export.remove_export_staging_dir(filepath, diag)
-        except Exception:
-            pass
+        # Clean only this attempt. Prefer the directory proven by the returned
+        # USD path; before export returns, fall back to the directory allocated
+        # for the bake. A failing native export cleans its own attempt.
+        cleanup_staging_dir = (
+            Path(temp_usd_path).parent if temp_usd_path else staging_dir
+        )
+        if cleanup_staging_dir is not None:
+            try:
+                blender_usd_export.remove_export_staging_dir(
+                    filepath,
+                    diag,
+                    staging_dir=cleanup_staging_dir,
+                )
+            except Exception:
+                pass
+        step_watchdog.stop()
+
+
+def _unlink_processing_scope(animation_export, state: dict, *, strict: bool) -> None:
+    """Unlink temporary processing dependencies and fail closed before USD.
+
+    ``animation_export`` owns the canonical link/unlink implementation.  Its
+    cleanup is intentionally best-effort for animation restoration, so this
+    bake path adds a verification step: a prototype that remains scene-linked
+    would be emitted as a second native USD object during a full-scene export.
+    Failed links are put back into the state so the outer ``finally`` retries.
+    """
+    linked = list(state.get("temporary_scene_links", []) or [])
+    if not linked:
+        return
+
+    animation_export._unlink_temporary_processing_objects(state)
+    scene = state.get("scene")
+    remaining = []
+    if scene is not None:
+        for obj in linked:
+            try:
+                candidate = scene.objects.get(str(getattr(obj, "name", "")))
+                if (
+                    candidate is not None
+                    and animation_export._rna_identity(candidate)
+                    == animation_export._rna_identity(obj)
+                ):
+                    remaining.append(obj)
+            except Exception:
+                # If membership cannot be verified, fail closed rather than
+                # risking duplicate native export content.
+                remaining.append(obj)
+
+    if not remaining:
+        return
+
+    state["temporary_scene_links"] = remaining
+    if strict:
+        names = ", ".join(
+            repr(str(getattr(obj, "name", "<unknown>")))
+            for obj in remaining[:5]
+        )
+        if len(remaining) > 5:
+            names += f", and {len(remaining) - 5} more"
+        raise RuntimeError(
+            "Could not restore the native USD scene scope after texture bake; "
+            f"temporary dependencies remain linked: {names}."
+        )
 
 
 def _save_diagnostics(diag, diagnostics_path: str | None) -> None:

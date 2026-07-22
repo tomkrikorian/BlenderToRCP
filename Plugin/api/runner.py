@@ -16,49 +16,36 @@ can extract it from Blender's noisy startup output.
 from __future__ import annotations
 
 import json
+import importlib
+import importlib.util
 import sys
 import traceback
 from pathlib import Path
-import importlib.util
 
 _PLUGIN_ROOT = Path(__file__).resolve().parents[1]
 
 
-def _bootstrap_plugin_package() -> None:
-    """Make absolute ``Plugin.*`` imports work from copied extension folders."""
-    parent = _PLUGIN_ROOT.parent
-    if str(parent) not in sys.path:
-        sys.path.insert(0, str(parent))
-    if (parent / "Plugin" / "__init__.py").exists():
-        return
-    if "Plugin" in sys.modules:
-        return
-
-    init_path = _PLUGIN_ROOT / "__init__.py"
-    if not init_path.exists():
-        return
-    init_resolved = init_path.resolve()
-    for module in list(sys.modules.values()):
-        if Path(getattr(module, "__file__", "") or "") == init_resolved:
-            sys.modules["Plugin"] = module
-            return
-
+def _load_bootstrap_module():
+    bootstrap_path = _PLUGIN_ROOT / "core" / "package_bootstrap.py"
     spec = importlib.util.spec_from_file_location(
-        "Plugin",
-        init_path,
-        submodule_search_locations=[str(_PLUGIN_ROOT)],
+        "_blendertorcp_package_bootstrap",
+        bootstrap_path,
     )
     if spec is None or spec.loader is None:
-        return
+        raise RuntimeError(f"Could not load BlenderToRCP package bootstrap: {bootstrap_path}")
     module = importlib.util.module_from_spec(spec)
-    sys.modules["Plugin"] = module
     spec.loader.exec_module(module)
+    return module
 
 
-_bootstrap_plugin_package()
+_bootstrap = _load_bootstrap_module()
+_PACKAGE_NAME, _PACKAGE_MODULE = _bootstrap.load_extension_package(_PLUGIN_ROOT)
+_addon_loader = importlib.import_module(f"{_PACKAGE_NAME}.api.addon_loader")
+_errors = importlib.import_module(f"{_PACKAGE_NAME}.api.errors")
 
-from Plugin.api.addon_loader import ensure_addon_loaded as _load_blendertorcp_addon
-from Plugin.api.errors import CommandError
+_load_blendertorcp_addon = _addon_loader.ensure_addon_loaded
+CommandError = _errors.CommandError
+json_safe = _errors.json_safe
 
 OUTPUT_MARKER = "---BLENDERTORCP_JSON---"
 
@@ -70,7 +57,11 @@ def _ensure_addon_loaded() -> None:
 
 def _output(data: dict) -> None:
     """Print JSON result wrapped in markers so the bridge can parse it."""
-    print(f"{OUTPUT_MARKER}{json.dumps(data)}{OUTPUT_MARKER}", flush=True)
+    payload = json_safe(data)
+    print(
+        f"{OUTPUT_MARKER}{json.dumps(payload, allow_nan=False)}{OUTPUT_MARKER}",
+        flush=True,
+    )
 
 
 def _error_response(command: str | None, exc: Exception, tb: str | None = None) -> dict:
@@ -88,14 +79,14 @@ def _error_response(command: str | None, exc: Exception, tb: str | None = None) 
         context = {}
     if tb:
         error["traceback"] = tb
-    return {
+    return json_safe({
         "ok": False,
         "schema_version": "1.0",
         "command": command,
         "error": error,
         "context": context,
         "artifacts": artifacts,
-    }
+    })
 
 
 def main() -> int:
@@ -127,15 +118,25 @@ def main() -> int:
             _ensure_addon_loaded()
         except Exception as exc:
             tb = traceback.format_exc()
-            _output(_error_response(command, exc, tb))
+            load_error = CommandError(
+                str(exc),
+                code="ADDON_LOAD_FAILED",
+                stage="addon_load",
+            )
+            _output(_error_response(command, load_error, tb))
             print(tb, file=sys.stderr)
             return 1
 
     try:
-        from Plugin.api.commands import REGISTRY
+        REGISTRY = importlib.import_module(f"{_PACKAGE_NAME}.api.commands").REGISTRY
     except Exception as exc:
         tb = traceback.format_exc()
-        _output(_error_response(command, RuntimeError(f"Failed to import command registry: {exc}"), tb))
+        load_error = CommandError(
+            f"Failed to import command registry: {exc}",
+            code="ADDON_LOAD_FAILED",
+            stage="command_registry",
+        )
+        _output(_error_response(command, load_error, tb))
         print(tb, file=sys.stderr)
         return 1
 

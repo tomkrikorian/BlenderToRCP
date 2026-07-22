@@ -1,26 +1,105 @@
-"""Unit tests for opacity gating driven by actual transparency.
-
-Regression guard for the Blender 4.2+/5.x ``blend_method`` deprecation: the
-exporter must decide whether to author an ``opacity`` input from the real Alpha
-value (``is_transparent``), not from ``blend_method`` (which never reports
-``OPAQUE`` on modern Blender, so it would wire opacity into every material).
-"""
+"""Blender 5.2 opacity and explicit alpha-cutout contract regressions."""
 
 from __future__ import annotations
 
 import sys
+import types
 from pathlib import Path
 
+import pytest
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+_bpy_stub = sys.modules.setdefault("bpy", types.ModuleType("bpy"))
+if not hasattr(_bpy_stub, "types"):
+    _bpy_stub.types = types.SimpleNamespace(NodeTree=object)
 
 from Plugin.export.materials.graph import MaterialXGraphBuilder
-from Plugin.export.materials.extract.core import should_author_opacity_threshold
+from Plugin.export import bake_textures
+from Plugin.export.materials.extract.core import (
+    extract_blender_material_data,
+    material_has_transparency,
+    opacity_threshold_from_material,
+    should_author_opacity_threshold,
+)
 from Plugin.manifest.materialx_nodes import load_manifest
 
 
-class _FakeMaterial:
-    def __init__(self, blend_method):
-        self.blend_method = blend_method
+class _Socket:
+    def __init__(self, default_value=None):
+        self.default_value = default_value
+        self.links = []
+        self.is_linked = False
+
+
+class _Node:
+    def __init__(self, node_type, *, inputs=None, active=False):
+        self.type = node_type
+        self.inputs = inputs or {}
+        self.is_active_output = active
+
+
+class _Blender52Material(dict):
+    def __init__(self, *, surface_render_method="DITHERED"):
+        super().__init__()
+        self.name = "AlphaMaterial"
+        self.use_nodes = True
+        self.surface_render_method = surface_render_method
+        self.node_tree = None
+
+    @property
+    def blend_method(self):  # pragma: no cover - any access is the failure
+        raise AssertionError("Blender 5.2 export must not read blend_method")
+
+    def __bool__(self):
+        return True
+
+
+def _link(from_node, to_socket):
+    link = types.SimpleNamespace(from_node=from_node)
+    to_socket.links.append(link)
+    to_socket.is_linked = True
+
+
+def _material_with_active_alpha(
+    active_alpha,
+    *,
+    disconnected_alpha=None,
+    surface_render_method="DITHERED",
+):
+    active = _Node('BSDF_PRINCIPLED', inputs={'Alpha': _Socket(active_alpha)})
+    active_surface = _Socket()
+    _link(active, active_surface)
+    active_output = _Node(
+        'OUTPUT_MATERIAL',
+        inputs={'Surface': active_surface},
+        active=True,
+    )
+
+    nodes = []
+    if disconnected_alpha is not None:
+        disconnected = _Node(
+            'BSDF_PRINCIPLED',
+            inputs={'Alpha': _Socket(disconnected_alpha)},
+        )
+        inactive_surface = _Socket()
+        _link(disconnected, inactive_surface)
+        nodes.extend(
+            [
+                disconnected,
+                _Node(
+                    'OUTPUT_MATERIAL',
+                    inputs={'Surface': inactive_surface},
+                    active=False,
+                ),
+            ]
+        )
+    nodes.extend([active, active_output])
+
+    material = _Blender52Material(
+        surface_render_method=surface_render_method,
+    )
+    material.node_tree = types.SimpleNamespace(nodes=nodes)
+    return material
 
 
 def _builder() -> MaterialXGraphBuilder:
@@ -74,19 +153,58 @@ def test_missing_flag_defaults_to_opaque():
     assert "opacity" not in builder._map_pbr_inputs(material_data)
 
 
-def test_opacity_threshold_only_for_cutout_transparency():
-    # Smooth alpha BLEND must NOT author opacityThreshold (the regression):
-    # a non-zero threshold would hard-clip the surface into a broken cutout.
-    assert should_author_opacity_threshold(_FakeMaterial("BLEND"), True) is False
-    # Cutout/dithered transparency should keep authoring it.
-    assert should_author_opacity_threshold(_FakeMaterial("HASHED"), True) is True
-    assert should_author_opacity_threshold(_FakeMaterial("CLIP"), True) is True
-    # Opaque materials never author a threshold, whatever the blend method.
-    assert should_author_opacity_threshold(_FakeMaterial("HASHED"), False) is False
+@pytest.mark.parametrize("surface_render_method", ["DITHERED", "BLENDED"])
+def test_blender52_render_method_never_implies_opacity_threshold(
+    surface_render_method,
+):
+    material = _material_with_active_alpha(
+        0.4,
+        surface_render_method=surface_render_method,
+    )
+
+    data = extract_blender_material_data(material)
+
+    assert data["surface_render_method"] == surface_render_method
+    assert data["is_transparent"] is True
+    assert data["alpha"] == pytest.approx(0.4)
+    assert "alpha_threshold" not in data
+    assert should_author_opacity_threshold(material, True) is False
 
 
-def test_opacity_threshold_missing_blend_method_is_safe():
-    class _NoBlend:
-        pass
+def test_explicit_numeric_cutout_contract_authors_threshold():
+    material = _material_with_active_alpha(0.4)
+    material["blender_to_rcp_alpha_cutout_threshold"] = 0.375
 
-    assert should_author_opacity_threshold(_NoBlend(), True) is False
+    data = extract_blender_material_data(material)
+
+    assert opacity_threshold_from_material(material, True) == pytest.approx(0.375)
+    assert data["alpha_threshold"] == pytest.approx(0.375)
+
+
+@pytest.mark.parametrize("value", [True, False, -0.1, 1.1, float("nan"), "cutout"])
+def test_incomplete_or_invalid_cutout_contract_is_ignored(value):
+    material = _material_with_active_alpha(0.4)
+    material["blender_to_rcp_alpha_cutout_threshold"] = value
+
+    assert opacity_threshold_from_material(material, True) is None
+    assert should_author_opacity_threshold(material, True) is False
+
+
+def test_inactive_principled_alpha_does_not_trigger_opacity_bake():
+    material = _material_with_active_alpha(1.0, disconnected_alpha=0.2)
+
+    assert material_has_transparency(material) is False
+    assert bake_textures._material_needs_opacity(material) is False
+    data = extract_blender_material_data(material)
+    assert data["alpha"] == pytest.approx(1.0)
+    assert data["is_transparent"] is False
+
+
+def test_active_second_principled_drives_transparency_and_extraction():
+    material = _material_with_active_alpha(0.3, disconnected_alpha=1.0)
+
+    assert material_has_transparency(material) is True
+    assert bake_textures._material_needs_opacity(material) is True
+    data = extract_blender_material_data(material)
+    assert data["alpha"] == pytest.approx(0.3)
+    assert data["is_transparent"] is True

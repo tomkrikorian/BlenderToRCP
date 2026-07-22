@@ -2,6 +2,8 @@
 RealityKit material validation and enforcement helpers.
 """
 
+from __future__ import annotations
+
 from typing import Dict, List, Optional, Set
 
 from . import metadata
@@ -20,6 +22,9 @@ SUPPORTED_TYPES = {
     'NORMAL_MAP',
     'RGB',
     'VALUE',
+    'INPUT_BOOL',
+    'INPUT_INT',
+    'INPUT_VECTOR',
     'SEPARATE_COLOR',
     'SEPARATE_RGB',
     'SEPARATE_XYZ',
@@ -39,7 +44,6 @@ SUPPORTED_TYPES = {
     'NORMAL',
     'MAP_RANGE',
     'INVERT',
-    'CURVE_RGB',
 }
 
 SHADERGRAPH_SUPPORTED_TYPES = {
@@ -78,6 +82,7 @@ BAKE_TYPES = {
     'COMBINE_SPHERICAL',
     'SEPARATE_SPHERICAL',
     'FLOAT_CURVE',
+    'CURVE_RGB',
 }
 
 UNSUPPORTED_TYPES = {
@@ -128,7 +133,88 @@ UNSUPPORTED_TYPES = {
 }
 
 
-def _unsupported_principled_inputs(node) -> List[str]:
+# Blender 5.2 Principled controls that the portable RealityKit PBR v1 graph
+# cannot represent.  The neutral values are Blender 5.2's factory defaults,
+# captured from the live node RNA.  Keeping the contract here, beside material
+# validation, prevents the graph builder's intentionally small portable subset
+# from becoming a silent appearance downgrade.
+_PORTABLE_OMITTED_PRINCIPLED_INPUTS = (
+    ('Diffuse Roughness', 0.0, 'RealityKit PBR Surface 2 or OpenPBR 1.1', None),
+    ('Subsurface Weight', 0.0, 'RealityKit PBR Surface 2 or OpenPBR 1.1', None),
+    (
+        'Subsurface Radius',
+        (1.0, 0.2, 0.1),
+        'RealityKit PBR Surface 2 or OpenPBR 1.1',
+        'Subsurface Weight',
+    ),
+    (
+        'Subsurface Scale',
+        0.005,
+        'RealityKit PBR Surface 2 or OpenPBR 1.1',
+        'Subsurface Weight',
+    ),
+    (
+        'Subsurface Anisotropy',
+        0.0,
+        'RealityKit PBR Surface 2 or OpenPBR 1.1',
+        'Subsurface Weight',
+    ),
+    ('IOR', 1.5, 'RealityKit PBR Surface 2 or OpenPBR 1.1', None),
+    (
+        'Specular Tint',
+        (1.0, 1.0, 1.0, 1.0),
+        None,
+        None,
+    ),
+    ('Coat IOR', 1.5, 'RealityKit PBR Surface 2 or OpenPBR 1.1', 'Coat Weight'),
+    ('Coat Tint', (1.0, 1.0, 1.0, 1.0), 'OpenPBR 1.1', 'Coat Weight'),
+    ('Sheen Weight', 0.0, 'RealityKit PBR Surface 2 or OpenPBR 1.1', None),
+    ('Sheen Roughness', 0.5, 'OpenPBR 1.1', 'Sheen Weight'),
+    (
+        'Sheen Tint',
+        (1.0, 1.0, 1.0, 1.0),
+        'RealityKit PBR Surface 2 or OpenPBR 1.1',
+        'Sheen Weight',
+    ),
+)
+
+# These Blender 5.2 controls currently have no faithful graph path in any
+# profile.  OpenPBR's vendored nodedef exposes thin-film inputs, but extraction
+# does not author them yet; accepting them in validation would still lose the
+# artist's values.  Subsurface IOR is likewise not mapped by either surface.
+_UNMAPPED_PRINCIPLED_INPUTS = (
+    ('Subsurface IOR', 1.4, 'Subsurface Weight'),
+    ('Thin Film Thickness', 0.0, None),
+    ('Thin Film IOR', 1.33, 'Thin Film Thickness'),
+)
+
+
+def _values_differ(value, neutral, epsilon: float = 1e-6) -> bool:
+    """Compare scalar/vector Blender socket values against a known default."""
+    if isinstance(neutral, (tuple, list)):
+        try:
+            values = list(value)
+        except (TypeError, ValueError):
+            return True
+        if len(values) < len(neutral):
+            return True
+        try:
+            return any(
+                abs(float(values[index]) - float(component)) > epsilon
+                for index, component in enumerate(neutral)
+            )
+        except (TypeError, ValueError):
+            return True
+    try:
+        return abs(float(value) - float(neutral)) > epsilon
+    except (TypeError, ValueError):
+        return value != neutral
+
+
+def _unsupported_principled_inputs(
+    node,
+    surface_profile: str = "realitykit_portable",
+) -> List[str]:
     """Report Principled BSDF inputs that RealityKit PBR cannot represent.
 
     Only inputs that are linked or deviate from their neutral default are
@@ -136,33 +222,194 @@ def _unsupported_principled_inputs(node) -> List[str]:
     """
     issues: List[str] = []
 
-    def _active(name: str, neutral: float = 0.0) -> bool:
+    def _socket(name: str):
+        return node.inputs.get(name)
+
+    def _linked(name: str) -> bool:
+        socket = _socket(name)
+        return bool(socket is not None and getattr(socket, 'is_linked', False))
+
+    def _active(name: str, neutral=0.0) -> bool:
         socket = node.inputs.get(name)
         if socket is None:
             return False
-        if socket.is_linked:
+        if getattr(socket, 'is_linked', False):
             return True
-        try:
-            return abs(float(socket.default_value) - neutral) > 1e-6
-        except (TypeError, ValueError):
-            return False
+        return _values_differ(getattr(socket, 'default_value', None), neutral)
+
+    subsurface_active = _active('Subsurface Weight')
+    coat_active = _active('Coat Weight')
+    sheen_active = _active('Sheen Weight')
+    transmission_active = _active('Transmission Weight')
+    thin_film_active = _active('Thin Film Thickness')
+    anisotropy_active = _active('Anisotropic')
 
     thin_wall = node.inputs.get('Thin Wall')
-    if thin_wall is not None and (thin_wall.is_linked or bool(thin_wall.default_value)):
+    if (
+        thin_wall is not None
+        and (getattr(thin_wall, 'is_linked', False) or bool(thin_wall.default_value))
+        and (transmission_active or subsurface_active)
+    ):
         issues.append("Principled 'Thin Wall' is enabled; RealityKit has no thin-wall shading.")
-    if _active('Transmission Weight'):
+    if transmission_active:
         issues.append("Principled 'Transmission Weight' is not exportable; the material will be opaque.")
-    if _active('Sheen Weight'):
-        issues.append("Principled 'Sheen Weight' is not exportable and will be ignored.")
-    if _active('Subsurface Weight'):
-        issues.append("Principled 'Subsurface Weight' is not exportable and will be ignored.")
+
+    profile = (surface_profile or 'realitykit_portable').strip().lower()
+
+    # Coat constants are mapped, but linked Coat Weight/Roughness/Tint values
+    # have no graph_input_map entry in extraction.  Reject those links in every
+    # profile until they can be preserved rather than accepting a default value.
+    linked_coat_inputs = {
+        name
+        for name in ('Coat Weight', 'Coat Roughness', 'Coat Tint')
+        if _linked(name) and (name == 'Coat Weight' or coat_active)
+    }
+    for name in sorted(linked_coat_inputs):
+        issues.append(
+            f"Principled '{name}' is linked, but linked coat controls are not exportable; "
+            "bake the material or use an unlinked constant."
+        )
+
+    # Blender's anisotropy level and rotation do not map one-to-one to the
+    # currently authored PBR2/OpenPBR inputs: native Blender 5.2 applies a level
+    # factor and tangent rotation that this exporter does not reproduce.  A
+    # partially mapped result is worse than an actionable failure.
+    anisotropy_inputs = (
+        ('Anisotropic', 0.0, None),
+        ('Anisotropic Rotation', 0.0, 'Anisotropic'),
+        ('Tangent', (0.0, 0.0, 0.0), 'Anisotropic'),
+    )
+    for name, neutral, controller in anisotropy_inputs:
+        if (controller is None or anisotropy_active) and _active(name, neutral):
+            issues.append(
+                f"Principled '{name}' requires a verified Blender 5.2 tangent/anisotropy "
+                "mapping; bake the material before export."
+            )
+
+    active_controllers = {
+        'Subsurface Weight': subsurface_active,
+        'Coat Weight': coat_active,
+        'Sheen Weight': sheen_active,
+        'Thin Film Thickness': thin_film_active,
+    }
+
+    for name, neutral, controller in _UNMAPPED_PRINCIPLED_INPUTS:
+        if (
+            (controller is None or active_controllers.get(controller, False))
+            and _active(name, neutral)
+        ):
+            issues.append(
+                f"Principled '{name}' is not authored by the selected MaterialX profiles; "
+                "bake the material before export."
+            )
+
+    if profile == 'realitykit_portable':
+        for name, neutral, alternative, controller in _PORTABLE_OMITTED_PRINCIPLED_INPUTS:
+            # A linked Coat Tint was already reported by the graph-map gate.
+            if name in linked_coat_inputs:
+                continue
+            if (
+                (controller is None or active_controllers.get(controller, False))
+                and _active(name, neutral)
+            ):
+                remediation = (
+                    f"select {alternative} or bake the material"
+                    if alternative
+                    else "bake the material"
+                )
+                issues.append(
+                    f"Principled '{name}' is active, but the RealityKit Portable profile "
+                    f"does not export it; {remediation}."
+                )
+
+    if (
+        profile == 'realitykit_pbr2'
+        and coat_active
+        and 'Coat Tint' not in linked_coat_inputs
+        and _active('Coat Tint', (1.0, 1.0, 1.0, 1.0))
+    ):
+        issues.append(
+            "Principled 'Coat Tint' has no RealityKit PBR Surface 2 input; "
+            "select OpenPBR 1.1 or bake the material."
+        )
+
+    if (
+        profile in {'realitykit_pbr2', 'openpbr_1_1'}
+        and _active('Specular Tint', (1.0, 1.0, 1.0, 1.0))
+    ):
+        issues.append(
+            "Principled 'Specular Tint' color semantics are not verified against the "
+            "selected MaterialX surface; bake the material before export."
+        )
+
+    if _active('Sheen Weight') and profile == "realitykit_pbr2":
+        roughness = node.inputs.get('Sheen Roughness')
+        roughness_is_custom = False
+        if roughness is not None:
+            if roughness.is_linked:
+                roughness_is_custom = True
+            else:
+                try:
+                    roughness_is_custom = abs(float(roughness.default_value) - 0.5) > 1e-6
+                except (TypeError, ValueError):
+                    pass
+        if roughness_is_custom:
+            issues.append(
+                "Principled 'Sheen Roughness' has no RealityKit PBR Surface 2 input; "
+                "bake it or select OpenPBR 1.1."
+            )
     return issues
+
+
+def _effective_texture_mapping_uses(nodes):
+    """Collect non-default mappings that the material extractor will author."""
+
+    # Keep the validator importable without OpenUSD/Blender initialization;
+    # these helpers are pure until invoked against a real node graph.
+    from ..export.materials.extract.core import (
+        _extract_mapping_from_node,
+        _extract_uv_map_from_node,
+    )
+    from ..export.materials.mapping import effective_texture_mapping_contract
+
+    contracts = {}
+    extraction_errors = []
+    image_nodes = sorted(
+        (
+            node
+            for node in nodes
+            if getattr(node, "type", "") in {"TEX_IMAGE", "TEX_ENVIRONMENT"}
+        ),
+        key=lambda node: (str(getattr(node, "name", "")), id(node)),
+    )
+    for image_node in image_nodes:
+        inputs = getattr(image_node, "inputs", None)
+        vector_socket = inputs.get("Vector") if inputs is not None else None
+        if not vector_socket or not getattr(vector_socket, "is_linked", False):
+            continue
+        links = list(getattr(vector_socket, "links", []) or [])
+        if not links or not getattr(links[0], "from_node", None):
+            continue
+        source_node = links[0].from_node
+        try:
+            mapping = _extract_mapping_from_node(source_node)
+            uv_map = getattr(image_node, "uv_map", "") or ""
+            if not uv_map:
+                uv_map = _extract_uv_map_from_node(source_node)
+            contract = effective_texture_mapping_contract(mapping, uv_map)
+        except ValueError as exc:
+            extraction_errors.append((image_node, str(exc)))
+            continue
+        if contract is not None:
+            contracts.setdefault(contract, []).append(image_node)
+    return contracts, extraction_errors
 
 
 def validate_material(
     material,
     only_connected: bool = True,
     strict: bool = False,
+    surface_profile: str = "realitykit_portable",
 ) -> Dict[str, object]:
     """Validate a Blender material against RealityKit compatibility rules."""
     result = {
@@ -177,8 +424,9 @@ def validate_material(
     if not material or not material.use_nodes or not material.node_tree:
         return result
 
+    authored_nodes = _collect_used_nodes(material)
     if only_connected:
-        used_nodes = _collect_used_nodes(material)
+        used_nodes = authored_nodes
     else:
         used_nodes = set(material.node_tree.nodes)
 
@@ -191,6 +439,35 @@ def validate_material(
     ) -> None:
         target = "errors" if force_error else kind
         _add_issue(result, target, node, message, removable=removable)
+
+    mapping_contracts, mapping_extraction_errors = (
+        _effective_texture_mapping_uses(authored_nodes)
+    )
+    for image_node, message in mapping_extraction_errors:
+        add_issue(
+            "warnings",
+            image_node,
+            message,
+            force_error=strict,
+            removable=False,
+        )
+    if len(mapping_contracts) > 1:
+        mapped_nodes = sorted(
+            (node for nodes in mapping_contracts.values() for node in nodes),
+            key=lambda node: (str(getattr(node, "name", "")), id(node)),
+        )
+        add_issue(
+            "warnings",
+            mapped_nodes[-1],
+            (
+                f"Material uses {len(mapping_contracts)} distinct non-default texture "
+                "mappings, but RealityKit honors only the first 2D texture transform "
+                "per material. Use identical Mapping values and one UV set for every "
+                "transformed texture, or bake the transforms into the images."
+            ),
+            force_error=strict,
+            removable=False,
+        )
 
     for node in used_nodes:
         node_type = getattr(node, "type", "")
@@ -214,7 +491,7 @@ def validate_material(
                     force_error=strict,
                 )
             if node_type == 'BSDF_PRINCIPLED':
-                for issue in _unsupported_principled_inputs(node):
+                for issue in _unsupported_principled_inputs(node, surface_profile):
                     add_issue("warnings", node, issue, force_error=strict, removable=False)
             if node_type == 'NORMAL_MAP' and getattr(node, "convention", 'OPENGL') == 'DIRECTX':
                 add_issue(
@@ -225,6 +502,61 @@ def validate_material(
                     force_error=strict,
                     removable=False,
                 )
+            if node_type == 'NORMAL_MAP':
+                strength_socket = node.inputs.get('Strength') if hasattr(node, 'inputs') else None
+                strength_is_linked = bool(
+                    strength_socket is not None
+                    and getattr(strength_socket, 'is_linked', False)
+                )
+                if strength_is_linked:
+                    add_issue(
+                        "warnings",
+                        node,
+                        "Linked Normal Map Strength requires baking; only a constant strength is mapped.",
+                        force_error=strict,
+                        removable=False,
+                    )
+                profile = (surface_profile or 'realitykit_portable').strip().lower()
+                if (
+                    profile == 'realitykit_pbr2'
+                    and strength_socket is not None
+                    and not strength_is_linked
+                    and _values_differ(
+                        getattr(strength_socket, 'default_value', None),
+                        1.0,
+                    )
+                ):
+                    add_issue(
+                        "warnings",
+                        node,
+                        "RealityKit PBR Surface 2 cannot safely apply non-default Normal Map "
+                        "Strength without double-decoding the normal; bake the normal map.",
+                        force_error=strict,
+                        removable=False,
+                    )
+                normal_space = str(getattr(node, 'space', 'TANGENT') or 'TANGENT').upper()
+                if profile == 'realitykit_pbr2' and normal_space != 'TANGENT':
+                    add_issue(
+                        "warnings",
+                        node,
+                        f"RealityKit PBR Surface 2 cannot safely export {normal_space} Normal Map "
+                        "space without double-decoding; bake a tangent-space normal map.",
+                        force_error=strict,
+                        removable=False,
+                    )
+            if node_type == 'VALTORGB':
+                ramp = getattr(node, "color_ramp", None)
+                interpolation = (getattr(ramp, "interpolation", "LINEAR") or "LINEAR").upper()
+                color_mode = (getattr(ramp, "color_mode", "RGB") or "RGB").upper()
+                if color_mode != "RGB" or interpolation not in {"LINEAR", "CONSTANT", "EASE"}:
+                    add_issue(
+                        "warnings",
+                        node,
+                        f"Color Ramp {color_mode}/{interpolation} requires baking; only RGB Linear, "
+                        "Constant, and Ease are mapped exactly.",
+                        force_error=strict,
+                        removable=False,
+                    )
             continue
 
         if node_type in SHADERGRAPH_SUPPORTED_TYPES:
@@ -236,12 +568,13 @@ def validate_material(
             continue
 
         if node_type in {'MIX_RGB', 'MIX'}:
-            if _is_identity_mix(node):
+            if _is_supported_mix(node):
                 continue
             add_issue(
                 "warnings",
                 node,
-                "Mix node requires baking unless Factor is 0/1 with a passthrough input.",
+                "Mix node requires baking unless it is a plain mix or multiply/add/subtract "
+                "of resolvable linked inputs, or Factor is 0/1 with a passthrough input.",
                 force_error=strict,
             )
             continue
@@ -288,6 +621,7 @@ def validate_materials(
     materials,
     only_connected: bool = True,
     strict: bool = False,
+    surface_profile: str = "realitykit_portable",
 ) -> Dict[str, object]:
     """Validate a collection of materials and aggregate issues."""
     summary = {
@@ -298,7 +632,12 @@ def validate_materials(
     }
 
     for material in materials:
-        result = validate_material(material, only_connected=only_connected, strict=strict)
+        result = validate_material(
+            material,
+            only_connected=only_connected,
+            strict=strict,
+            surface_profile=surface_profile,
+        )
         summary["materials"].append(result)
         summary["errors"].extend(result["errors"])
         summary["warnings"].extend(result["warnings"])
@@ -454,9 +793,46 @@ def _is_identity_mix(node) -> bool:
 
     if fac_value == 0.0:
         return bool(a_socket and a_socket.is_linked)
-    if fac_value == 1.0:
+    blend = (getattr(node, "blend_type", "") or "MIX").upper()
+    if fac_value == 1.0 and blend == 'MIX':
         return bool(b_socket and b_socket.is_linked)
     return False
+
+
+_RESOLVABLE_MIX_BLENDS = {'MULTIPLY', 'ADD', 'SUBTRACT'}
+
+
+def _mix_node_params(node):
+    blend = (getattr(node, "blend_type", "") or "MIX").upper()
+    if not hasattr(node, "inputs"):
+        return blend, None, None, None
+    fac_socket = node.inputs.get('Fac') or node.inputs.get('Factor')
+    fac = None
+    if fac_socket and not fac_socket.is_linked:
+        try:
+            fac = float(fac_socket.default_value)
+        except Exception:
+            pass
+    a_socket = node.inputs.get('Color1') or node.inputs.get('A')
+    b_socket = node.inputs.get('Color2') or node.inputs.get('B')
+    return blend, fac, a_socket, b_socket
+
+
+def _is_supported_mix(node) -> bool:
+    """Match the exact Mix subset implemented by material extraction."""
+    if _is_identity_mix(node):
+        return True
+    if not node or getattr(node, "type", "") not in {'MIX', 'MIX_RGB'}:
+        return False
+    blend, fac, a_socket, b_socket = _mix_node_params(node)
+    if fac is None:
+        return False
+    both_linked = bool(
+        a_socket and b_socket and a_socket.is_linked and b_socket.is_linked
+    )
+    if blend == 'MIX':
+        return both_linked
+    return blend in _RESOLVABLE_MIX_BLENDS and both_linked
 
 
 def _is_identity_math_node(node) -> bool:

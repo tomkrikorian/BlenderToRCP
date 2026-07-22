@@ -44,7 +44,7 @@ from .preview import (
 )
 
 
-RK_NODE_VERSION = "1.2"
+RK_NODE_VERSION = "2.0"
 
 INTERFACE_SOCKET_TYPES = {
     "NodeSocketFloat",

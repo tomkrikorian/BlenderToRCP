@@ -1,6 +1,9 @@
 """Integration test — blendertorcp export."""
 
+import json
+import os
 from pathlib import Path
+import subprocess
 
 import pytest
 
@@ -9,6 +12,51 @@ pytestmark = pytest.mark.integration
 
 
 class TestExport:
+    def test_blender_52_factory_default_cube_is_portable(self, run_cli, tmp_output):
+        """Blender's native doubleSided=true default must not block export."""
+        blender = os.environ.get("BLENDERTORCP_BLENDER", "blender")
+        blend_path = tmp_output / "factory-default-cube.blend"
+        create = subprocess.run(
+            [
+                blender,
+                "--background",
+                "--factory-startup",
+                "--python-expr",
+                (
+                    "import bpy; "
+                    f"bpy.ops.wm.save_as_mainfile(filepath={str(blend_path)!r})"
+                ),
+            ],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        assert create.returncode == 0, create.stderr or create.stdout
+
+        out = tmp_output / "factory-default-cube.usda"
+        result = run_cli(
+            "export",
+            str(blend_path),
+            "-o",
+            str(out),
+            "--format",
+            "USDA",
+            "--diagnostics",
+        )
+
+        assert result.ok, f"Export failed: {result.stderr}"
+        assert "uniform bool doubleSided = 0" in out.read_text()
+        diagnostics_path = Path(result.json["diagnostics_path"])
+        diagnostics = json.loads(diagnostics_path.read_text())
+        assert diagnostics["realitykit_preflight"]["ok"] is True
+        matching = [
+            warning
+            for warning in diagnostics["warnings"]
+            if "doubleSided=false" in warning
+        ]
+        assert len(matching) == 1
+        assert "closed or thick geometry is required" in matching[0]
+
     def test_export_usdz(self, run_cli, blend_file, tmp_output):
         out = tmp_output / "scene.usdz"
         result = run_cli("export", str(blend_file), "-o", str(out), "--format", "USDZ")

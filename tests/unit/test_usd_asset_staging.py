@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import sys
 from pathlib import Path
 from types import SimpleNamespace
@@ -9,6 +10,20 @@ from types import SimpleNamespace
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from Plugin.export import usd_assets, usd_textures
+
+
+def _texture_generation_dir(usd_path: Path) -> Path:
+    return usd_path.parent / "textures" / usd_textures.output_sidecar_namespace(usd_path)
+
+
+def _texture_asset_path(usd_path: Path, name: str) -> str:
+    return (
+        Path("textures") / usd_textures.output_sidecar_namespace(usd_path) / name
+    ).as_posix()
+
+
+def _content_name(stem: str, contents: bytes, suffix: str) -> str:
+    return f"{stem}-{hashlib.sha256(contents).hexdigest()}{suffix}"
 
 
 class _FakeAssetPath:
@@ -91,10 +106,11 @@ def test_prepare_textures_reuses_identical_source_bytes(tmp_path, monkeypatch):
 
     usd_textures.prepare_textures(stage, str(usd_path), settings)
 
-    texture_files = sorted((tmp_path / "textures").iterdir())
-    assert [path.name for path in texture_files] == ["scene-texture.png"]
-    assert attr_a.set_value.path == "textures/scene-texture.png"
-    assert attr_b.set_value.path == "textures/scene-texture.png"
+    texture_files = sorted(_texture_generation_dir(usd_path).iterdir())
+    name = _content_name("scene-texture", b"same texture bytes", ".png")
+    assert [path.name for path in texture_files] == [name]
+    assert attr_a.set_value.path == _texture_asset_path(usd_path, name)
+    assert attr_b.set_value.path == _texture_asset_path(usd_path, name)
 
 
 def test_prepare_textures_prefixes_names_with_export_stem(tmp_path, monkeypatch):
@@ -111,9 +127,14 @@ def test_prepare_textures_prefixes_names_with_export_stem(tmp_path, monkeypatch)
 
     usd_textures.prepare_textures(stage, str(usd_path), settings)
 
-    texture = tmp_path / "textures" / "badge-streak-7-extracted_image_0.jpg"
+    name = _content_name(
+        "badge-streak-7-extracted_image_0",
+        b"source bytes",
+        ".jpg",
+    )
+    texture = _texture_generation_dir(usd_path) / name
     assert texture.read_bytes() == b"source bytes"
-    assert attr.set_value.path == "textures/badge-streak-7-extracted_image_0.jpg"
+    assert attr.set_value.path == _texture_asset_path(usd_path, name)
 
 
 def test_prepare_textures_keeps_prefixed_names_collision_safe(tmp_path, monkeypatch):
@@ -135,13 +156,15 @@ def test_prepare_textures_keeps_prefixed_names_collision_safe(tmp_path, monkeypa
 
     usd_textures.prepare_textures(stage, str(usd_path), settings)
 
-    texture_files = sorted(path.name for path in (tmp_path / "textures").iterdir())
+    texture_files = sorted(path.name for path in _texture_generation_dir(usd_path).iterdir())
     assert len(texture_files) == 2
-    assert texture_files[0] == "badge-streak-7-shared.png"
-    assert texture_files[1].startswith("badge-streak-7-shared_")
-    assert texture_files[1].endswith(".png")
-    assert attr_a.set_value.path == f"textures/{texture_files[0]}"
-    assert attr_b.set_value.path == f"textures/{texture_files[1]}"
+    path_a = Path(attr_a.set_value.path)
+    path_b = Path(attr_b.set_value.path)
+    assert path_a.name == _content_name("badge-streak-7-shared", b"source a", ".png")
+    assert path_b.name.startswith("badge-streak-7-shared_")
+    assert path_b.name == _content_name(path_b.stem.rsplit("-", 1)[0], b"source b", ".png")
+    assert path_a.name in texture_files
+    assert path_b.name in texture_files
 
 
 def test_avif_texture_conversion_uses_imbuf(tmp_path, monkeypatch):
@@ -297,11 +320,12 @@ def test_prepare_textures_writes_resized_png_when_avif_saving_fails(tmp_path, mo
 
     usd_textures.prepare_textures(stage, str(usd_path), settings)
 
-    fallback = tmp_path / "textures" / "scene-source.png"
+    name = _content_name("scene-source", b"resized png", ".png")
+    fallback = _texture_generation_dir(usd_path) / name
     assert fallback.read_bytes() == b"resized png"
     # The failed AVIF attempt scales once before the PNG fallback scales again.
     assert saved_sizes[-1] == (32, 16)
-    assert attr.set_value.path == "textures/scene-source.png"
+    assert attr.set_value.path == _texture_asset_path(usd_path, name)
 
 
 def test_prepare_textures_original_format_and_resolution_copies_source(tmp_path, monkeypatch):
@@ -323,9 +347,10 @@ def test_prepare_textures_original_format_and_resolution_copies_source(tmp_path,
 
     usd_textures.prepare_textures(stage, str(usd_path), settings)
 
-    copied = tmp_path / "textures" / "scene-photo.jpg"
+    name = _content_name("scene-photo", b"original jpg", ".jpg")
+    copied = _texture_generation_dir(usd_path) / name
     assert copied.read_bytes() == b"original jpg"
-    assert attr.set_value.path == "textures/scene-photo.jpg"
+    assert attr.set_value.path == _texture_asset_path(usd_path, name)
 
 
 def test_prepare_textures_resizes_with_original_source_format(tmp_path, monkeypatch):
@@ -376,7 +401,8 @@ def test_prepare_textures_resizes_with_original_source_format(tmp_path, monkeypa
 
     usd_textures.prepare_textures(stage, str(usd_path), settings)
 
-    resized = tmp_path / "textures" / "scene-photo.jpg"
+    name = _content_name("scene-photo", b"resized jpg", ".jpg")
+    resized = _texture_generation_dir(usd_path) / name
     assert resized.read_bytes() == b"resized jpg"
     assert saved_sizes == [(32, 16)]
-    assert attr.set_value.path == "textures/scene-photo.jpg"
+    assert attr.set_value.path == _texture_asset_path(usd_path, name)

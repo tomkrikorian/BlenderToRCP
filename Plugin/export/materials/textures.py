@@ -12,6 +12,7 @@ from ...manifest.materialx_nodes import (
 )
 from .conversions import _map_mtlx_type_to_sdf, _create_convert_output
 from .helpers import _image_shader_name, _sanitize_name
+from .mapping import effective_texture_mapping_contract
 
 
 def _texture_cache_key(texture_spec: Dict[str, Any]) -> Tuple[Any, ...]:
@@ -32,8 +33,13 @@ def _texture_cache_key(texture_spec: Dict[str, Any]) -> Tuple[Any, ...]:
         pivot,
         operationorder,
         texture_spec.get("colorspace"),
+        texture_spec.get("colorspace_role"),
         texture_spec.get("alpha_mode"),
         texture_spec.get("type"),
+        texture_spec.get("output_type"),
+        texture_spec.get("channel"),
+        texture_spec.get("image_type_override"),
+        bool(texture_spec.get("force_separate4")),
     )
 
 
@@ -82,6 +88,7 @@ def _create_texture_connection(
     material_name: str,
     texture_cache: Optional[Dict[Any, Dict[str, Any]]] = None,
     diagnostics=None,
+    mapping_cache: Optional[Dict[Any, Any]] = None,
 ):
     """Create texture nodes and return the output to connect."""
     texture_path = texture_spec.get('path')
@@ -101,7 +108,7 @@ def _create_texture_connection(
             texture_output = cached.get("output")
             current_type = cached.get("type") or desired_type
             if texture_output:
-                texture_output, current_type = _resolve_texture_output(
+                return _postprocess_texture_output(
                     manifest,
                     stage,
                     nodegraph_path,
@@ -111,23 +118,9 @@ def _create_texture_connection(
                     desired_type,
                     channel,
                     texture_kind,
-                    bool(texture_spec.get("force_separate4")),
+                    texture_spec,
                     diagnostics,
                 )
-                scale = texture_spec.get('scale')
-                if scale is not None and texture_output:
-                    scaled_output = _create_scale_output(
-                        manifest,
-                        stage,
-                        nodegraph_path,
-                        input_name,
-                        texture_output,
-                        desired_type,
-                        scale,
-                    )
-                    if scaled_output:
-                        texture_output = scaled_output
-                return texture_output
 
     rk_texture_def = None
     if rk_texture_def:
@@ -138,7 +131,12 @@ def _create_texture_connection(
         current_type = output_type.lower()
         output_sdf_type = _map_mtlx_type_to_sdf(current_type) or Sdf.ValueTypeNames.Float4
     else:
-        image_type = _image_output_hint(desired_type, channel, texture_kind)
+        image_type = _image_output_hint(
+            desired_type,
+            channel,
+            texture_kind,
+            texture_spec.get("colorspace_role"),
+        )
         override_type = texture_spec.get("image_type_override")
         if override_type:
             image_type = override_type
@@ -160,39 +158,57 @@ def _create_texture_connection(
 
     file_input = texture_shader.CreateInput("file", Sdf.ValueTypeNames.Asset)
     file_input.Set(texture_path)
+    file_colorspace = _materialx_file_colorspace(texture_spec, input_name)
+    if file_colorspace:
+        file_input.GetAttr().SetColorSpace(file_colorspace)
 
     texcoord_name = texture_spec.get('texcoord')
-    mapping = texture_spec.get('mapping')
+    raw_mapping = texture_spec.get('mapping')
+    mapping_contract = effective_texture_mapping_contract(
+        raw_mapping,
+        texcoord_name,
+    )
     texcoord_output = None
-    if texcoord_name:
-        texcoord_output = _create_geomprop_texcoord(
-            manifest,
-            stage,
-            nodegraph_path,
-            input_name,
-            texcoord_name,
-            diagnostics,
-        )
-    elif mapping:
-        texcoord_output = _create_geomprop_texcoord(
-            manifest,
-            stage,
-            nodegraph_path,
-            input_name,
-            "UV0",
-            diagnostics,
-        )
+    place2d_output = (
+        mapping_cache.get(mapping_contract)
+        if mapping_cache is not None and mapping_contract is not None
+        else None
+    )
+    if place2d_output is None:
+        if texcoord_name:
+            texcoord_output = _create_geomprop_texcoord(
+                manifest,
+                stage,
+                nodegraph_path,
+                input_name,
+                texcoord_name,
+                diagnostics,
+            )
+        elif raw_mapping:
+            # An explicit identity Mapping node still denotes Blender's default
+            # UV set, but needs no RealityKit-limited transform node.
+            texcoord_output = _create_geomprop_texcoord(
+                manifest,
+                stage,
+                nodegraph_path,
+                input_name,
+                "UV0",
+                diagnostics,
+            )
 
-    if mapping:
-        place2d_output = _create_place2d_node(
-            manifest,
-            stage,
-            nodegraph_path,
-            input_name,
-            mapping,
-            texcoord_output,
-            diagnostics,
-        )
+    if mapping_contract is not None:
+        if place2d_output is None:
+            place2d_output = _create_place2d_node(
+                manifest,
+                stage,
+                nodegraph_path,
+                input_name,
+                raw_mapping,
+                texcoord_output,
+                diagnostics,
+            )
+            if mapping_cache is not None and place2d_output:
+                mapping_cache[mapping_contract] = place2d_output
         if place2d_output:
             texcoord_input = texture_shader.CreateInput("texcoord", Sdf.ValueTypeNames.Float2)
             texcoord_input.ConnectToSource(place2d_output)
@@ -205,13 +221,39 @@ def _create_texture_connection(
     if texture_cache is not None:
         texture_cache[cache_key] = {"output": texture_output, "type": current_type}
 
-    # Color space is handled by Reality Composer Pro; avoid injecting conversion nodes.
+    return _postprocess_texture_output(
+        manifest,
+        stage,
+        nodegraph_path,
+        input_name,
+        texture_output,
+        current_type,
+        desired_type,
+        channel,
+        texture_kind,
+        texture_spec,
+        diagnostics,
+    )
 
+
+def _postprocess_texture_output(
+    manifest: Dict[str, Any],
+    stage,
+    nodegraph_path: str,
+    input_name: str,
+    texture_output,
+    current_type: str,
+    desired_type: str,
+    channel: str,
+    texture_kind: str,
+    texture_spec: Dict[str, Any],
+    diagnostics=None,
+):
+    """Apply per-use decode/swizzle/scale operations to a cached raw reader."""
     if texture_kind == 'normal_texture':
-        # RealityKit's MaterialX library provides a dedicated tangent normal-map
-        # decoder. Prefer it over stdlib `normalmap`; Apple's USD renderer can
-        # fail shader compilation when stdlib normalmap is mixed into these
-        # RealityKit PBR graphs.
+        # RealityKit's dedicated tangent normal decoder is part of the RCP
+        # contract. The cache stores only the raw image output, so every use
+        # still passes through this decoder.
         if current_type != 'vector3':
             texture_output = _create_convert_output(
                 manifest,
@@ -227,9 +269,10 @@ def _create_texture_connection(
 
         strength_value = _normal_map_strength_value(texture_spec.get("scale"))
         space = _normal_map_space(texture_spec)
-        can_use_realitykit_decode = _can_use_realitykit_normal_map_decode(
-            strength_value,
-            space,
+        normal_decode = (texture_spec.get("normal_decode") or "realitykit").strip().lower()
+        can_use_realitykit_decode = (
+            normal_decode != "materialx"
+            and _can_use_realitykit_normal_map_decode(strength_value, space)
         )
 
         normalmap_nodedef = None
@@ -251,25 +294,32 @@ def _create_texture_connection(
         )
 
         normalmap_name = _sanitize_name(f"NormalMap_{input_name}")
-        normalmap_prim = stage.DefinePrim(f"{nodegraph_path}/{normalmap_name}", "Shader")
-        normalmap_shader = UsdShade.Shader(normalmap_prim)
-        normalmap_shader.CreateIdAttr(normalmap_nodedef)
+        normalmap_path = f"{nodegraph_path}/{normalmap_name}"
+        existing = stage.GetPrimAtPath(normalmap_path)
+        if existing and existing.IsValid():
+            normalmap_shader = UsdShade.Shader(existing)
+        else:
+            normalmap_prim = stage.DefinePrim(normalmap_path, "Shader")
+            normalmap_shader = UsdShade.Shader(normalmap_prim)
+            normalmap_shader.CreateIdAttr(normalmap_nodedef)
 
-        in_input = normalmap_shader.CreateInput("in", Sdf.ValueTypeNames.Float3)
+        in_input = normalmap_shader.GetInput("in") or normalmap_shader.CreateInput(
+            "in", Sdf.ValueTypeNames.Float3
+        )
         in_input.ConnectToSource(texture_output)
 
         if normalmap_supports_only_input:
-            return normalmap_shader.CreateOutput("out", Sdf.ValueTypeNames.Float3)
+            return normalmap_shader.GetOutput("out") or normalmap_shader.CreateOutput(
+                "out", Sdf.ValueTypeNames.Float3
+            )
 
-        # Optional strength hook for stdlib normalmap fallback.
         if strength_value is not None and abs(strength_value - 1.0) > 1e-6:
             normalmap_shader.CreateInput("scale", Sdf.ValueTypeNames.Float).Set(strength_value)
-
-        # Optional space override for stdlib normalmap fallback.
         if space in {"tangent", "object"}:
             normalmap_shader.CreateInput("space", Sdf.ValueTypeNames.String).Set(space)
-
-        return normalmap_shader.CreateOutput("out", Sdf.ValueTypeNames.Float3)
+        return normalmap_shader.GetOutput("out") or normalmap_shader.CreateOutput(
+            "out", Sdf.ValueTypeNames.Float3
+        )
 
     texture_output, current_type = _resolve_texture_output(
         manifest,
@@ -298,8 +348,51 @@ def _create_texture_connection(
         )
         if scaled_output:
             texture_output = scaled_output
-
     return texture_output
+
+
+def _materialx_file_colorspace(texture_spec: Dict[str, Any], input_name: str) -> str:
+    """Return a verified MaterialX file color-space token or fail closed."""
+    role = (texture_spec.get("colorspace_role") or "").strip().lower()
+    source = (texture_spec.get("colorspace") or "").strip().lower()
+    aliases = {
+        "srgb": "srgb_texture",
+        "srgb_texture": "srgb_texture",
+        "s-rgb": "srgb_texture",
+        "srgb texture": "srgb_texture",
+        "raw": "raw",
+        "non-color": "raw",
+        "non color": "raw",
+        "data": "raw",
+        "linear rec.709": "lin_rec709",
+        "linear rec709": "lin_rec709",
+        "lin_rec709": "lin_rec709",
+        "scene_linear": "lin_rec709",
+    }
+
+    if source.startswith("unsupported:"):
+        raise ValueError(
+            f"Unsupported Blender image color space '{source.split(':', 1)[1]}' for '{input_name}'"
+        )
+    normalized = aliases.get(source)
+    if source and normalized is None:
+        raise ValueError(f"Unsupported Blender image color space '{source}' for '{input_name}'")
+
+    if role == "data":
+        channel = (texture_spec.get("channel") or "").strip().lower()
+        if channel == "a":
+            # Alpha is always scalar data even when the same file's RGB is
+            # tagged sRGB. A separate raw vector4 reader preserves it without
+            # applying a transfer function to the color channels.
+            return "raw"
+        if normalized not in {None, "raw"}:
+            raise ValueError(
+                f"Data texture '{input_name}' must use Blender Non-Color/raw, not '{source}'"
+            )
+        return "raw"
+    if role == "color":
+        return normalized or "srgb_texture"
+    return normalized or ""
 
 
 def _texture_node_id_from_nodedef(nodedef_name: str) -> str:
@@ -546,17 +639,29 @@ def _image_nodedef_for_output(manifest: Dict[str, Any], output_type: str) -> Tup
     return mapping.get(output_type, ("ND_image_color3", Sdf.ValueTypeNames.Color3f))
 
 
-def _image_output_hint(output_type: str, channel: str, texture_kind: Optional[str]) -> str:
+def _image_output_hint(
+    output_type: str,
+    channel: str,
+    texture_kind: Optional[str],
+    colorspace_role: Optional[str] = None,
+) -> str:
     """Choose a safe image output type for the requested connection."""
     output_type = (output_type or '').lower()
     channel = (channel or '').lower()
-    if output_type in ('color4', 'vector4'):
-        return 'color4'
-    if output_type == 'float' and channel == 'a':
-        return 'color4'
     # Normal maps must be treated as raw vectors (avoid color-space assumptions).
     if texture_kind == 'normal_texture':
         return 'vector3'
+    is_data = (colorspace_role or '').strip().lower() == 'data'
+    if output_type in ('color4', 'vector4') or (output_type == 'float' and channel == 'a'):
+        return 'vector4' if is_data else 'color4'
+    if is_data:
+        if output_type == 'vector2':
+            return 'vector2'
+        if output_type in ('vector3',):
+            return 'vector3'
+        # A four-channel vector reader preserves packed scalar channels while
+        # avoiding color conversion. Per-use swizzles select the requested one.
+        return 'vector4'
     if output_type in ('vector3', 'vector2'):
         return 'color3'
     if output_type == 'float' and channel:
