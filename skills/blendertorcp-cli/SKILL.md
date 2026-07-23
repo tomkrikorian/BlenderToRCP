@@ -35,7 +35,10 @@ Check materials for RealityKit compatibility. Exit code 0 = all OK, exit code 1 
 blendertorcp validate <file.blend>
 blendertorcp validate <file.blend> --material "MyMaterial" --strict
 blendertorcp validate <file.blend> --only-errors
+blendertorcp validate <file.blend> --materialx-surface-profile realitykit_pbr2
 ```
+
+`--materialx-surface-profile` accepts `realitykit_portable` (production default), `realitykit_pbr2`, or `openpbr_1_1`. The latter two profiles are experimental OS 27 targets.
 
 ### Export
 
@@ -45,21 +48,23 @@ blendertorcp export <file.blend> -o out.usda --selected-only
 blendertorcp export <file.blend> -o out.usdz --diagnostics
 ```
 
-Export supports `--format`, `--selected-only`, `--diagnostics`, and `--no-diagnostics`.
+Export supports `--format`, `--selected-only`, `--diagnostics`, `--no-diagnostics`, and `--apply-yup`. `--apply-yup` enforces the RealityKit orientation tuple (`-Z` forward, `Y` up), requests native Y-up mesh data, and safely falls back to root conversion for animated, constrained, or skinned transforms.
 
 Any export setting key can be passed as a positional `key=value` override (does not modify the .blend). Put override tokens before optional flags:
+
+Boolean setting values accept only `true`, `1`, or `yes` and `false`, `0`, or `no` (case-insensitive and whitespace-trimmed). Other spellings, including `on` and `off`, fail with `INVALID_SETTING_VALUE` instead of being guessed.
 
 ```bash
 blendertorcp export <file.blend> export-animation=true triangulate-meshes=true -o out.usdz
 
-# Resize textures but keep each source image format.
+# Resize eligible LDR textures while keeping their Apple-compatible encoding.
 blendertorcp export <file.blend> \
   export-texture-settings-enabled=true \
   bake-image-format=ORIGINAL \
   bake-resolution=1024 \
   -o out.usda
 
-# Keep original texture formats and dimensions.
+# Keep Apple-compatible encodings and original dimensions.
 blendertorcp export <file.blend> \
   export-texture-settings-enabled=true \
   bake-image-format=ORIGINAL \
@@ -110,7 +115,7 @@ Bake-export flags:
 | `--no-diagnostics` | off | Do not write diagnostics, even if enabled by settings |
 | `--bake-mode` | from settings (`LIT_IBL` for fresh scenes) | `UNLIT_ALBEDO` = Material Color Only - Unlit, `LIT_ALBEDO` = Material Color Only - Lit PBR, `LIT_IBL` = Lighting & Shadows |
 | `--resolution` | `2048` | `ORIGINAL`, `512`, `1024`, `2048`, `4096`, or any integer |
-| `--image-format` | `AVIF` | `ORIGINAL`, `AVIF`, or `PNG`; AVIF staging uses external `avifenc` when available and falls back to PNG |
+| `--image-format` | `AVIF` | `ORIGINAL`, `AVIF`, or `PNG`; AVIF is encoded natively by Blender — no external tools required |
 | `--margin` | `8` | Bake padding in pixels |
 | `--ibl-source` | `SCENE_WORLD` | Lighting source: `SCENE_WORLD` or `HDRI_FILE` |
 | `--ibl-filepath` | — | Path to HDRI file |
@@ -120,9 +125,13 @@ Bake-export flags:
 | `--no-base-color` | off | Skip base color channel |
 | `--no-opacity` | off | Skip opacity channel |
 | `--keep-materials` | off | Keep baked materials after export |
-| `--timeout` | `0` | Per-step timeout in seconds |
+| `--step-timeout` | `0` | Per-step worker timeout; always emits a structured error, writes diagnostics when enabled, and persists status for UI jobs |
+| `--roughness-mode` | `TEXTURE` | LIT_ALBEDO roughness output: `TEXTURE` or `AVERAGE` |
+| `--apply-yup` | off | Enforce `-Z` forward / `Y` up and request native Y-up mesh data, with safe root-conversion fallback |
 
-Missing, unpacked external images fail before baking with `MISSING_EXTERNAL_TEXTURES`; pack or relink textures in Blender and rerun. `ORIGINAL` texture format/resolution is meaningful for existing texture staging: Export Scene can keep each source texture's format and/or dimensions. Bake Textures & Export creates new baked images, so `ORIGINAL` falls back to PNG/2048 for bake output where there is no source image to preserve.
+The global `--timeout <sec>` flag (place before the subcommand, default 600, `0` = unlimited) bounds the whole Blender subprocess — raise it for long bakes.
+
+Missing, unpacked external images fail before baking with `MISSING_EXTERNAL_TEXTURES`; missing linked libraries, caches, HDRIs, or other non-image dependencies fail with `MISSING_EXTERNAL_ASSETS`. Pack or relink textures, relink the other dependency, and rerun. The scan is limited to the dependency-closed export scope, including collection prototypes and active Geometry Nodes/modifier/Scene World inputs. For existing texture staging, `ORIGINAL` preserves Apple-compatible AVIF, PNG, JPEG, and OpenEXR encodings and/or source dimensions; unsupported LDR inputs are normalized to PNG. OpenEXR always remains byte-for-byte unchanged and ignores overrides. Radiance HDR (`.hdr`) fails with guidance to convert it to OpenEXR. Bake Textures & Export creates new baked images, so `ORIGINAL` falls back to PNG/2048 for bake output where there is no source image to preserve.
 
 Any export setting key can also be passed as a positional override (same as `export`), e.g. `export-animation=true`.
 
@@ -132,9 +141,10 @@ Any export setting key can also be passed as a positional override (same as `exp
 # Read all settings
 blendertorcp settings get <file.blend>
 
-# Read a specific group: general, objects, geometry, rigging, texture, bake, diagnostics, or all
+# Read a specific group: general, objects, geometry, rigging, texture, materials, bake, diagnostics, or all
 blendertorcp settings get <file.blend> --group texture
 blendertorcp settings get <file.blend> --group bake
+blendertorcp settings get <file.blend> --group materials
 
 # Read specific keys
 blendertorcp settings get <file.blend> --keys export_format bake_resolution
@@ -158,7 +168,7 @@ blendertorcp settings list
 
 ```bash
 blendertorcp preferences get
-blendertorcp preferences set default_export_format=USDZ
+blendertorcp preferences set usdzip_path=/opt/usd/bin/usdzip
 ```
 
 ### Version
@@ -167,7 +177,7 @@ blendertorcp preferences set default_export_format=USDZ
 blendertorcp version
 ```
 
-On this branch, the add-on manifest and `bl_info` report version `1.1.0`.
+The extension manifest (`Plugin/blender_manifest.toml`) is the single source of version metadata; `version` reports it (currently `2.0.0`).
 
 ### Support bundle
 
@@ -195,6 +205,7 @@ Useful options: `--bundle-output`, `--job-dir`, `--diagnostics`, `--include-outp
 | `--json` | off | JSON-only output, suppress stderr |
 | `--verbose` | off | Include Blender startup log on stderr |
 | `--quiet` | off | Suppress all stderr messages |
+| `--timeout <seconds>` | `600` | Overall Blender subprocess timeout; `0` disables it. Place before the subcommand |
 
 ## Output format
 
@@ -239,11 +250,18 @@ fi
 
 **Texture:** `export_texture_settings_enabled`, `bake_resolution` (ORIGINAL/512/1024/2048/4096/CUSTOM), `bake_image_format` (ORIGINAL/AVIF/PNG), `bake_margin`
 
-**Bake:** `bake_mode` (`UNLIT_ALBEDO` = Material Color Only - Unlit, `LIT_ALBEDO` = Material Color Only - Lit PBR, `LIT_IBL` = Lighting & Shadows), `bake_roughness_mode` (`TEXTURE`/`AVERAGE`, `LIT_ALBEDO` only), `bake_ibl_source`, `bake_ibl_filepath`, `bake_ibl_strength`, `bake_ibl_rotation`, `bake_isolate_meshes_lit`, `bake_base_color`, `bake_opacity`, `bake_keep_materials`
+**Materials:** `materialx_surface_profile` (`realitykit_portable` default; `realitykit_pbr2` and `openpbr_1_1` experimental OS 27 profiles)
+
+**Bake:** `bake_mode` (`UNLIT_ALBEDO` = Material Color Only - Unlit, `LIT_ALBEDO` = Material Color Only - Lit PBR, `LIT_IBL` = Lighting & Shadows), `bake_roughness_mode` (`TEXTURE`/`AVERAGE`, `LIT_ALBEDO` only), `bake_ibl_source`, `bake_ibl_filepath`, `bake_ibl_strength`, `bake_ibl_rotation`, `bake_isolate_meshes_lit`, `bake_base_color`, `bake_opacity`, `bake_keep_materials`, `bake_step_timeout_seconds`, `apply_yup_geometry`
 
 **Geometry:** `triangulate_meshes`, `export_normals`, `export_uvmaps`, `export_subdivision` (IGNORE/TESSELLATE/BEST_MATCH)
 
-**Objects:** `export_meshes`, `export_lights`, `export_cameras`, `export_curves`, `export_hair`
+**Objects:** `export_meshes`
+
+Raw Blender cameras, lights, World dome lights, curves, point clouds, volumes,
+and hair are intentionally not settings in the portable RealityKit/RCP3 export
+contract. Author cameras and lighting downstream, and convert unsupported
+geometry to polygon meshes.
 
 **Rigging:** `export_armatures`, `export_shapekeys`, `only_deform_bones`
 

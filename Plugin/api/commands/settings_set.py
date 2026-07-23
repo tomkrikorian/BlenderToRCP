@@ -2,7 +2,14 @@
 
 from __future__ import annotations
 
-from ._settings_common import INTERNAL_KEYS, get_settings, coerce_value
+from ._settings_common import (
+    INTERNAL_KEYS,
+    apply_setting_updates_transactionally,
+    get_settings,
+    prepare_setting_update,
+    setting_value_issue,
+)
+from ..errors import CommandError
 
 
 def handle(args: dict) -> dict:
@@ -16,30 +23,61 @@ def handle(args: dict) -> dict:
     settings = get_settings()
     prop_defs = {prop.identifier: prop for prop in settings.bl_rna.properties}
 
-    # Validate all keys and values first
+    # Validate every key and value without touching the live PropertyGroup.
     to_apply = []
+    invalid_keys = []
+    invalid_values = []
     for key, value in settings_dict.items():
         if key in INTERNAL_KEYS:
-            raise ValueError(f"Cannot set internal key: '{key}'")
+            invalid_keys.append(
+                setting_value_issue(key, value, "internal setting")
+            )
+            continue
         prop = prop_defs.get(key)
         if prop is None:
-            raise ValueError(f"Unknown setting key: '{key}'")
-        coerced = coerce_value(prop, value)
-        to_apply.append((key, coerced))
+            invalid_keys.append(
+                setting_value_issue(key, value, "unknown setting")
+            )
+            continue
+        try:
+            to_apply.append(
+                prepare_setting_update(
+                    prop,
+                    value,
+                    key=key,
+                    source="settings_set",
+                )
+            )
+        except Exception as exc:
+            invalid_values.append(setting_value_issue(key, value, exc))
+
+    if invalid_keys:
+        raise CommandError(
+            "Invalid setting key.",
+            code="INVALID_SETTING_OVERRIDE",
+            details=invalid_keys + invalid_values,
+        )
+    if invalid_values:
+        raise CommandError(
+            "Invalid setting value.",
+            code="INVALID_SETTING_VALUE",
+            details=invalid_values,
+        )
 
     if dry_run:
         return {
             "valid": True,
-            "would_update": [k for k, _ in to_apply],
+            "would_update": [update.key for update in to_apply],
         }
 
-    updated = []
-    for key, value in to_apply:
-        try:
-            setattr(settings, key, value)
-            updated.append(key)
-        except Exception as exc:
-            raise ValueError(f"Failed to set '{key}': {exc}") from exc
+    assignment_errors = apply_setting_updates_transactionally(settings, to_apply)
+    if assignment_errors:
+        raise CommandError(
+            "Invalid setting value.",
+            code="INVALID_SETTING_VALUE",
+            details=assignment_errors,
+        )
+    updated = [update.key for update in to_apply]
 
     saved = False
     if save:

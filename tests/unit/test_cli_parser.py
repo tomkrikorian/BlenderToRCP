@@ -13,7 +13,7 @@ import pytest
 # Ensure Plugin package is importable
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from Plugin.cli.__main__ import build_parser  # noqa: E402
+from Plugin.cli.__main__ import CLIUsageError, build_parser  # noqa: E402
 
 
 @pytest.fixture
@@ -37,7 +37,13 @@ def test_cli_entrypoint_works_when_extension_folder_is_named_blendertorcp(tmp_pa
     )
 
     assert proc.returncode == 0, proc.stderr
-    assert json.loads(proc.stdout)["plugin"] == "1.2.0"
+
+    import tomllib
+
+    manifest = tomllib.loads(
+        (Path(__file__).resolve().parents[2] / "Plugin" / "blender_manifest.toml").read_text()
+    )
+    assert json.loads(proc.stdout)["plugin"] == manifest["version"]
 
 
 # ---------------------------------------------------------------------------
@@ -86,7 +92,7 @@ class TestInfoCommand:
         assert args.blend_file == "scene.blend"
 
     def test_requires_blend_file(self, parser):
-        with pytest.raises(SystemExit):
+        with pytest.raises(CLIUsageError):
             parser.parse_args(["info"])
 
 
@@ -160,7 +166,7 @@ class TestExportCommand:
         assert args.diagnostics is True
 
     def test_missing_output_raises(self, parser):
-        with pytest.raises(SystemExit):
+        with pytest.raises(CLIUsageError):
             parser.parse_args(["export", "scene.blend"])
 
     def test_overrides_plain(self, parser):
@@ -228,9 +234,29 @@ class TestBakeExportCommand:
         args = parser.parse_args(["bake-export", "scene.blend", "-o", "out.usdz", "--diagnostics"])
         assert args.diagnostics is True
 
-    def test_timeout(self, parser):
-        args = parser.parse_args(["bake-export", "scene.blend", "-o", "out.usdz", "--timeout", "300"])
+    def test_step_timeout(self, parser):
+        args = parser.parse_args(["bake-export", "scene.blend", "-o", "out.usdz", "--step-timeout", "300"])
         assert args.timeout_step == 300
+
+    def test_global_timeout(self, parser):
+        args = parser.parse_args(["--timeout", "3600", "bake-export", "scene.blend", "-o", "out.usdz"])
+        assert args.timeout == 3600
+
+    def test_global_timeout_default(self, parser):
+        args = parser.parse_args(["version"])
+        assert args.timeout == 600
+
+    def test_new_bake_flags(self, parser):
+        args = parser.parse_args([
+            "bake-export", "scene.blend", "-o", "out.usdz",
+            "--roughness-mode", "AVERAGE", "--apply-yup",
+        ])
+        assert args.roughness_mode == "AVERAGE"
+        assert args.apply_yup is True
+
+    def test_export_apply_yup(self, parser):
+        args = parser.parse_args(["export", "scene.blend", "--apply-yup", "-o", "out.usda"])
+        assert args.apply_yup is True
 
 
 class TestSupportBundleCommand:
@@ -308,11 +334,11 @@ class TestPreferencesGetCommand:
 
 class TestPreferencesSetCommand:
     def test_parses(self, parser):
-        args = parser.parse_args(["preferences", "set", "default_export_format=USDZ"])
-        assert args.settings == ["default_export_format=USDZ"]
+        args = parser.parse_args(["preferences", "set", "usdzip_path=/opt/usd/bin/usdzip"])
+        assert args.settings == ["usdzip_path=/opt/usd/bin/usdzip"]
 
 
 class TestMissingCommand:
     def test_no_command_raises(self, parser):
-        with pytest.raises(SystemExit):
+        with pytest.raises(CLIUsageError):
             parser.parse_args([])

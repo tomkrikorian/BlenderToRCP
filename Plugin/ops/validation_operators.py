@@ -5,6 +5,7 @@ Operators for RealityKit material validation and cleanup.
 import bpy
 from bpy.types import Operator
 
+from ..api.commands._settings_common import MATERIALX_SURFACE_PROFILE_DEFAULT
 from ..nodes import validate as rk_validate
 
 
@@ -22,6 +23,17 @@ def _get_active_material(context):
     return None
 
 
+def _get_surface_profile(context) -> str:
+    """Return the active export profile that defines validation capability."""
+    scene = getattr(context, "scene", None)
+    settings = getattr(scene, "blender_to_rcp_export_settings", None)
+    return getattr(
+        settings,
+        "materialx_surface_profile",
+        MATERIALX_SURFACE_PROFILE_DEFAULT,
+    )
+
+
 class BLENDERTORCP_OT_validate_material(Operator):
     """Validate the active material against RealityKit rules."""
     bl_idname = "blendertorcp.validate_material"
@@ -34,14 +46,11 @@ class BLENDERTORCP_OT_validate_material(Operator):
             self.report({'WARNING'}, "No active material to validate")
             return {'CANCELLED'}
 
-        try:
-            result = rk_validate.validate_material(material, strict=True)
-        except TypeError:
-            result = rk_validate.validate_material(material)
-            if result.get("warnings"):
-                result["errors"].extend(result["warnings"])
-                result["warnings"] = []
-            result["ok"] = not result["errors"]
+        result = rk_validate.validate_material(
+            material,
+            strict=True,
+            surface_profile=_get_surface_profile(context),
+        )
         if result["errors"]:
             self.report({'ERROR'}, f"{len(result['errors'])} errors found in '{material.name}'")
             return {'FINISHED'}
@@ -65,14 +74,11 @@ class BLENDERTORCP_OT_select_offenders(Operator):
             self.report({'WARNING'}, "No active material to inspect")
             return {'CANCELLED'}
 
-        try:
-            result = rk_validate.validate_material(material, strict=True)
-        except TypeError:
-            result = rk_validate.validate_material(material)
-            if result.get("warnings"):
-                result["errors"].extend(result["warnings"])
-                result["warnings"] = []
-            result["ok"] = not result["errors"]
+        result = rk_validate.validate_material(
+            material,
+            strict=True,
+            surface_profile=_get_surface_profile(context),
+        )
         if not result["offending_nodes"]:
             self.report({'INFO'}, "No offending nodes found")
             return {'FINISHED'}
@@ -93,14 +99,11 @@ class BLENDERTORCP_OT_remove_offenders(Operator):
             self.report({'WARNING'}, "No active material to inspect")
             return {'CANCELLED'}
 
-        try:
-            result = rk_validate.validate_material(material, strict=True)
-        except TypeError:
-            result = rk_validate.validate_material(material)
-            if result.get("warnings"):
-                result["errors"].extend(result["warnings"])
-                result["warnings"] = []
-            result["ok"] = not result["errors"]
+        result = rk_validate.validate_material(
+            material,
+            strict=True,
+            surface_profile=_get_surface_profile(context),
+        )
         removed = rk_validate.remove_offending_nodes(material, result)
         if removed == 0:
             self.report({'INFO'}, "No offending nodes to remove")

@@ -13,7 +13,7 @@ Configure the BlenderToRCP CLI so the agent can export scenes, bake textures, va
 - BlenderToRCP addon installed and enabled in Blender's preferences
 - Python 3 available as `python3`
 
-For manual installs, install `BlenderToRCP.zip` in Blender via `Edit > Preferences > Extensions > Add-ons > Install from Disk...`, then enable `BlenderToRCP`. For development installs, symlink `<repo>/Plugin` to the Blender `extensions/user_default/BlenderToRCP` path.
+For manual installs, install `BlenderToRCP-<version>.zip` in Blender via `Edit > Preferences > Extensions > Add-ons > Install from Disk...`, then enable `BlenderToRCP`. Blender installs the package under its manifest ID, `blender_to_rcp`. For development installs, symlink `<repo>/Plugin` to the Blender `extensions/user_default/blender_to_rcp` path.
 
 ## Inputs
 
@@ -43,16 +43,19 @@ The addon ships the CLI directly in the extension root. Check Blender's extensio
 ```bash
 # macOS
 find ~/Library/Application\ Support/Blender \
-  \( -path "*/extensions/.local/BlenderToRCP/cli/__main__.py" -o \
-     -path "*/extensions/user_default/BlenderToRCP/cli/__main__.py" \) 2>/dev/null
+  \( -path "*/extensions/*/blender_to_rcp/cli/__main__.py" -o \
+     -path "*/extensions/*/BlenderToRCP/cli/__main__.py" \) 2>/dev/null
 
 # Linux
 find ~/.config/blender \
-  \( -path "*/extensions/.local/BlenderToRCP/cli/__main__.py" -o \
-     -path "*/extensions/user_default/BlenderToRCP/cli/__main__.py" \) 2>/dev/null
+  \( -path "*/extensions/*/blender_to_rcp/cli/__main__.py" -o \
+     -path "*/extensions/*/BlenderToRCP/cli/__main__.py" \) 2>/dev/null
 ```
 
-For development installs, the CLI directory is `<repo>/Plugin/`, and the dev symlink usually points `.../extensions/user_default/BlenderToRCP` there.
+Treat `blender_to_rcp` as canonical because it is the manifest ID. The uppercase
+`BlenderToRCP` search is only a legacy development-symlink fallback. For
+development installs, the CLI directory is `<repo>/Plugin/`, and the dev symlink
+normally points `.../extensions/user_default/blender_to_rcp` there.
 
 Verify the install by confirming both `cli/__main__.py` and `api/runner.py` exist in the resolved extension root. In a repo checkout, those files live under `Plugin/`.
 
@@ -62,9 +65,9 @@ Run these checks to confirm Blender, Python, and the addon are all wired up:
 
 ```bash
 # Installed extension root
-BLENDERTORCP_BLENDER=/path/to/blender python3 /path/to/BlenderToRCP version
-BLENDERTORCP_BLENDER=/path/to/blender python3 /path/to/BlenderToRCP preferences get
-BLENDERTORCP_BLENDER=/path/to/blender python3 /path/to/BlenderToRCP settings list
+BLENDERTORCP_BLENDER=/path/to/blender python3 /path/to/blender_to_rcp version
+BLENDERTORCP_BLENDER=/path/to/blender python3 /path/to/blender_to_rcp preferences get
+BLENDERTORCP_BLENDER=/path/to/blender python3 /path/to/blender_to_rcp settings list
 
 # Development checkout
 python3 /path/to/repo/Plugin --blender /path/to/blender version
@@ -102,7 +105,7 @@ Add to the user's shell profile (`~/.zshrc`, `~/.bashrc`, or equivalent):
 
 ```bash
 export BLENDERTORCP_BLENDER="/path/to/blender"
-alias blendertorcp="python3 /path/to/BlenderToRCP"
+alias blendertorcp="python3 /path/to/blender_to_rcp"
 # Or for a repository checkout:
 # alias blendertorcp="python3 /path/to/repo/Plugin"
 ```

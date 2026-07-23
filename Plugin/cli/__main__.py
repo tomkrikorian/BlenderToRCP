@@ -20,6 +20,62 @@ from pathlib import Path
 from . import bridge
 
 
+class CLIError(RuntimeError):
+    """Local CLI validation failure with a stable machine-readable code."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        code: str,
+        exit_code: int = 1,
+        details: dict | list | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.code = code
+        self.exit_code = exit_code
+        self.details = details
+
+
+class CLIUsageError(CLIError):
+    """Argument-parser rejection that follows the public exit-code contract."""
+
+    def __init__(self, message: str) -> None:
+        super().__init__(message, code="INVALID_ARGUMENTS", exit_code=1)
+
+
+class CLIArgumentParser(argparse.ArgumentParser):
+    """ArgumentParser that reports errors through the structured CLI path."""
+
+    def error(self, message: str) -> None:
+        raise CLIUsageError(message)
+
+
+def _error_envelope(
+    message: str,
+    *,
+    code: str,
+    command: str | None,
+    error_type: str,
+    details: dict | list | None = None,
+) -> dict:
+    error = {
+        "code": code,
+        "type": error_type,
+        "message": message,
+    }
+    if details is not None:
+        error["details"] = details
+    return {
+        "ok": False,
+        "schema_version": "1.0",
+        "command": command,
+        "error": error,
+        "context": {},
+        "artifacts": {},
+    }
+
+
 def _print_json(data, pretty: bool = True) -> None:
     """Print JSON to stdout."""
     if pretty:
@@ -34,16 +90,51 @@ def _log(msg: str, quiet: bool = False) -> None:
         print(msg, file=sys.stderr)
 
 
+def _nonnegative_seconds(value: str) -> int:
+    seconds = int(value)
+    if seconds < 0:
+        raise argparse.ArgumentTypeError("timeout must be 0 or a positive number of seconds")
+    return seconds
+
+
 def _run(command: str, args: dict, parsed: argparse.Namespace) -> dict:
     """Run a command through the bridge with common options."""
+    timeout = parsed.timeout if parsed.timeout and parsed.timeout > 0 else None
     return bridge.run(
         command=command,
         args=args,
         blend_file=getattr(parsed, "blend_file", None),
         blender_path=parsed.blender,
-        timeout=getattr(parsed, "timeout", 600),
+        timeout=timeout,
         verbose=parsed.verbose,
     )
+
+
+def _result_exit_code(result: dict) -> int:
+    """Map a structured command result to the process exit contract.
+
+    The bridge unwraps the API runner envelope and normally raises for runner
+    failures.  Some commands also use an inner ``ok`` field for a completed
+    command whose requested operation was rejected (validation is the common
+    example).  Those results must still make shell pipelines fail.  Results
+    without an ``ok`` field are successful legacy/read-only command payloads.
+    """
+    return 1 if isinstance(result, dict) and result.get("ok") is False else 0
+
+
+def _collect_overrides(tokens) -> dict:
+    """Parse ``key=value`` override tokens; reject malformed ones loudly."""
+    overrides = {}
+    for token in tokens or []:
+        if "=" not in token:
+            raise CLIError(
+                f"Invalid override '{token}' (expected key=value, e.g. bake-resolution=1024).",
+                code="INVALID_OVERRIDE",
+                details={"token": token},
+            )
+        key, value = token.split("=", 1)
+        overrides[key.replace("-", "_")] = value
+    return overrides
 
 
 # ---------------------------------------------------------------------------
@@ -54,13 +145,13 @@ def _run(command: str, args: dict, parsed: argparse.Namespace) -> dict:
 def cmd_version(parsed: argparse.Namespace) -> int:
     result = _run("version", {}, parsed)
     _print_json(result)
-    return 0
+    return _result_exit_code(result)
 
 
 def cmd_info(parsed: argparse.Namespace) -> int:
     result = _run("info", {}, parsed)
     _print_json(result)
-    return 0
+    return _result_exit_code(result)
 
 
 def cmd_list_objects(parsed: argparse.Namespace) -> int:
@@ -71,7 +162,7 @@ def cmd_list_objects(parsed: argparse.Namespace) -> int:
         args["selected"] = True
     result = _run("list_objects", args, parsed)
     _print_json(result)
-    return 0
+    return _result_exit_code(result)
 
 
 def cmd_list_materials(parsed: argparse.Namespace) -> int:
@@ -80,7 +171,7 @@ def cmd_list_materials(parsed: argparse.Namespace) -> int:
         args["unused"] = True
     result = _run("list_materials", args, parsed)
     _print_json(result)
-    return 0
+    return _result_exit_code(result)
 
 
 def cmd_validate(parsed: argparse.Namespace) -> int:
@@ -91,9 +182,11 @@ def cmd_validate(parsed: argparse.Namespace) -> int:
         args["strict"] = True
     if parsed.only_errors:
         args["only_errors"] = True
+    if parsed.materialx_surface_profile:
+        args["materialx_surface_profile"] = parsed.materialx_surface_profile
     result = _run("validate", args, parsed)
     _print_json(result)
-    return 0 if result.get("ok") else 1
+    return _result_exit_code(result)
 
 
 def cmd_settings_get(parsed: argparse.Namespace) -> int:
@@ -104,7 +197,7 @@ def cmd_settings_get(parsed: argparse.Namespace) -> int:
         args["group"] = parsed.group
     result = _run("settings_get", args, parsed)
     _print_json(result)
-    return 0
+    return _result_exit_code(result)
 
 
 def cmd_settings_set(parsed: argparse.Namespace) -> int:
@@ -112,8 +205,11 @@ def cmd_settings_set(parsed: argparse.Namespace) -> int:
     settings = {}
     for pair in parsed.settings:
         if "=" not in pair:
-            print(f"Invalid setting format: '{pair}'. Expected key=value.", file=sys.stderr)
-            return 1
+            raise CLIError(
+                f"Invalid setting format: '{pair}'. Expected key=value.",
+                code="INVALID_SETTING_FORMAT",
+                details={"token": pair},
+            )
         key, value = pair.split("=", 1)
         settings[key.strip()] = value.strip()
     args = {"settings": settings}
@@ -123,7 +219,7 @@ def cmd_settings_set(parsed: argparse.Namespace) -> int:
         args["dry_run"] = True
     result = _run("settings_set", args, parsed)
     _print_json(result)
-    return 0
+    return _result_exit_code(result)
 
 
 def cmd_settings_list(parsed: argparse.Namespace) -> int:
@@ -131,7 +227,7 @@ def cmd_settings_list(parsed: argparse.Namespace) -> int:
     # We pass a dummy blend_file=None, the runner handles it
     result = _run("settings_list", {}, parsed)
     _print_json(result)
-    return 0
+    return _result_exit_code(result)
 
 
 def cmd_export(parsed: argparse.Namespace) -> int:
@@ -145,23 +241,25 @@ def cmd_export(parsed: argparse.Namespace) -> int:
     if parsed.diagnostics:
         args["diagnostics"] = True
 
-    # Collect --key=value overrides
-    overrides = {}
-    for override in (parsed.overrides or []):
-        if "=" not in override:
-            continue
-        key, value = override.split("=", 1)
-        # Convert hyphens to underscores
-        key = key.lstrip("-").replace("-", "_")
-        overrides[key] = value
+    overrides = _collect_overrides(parsed.overrides)
+    if parsed.apply_yup:
+        # Geometry baking is deliberately gated by orientation conversion in
+        # bake_finalize.should_apply_yup().  The convenience flag must enable
+        # the complete protocol, not leave apply_yup_geometry as a no-op.
+        overrides["convert_orientation"] = "true"
+        overrides["apply_yup_geometry"] = "true"
+        overrides["forward_axis"] = "-Z"
+        overrides["up_axis"] = "Y"
     if overrides:
         args["overrides"] = overrides
 
     _log(f"Exporting to {parsed.output}...", parsed.quiet)
     result = _run("export", args, parsed)
     _print_json(result)
-    _log(f"Done in {result.get('duration_seconds', '?')}s", parsed.quiet)
-    return 0
+    exit_code = _result_exit_code(result)
+    if exit_code == 0:
+        _log(f"Done in {result.get('duration_seconds', '?')}s", parsed.quiet)
+    return exit_code
 
 
 def cmd_bake_export(parsed: argparse.Namespace) -> int:
@@ -202,22 +300,24 @@ def cmd_bake_export(parsed: argparse.Namespace) -> int:
     if parsed.timeout_step is not None:
         args["timeout"] = parsed.timeout_step
 
-    # Collect extra overrides
-    overrides = {}
-    for override in (parsed.overrides or []):
-        if "=" not in override:
-            continue
-        key, value = override.split("=", 1)
-        key = key.lstrip("-").replace("-", "_")
-        overrides[key] = value
+    overrides = _collect_overrides(parsed.overrides)
+    if parsed.roughness_mode:
+        overrides["bake_roughness_mode"] = parsed.roughness_mode
+    if parsed.apply_yup:
+        overrides["convert_orientation"] = "true"
+        overrides["apply_yup_geometry"] = "true"
+        overrides["forward_axis"] = "-Z"
+        overrides["up_axis"] = "Y"
     if overrides:
         args["overrides"] = overrides
 
     _log(f"Baking & exporting to {parsed.output}...", parsed.quiet)
     result = _run("bake_export", args, parsed)
     _print_json(result)
-    _log(f"Done in {result.get('duration_seconds', '?')}s", parsed.quiet)
-    return 0
+    exit_code = _result_exit_code(result)
+    if exit_code == 0:
+        _log(f"Done in {result.get('duration_seconds', '?')}s", parsed.quiet)
+    return exit_code
 
 
 def cmd_support_bundle(parsed: argparse.Namespace) -> int:
@@ -244,27 +344,32 @@ def cmd_support_bundle(parsed: argparse.Namespace) -> int:
     _log("Creating support bundle...", parsed.quiet)
     result = _run("support_bundle", args, parsed)
     _print_json(result)
-    _log(f"Support bundle: {result.get('support_bundle_path', '?')}", parsed.quiet)
-    return 0
+    exit_code = _result_exit_code(result)
+    if exit_code == 0:
+        _log(f"Support bundle: {result.get('support_bundle_path', '?')}", parsed.quiet)
+    return exit_code
 
 
 def cmd_preferences_get(parsed: argparse.Namespace) -> int:
     result = _run("preferences_get", {}, parsed)
     _print_json(result)
-    return 0
+    return _result_exit_code(result)
 
 
 def cmd_preferences_set(parsed: argparse.Namespace) -> int:
     settings = {}
     for pair in parsed.settings:
         if "=" not in pair:
-            print(f"Invalid format: '{pair}'. Expected key=value.", file=sys.stderr)
-            return 1
+            raise CLIError(
+                f"Invalid preference format: '{pair}'. Expected key=value.",
+                code="INVALID_PREFERENCE_FORMAT",
+                details={"token": pair},
+            )
         key, value = pair.split("=", 1)
         settings[key.strip()] = value.strip()
     result = _run("preferences_set", {"settings": settings}, parsed)
     _print_json(result)
-    return 0
+    return _result_exit_code(result)
 
 
 # ---------------------------------------------------------------------------
@@ -273,7 +378,7 @@ def cmd_preferences_set(parsed: argparse.Namespace) -> int:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(
+    parser = CLIArgumentParser(
         prog="blendertorcp",
         description="BlenderToRCP CLI — export, bake, validate, and manage settings.",
     )
@@ -294,6 +399,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--quiet", action="store_true",
         help="Suppress all stderr output",
+    )
+    parser.add_argument(
+        "--timeout", dest="timeout", type=_nonnegative_seconds, default=600,
+        help="Overall Blender subprocess timeout in seconds, 0 for no limit "
+             "(default: 600; place before the subcommand)",
     )
 
     subs = parser.add_subparsers(dest="command", required=True)
@@ -326,6 +436,14 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--material", help="Validate a single material by name")
     p.add_argument("--strict", action="store_true", help="Treat warnings as errors")
     p.add_argument("--only-errors", action="store_true", help="Suppress warnings")
+    p.add_argument(
+        "--materialx-surface-profile",
+        choices=["realitykit_portable", "realitykit_pbr2", "openpbr_1_1"],
+        help=(
+            "Validate against a MaterialX surface profile for this run "
+            "(default: active scene setting)"
+        ),
+    )
     p.set_defaults(func=cmd_validate)
 
     # --- settings (subcommand group) ---
@@ -336,7 +454,13 @@ def build_parser() -> argparse.ArgumentParser:
     p = settings_subs.add_parser("get", help="Read export settings")
     p.add_argument("blend_file", help="Path to .blend file")
     p.add_argument("--keys", nargs="+", help="Return only these keys")
-    p.add_argument("--group", help="Return settings from a group: general, objects, geometry, rigging, texture, bake, diagnostics")
+    p.add_argument(
+        "--group",
+        help=(
+            "Return settings from a group: all, general, objects, geometry, "
+            "rigging, texture, materials, bake, diagnostics"
+        ),
+    )
     p.set_defaults(func=cmd_settings_get)
 
     # settings set
@@ -359,7 +483,15 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--selected-only", action="store_true", help="Export selected objects only")
     p.add_argument("--diagnostics", action="store_true", help="Write diagnostics JSON sidecar")
     p.add_argument("--no-diagnostics", action="store_true", help="Skip diagnostics")
-    p.add_argument("overrides", nargs="*", metavar="--key=value", help="Setting overrides")
+    p.add_argument(
+        "--apply-yup",
+        action="store_true",
+        help="Enable orientation conversion and bake safe mesh data to native Y-up",
+    )
+    p.add_argument(
+        "overrides", nargs="*", metavar="key=value",
+        help="Setting overrides (place immediately after the blend file, before -o/--format)",
+    )
     p.set_defaults(func=cmd_export)
 
     # --- bake-export ---
@@ -385,8 +517,21 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--no-opacity", action="store_true", help="Skip opacity bake")
     # Advanced
     p.add_argument("--keep-materials", action="store_true", help="Keep baked materials after export")
-    p.add_argument("--timeout", dest="timeout_step", type=int, help="Per-step timeout in seconds")
-    p.add_argument("overrides", nargs="*", metavar="--key=value", help="Setting overrides")
+    p.add_argument("--roughness-mode", choices=["TEXTURE", "AVERAGE"], help="LIT_ALBEDO roughness output: full texture or averaged constant")
+    p.add_argument(
+        "--apply-yup",
+        action="store_true",
+        help="Enable orientation conversion and bake safe mesh data to native Y-up",
+    )
+    p.add_argument(
+        "--step-timeout", dest="timeout_step", type=_nonnegative_seconds,
+        help="Per-bake/export-step worker timeout in seconds, 0 for no limit "
+             "(for the overall Blender process timeout use global --timeout)",
+    )
+    p.add_argument(
+        "overrides", nargs="*", metavar="key=value",
+        help="Setting overrides (place immediately after the blend file, before -o/--format)",
+    )
     p.set_defaults(func=cmd_bake_export)
 
     # --- support-bundle ---
@@ -416,9 +561,62 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+_COMMAND_NAMES = {
+    "version",
+    "info",
+    "list-objects",
+    "list-materials",
+    "validate",
+    "settings",
+    "export",
+    "bake-export",
+    "support-bundle",
+    "preferences",
+}
+
+
+def _command_from_argv(argv: list[str]) -> str | None:
+    return next((token for token in argv if token in _COMMAND_NAMES), None)
+
+
+def _report_cli_error(
+    exc: CLIError,
+    *,
+    json_only: bool,
+    command: str | None,
+    parser: argparse.ArgumentParser | None = None,
+) -> int:
+    if json_only:
+        _print_json(
+            _error_envelope(
+                str(exc),
+                code=exc.code,
+                command=command,
+                error_type=exc.__class__.__name__,
+                details=exc.details,
+            )
+        )
+    else:
+        if isinstance(exc, CLIUsageError) and parser is not None:
+            parser.print_usage(sys.stderr)
+        print(f"Error: {exc}", file=sys.stderr)
+    return exc.exit_code
+
+
 def main() -> int:
     parser = build_parser()
-    parsed = parser.parse_args()
+    argv = sys.argv[1:]
+    json_requested = "--json" in argv
+    command = _command_from_argv(argv)
+    try:
+        parsed = parser.parse_args(argv)
+    except CLIError as exc:
+        return _report_cli_error(
+            exc,
+            json_only=json_requested,
+            command=command,
+            parser=parser,
+        )
 
     # Handle --json flag: implies --quiet
     if parsed.json_only:
@@ -426,6 +624,12 @@ def main() -> int:
 
     try:
         return parsed.func(parsed)
+    except CLIError as exc:
+        return _report_cli_error(
+            exc,
+            json_only=parsed.json_only,
+            command=parsed.command,
+        )
     except bridge.BridgeError as exc:
         msg = str(exc)
         if parsed.json_only:
@@ -440,25 +644,37 @@ def main() -> int:
                 support_hint = artifacts.get("support_bundle_hint")
                 if support_hint:
                     print(f"Support bundle: {support_hint}", file=sys.stderr)
-        if "Blender not found" in msg:
+        if exc.error_code in {"BLENDER_NOT_FOUND", "BLENDER_START_FAILED"}:
             return 2
-        if "Plugin not loaded" in msg or "Failed to import" in msg:
+        if exc.error_code == "ADDON_LOAD_FAILED":
             return 3
         return 1
     except RuntimeError as exc:
         msg = str(exc)
         if parsed.json_only:
-            _print_json({"ok": False, "error": msg})
+            _print_json(
+                _error_envelope(
+                    msg,
+                    code="CLI_RUNTIME_ERROR",
+                    command=parsed.command,
+                    error_type=exc.__class__.__name__,
+                )
+            )
         else:
             print(f"Error: {msg}", file=sys.stderr)
-        # Map known error messages to specific exit codes
-        if "Blender not found" in msg:
-            return 2
-        if "Plugin not loaded" in msg or "Failed to import" in msg:
-            return 3
         return 1
     except KeyboardInterrupt:
-        print("\nAborted.", file=sys.stderr)
+        if parsed.json_only:
+            _print_json(
+                _error_envelope(
+                    "Command interrupted by user.",
+                    code="INTERRUPTED",
+                    command=parsed.command,
+                    error_type="KeyboardInterrupt",
+                )
+            )
+        else:
+            print("\nAborted.", file=sys.stderr)
         return 130
 
 

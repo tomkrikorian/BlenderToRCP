@@ -18,7 +18,9 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-sys.modules.setdefault("bpy", types.ModuleType("bpy"))
+_bpy_stub = sys.modules.setdefault("bpy", types.ModuleType("bpy"))
+if not hasattr(_bpy_stub, "types"):
+    _bpy_stub.types = types.SimpleNamespace(NodeTree=object)
 
 from Plugin.export.bake_textures import _flat_material_constants  # noqa: E402
 
@@ -55,7 +57,16 @@ class FakeMaterial:
     use_nodes = True
 
     def __init__(self, principled):
-        self.node_tree = FakeNodeTree([principled])
+        surface = types.SimpleNamespace(
+            is_linked=True,
+            links=[types.SimpleNamespace(from_node=principled)],
+        )
+        output = types.SimpleNamespace(
+            type='OUTPUT_MATERIAL',
+            is_active_output=True,
+            inputs={'Surface': surface},
+        )
+        self.node_tree = FakeNodeTree([principled, output])
 
 
 def test_plain_constant_material_is_flat():

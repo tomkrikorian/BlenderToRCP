@@ -13,6 +13,7 @@ The add-on intentionally does NOT rebuild this manifest inside Blender.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import xml.etree.ElementTree as ET
 from pathlib import Path
@@ -45,6 +46,15 @@ FALLBACK_NODEDEFS = {
     "ND_realitykit_viewdirection_vector3",
     "ND_realitykit_environment_radiance",
 }
+
+
+# The generated manifest is a checked-in interoperability contract, not a
+# snapshot of whichever SDK happens to be installed on a contributor's Mac.
+MATERIALX_PROFILE = "1.39"
+MATERIALX_REFERENCE_RELEASE = "1.39.4"
+REALITY_COMPOSER_PRO_VERSION = "3.0"
+REALITY_COMPOSER_PRO_BUILD = "79.3.0.500.4"
+APPLE_PLATFORM_GENERATION = "27.0"
 
 
 def main() -> int:
@@ -92,7 +102,15 @@ def build_manifest(repo_root: Path, source_dir: Path, include_half: bool) -> Dic
 
     mtlx_files = sorted([p for p in source_dir.rglob("*.mtlx") if p.is_file()])
     if not include_half:
-        mtlx_files = [p for p in mtlx_files if "half" not in p.name.lower()]
+        # PBR Surface 2 has real half inputs, so its scalar conversion contract
+        # is mandatory even in the compact/default manifest. Implementation
+        # nodegraphs remain optional; RCP3 supplies them at runtime.
+        required_half_defs = {"realitykit_half_defs.mtlx"}
+        mtlx_files = [
+            p
+            for p in mtlx_files
+            if "half" not in p.name.lower() or p.name in required_half_defs
+        ]
 
     manifest: Dict[str, Any] = {
         "nodes": {},
@@ -104,13 +122,34 @@ def build_manifest(repo_root: Path, source_dir: Path, include_half: bool) -> Dic
         },
         "metadata": {
             "version": "2.0.0",
+            "profile": "realitykit-os27",
+            "materialx_version": MATERIALX_PROFILE,
+            "materialx_reference_release": MATERIALX_REFERENCE_RELEASE,
+            "reality_composer_pro": {
+                "version": REALITY_COMPOSER_PRO_VERSION,
+                "build": REALITY_COMPOSER_PRO_BUILD,
+            },
+            "apple_platform_generation": APPLE_PLATFORM_GENERATION,
+            "source_provenance": (
+                "Repo-vendored, licensed nodedefs verified against Reality Composer Pro 3 "
+                "and MaterialX 1.39.4; no machine-local SDK paths are embedded."
+            ),
             "source_files": [],
+            "source_sha256": {},
+            "document_versions": {},
         },
     }
 
     for mtlx_file in mtlx_files:
         _parse_mtlx_file(repo_root, manifest, mtlx_file)
-        manifest["metadata"]["source_files"].append(_format_source_path(repo_root, mtlx_file))
+        source_path = _format_source_path(repo_root, mtlx_file)
+        manifest["metadata"]["source_files"].append(source_path)
+        manifest["metadata"]["source_sha256"][source_path] = hashlib.sha256(
+            mtlx_file.read_bytes()
+        ).hexdigest()
+        document_version = _materialx_document_version(mtlx_file)
+        if document_version:
+            manifest["metadata"]["document_versions"][source_path] = document_version
 
     return manifest
 
@@ -129,6 +168,12 @@ def _parse_mtlx_file(repo_root: Path, manifest: Dict[str, Any], filepath: Path) 
             if not node_info:
                 continue
             nodedef_name = node_info["nodedef_name"]
+            existing = manifest["nodes"].get(nodedef_name)
+            if existing is not None and existing != node_info:
+                raise RuntimeError(
+                    f"Conflicting MaterialX nodedef '{nodedef_name}' in "
+                    f"{existing.get('source_file')} and {_format_source_path(repo_root, filepath)}"
+                )
             manifest["nodes"][nodedef_name] = node_info
             _index_node(manifest, node_info)
     except ET.ParseError as exc:
@@ -147,6 +192,11 @@ def _extract_nodedef_info(
 
     node_name = (nodedef.get("node", "") or "").strip()
     nodegroup = (nodedef.get("nodegroup", "") or "").strip()
+    node_version = (nodedef.get("version", "") or "").strip()
+    target = (nodedef.get("target", "") or "").strip()
+    availability = (nodedef.get("available", "") or "").strip()
+    apple_availability = (nodedef.get("apple_availability", "") or "").strip()
+    is_default_version = (nodedef.get("isdefaultversion", "false") or "").lower() == "true"
 
     # Inputs
     inputs: List[Dict[str, Any]] = []
@@ -183,7 +233,7 @@ def _extract_nodedef_info(
     node_id = node_name or nodedef_name.replace("ND_", "")
     node_key = node_name or node_id
 
-    return {
+    result = {
         "nodedef_name": nodedef_name,
         "node_id": node_id,
         "node_name": node_key,
@@ -200,6 +250,17 @@ def _extract_nodedef_info(
         # Keep stable paths (avoid machine-specific absolute paths).
         "source_file": _format_source_path(repo_root, filepath),
     }
+    if node_version:
+        result["node_version"] = node_version
+    if target:
+        result["target"] = target
+    if availability:
+        result["availability"] = availability
+    if apple_availability:
+        result["apple_availability"] = apple_availability
+    if is_default_version:
+        result["is_default_version"] = True
+    return result
 
 
 def _index_node(manifest: Dict[str, Any], node_info: Dict[str, Any]) -> None:
@@ -256,8 +317,18 @@ def _get_namespace_uri(tag: str) -> Optional[str]:
 def _format_source_path(repo_root: Path, path: Path) -> str:
     try:
         return str(path.resolve().relative_to(repo_root))
-    except Exception:
-        return str(path)
+    except Exception as exc:
+        raise ValueError(
+            f"MaterialX sources must be vendored below the repository root: {path}"
+        ) from exc
+
+
+def _materialx_document_version(path: Path) -> Optional[str]:
+    """Return a MaterialX document version without retaining SDK-local data."""
+    try:
+        return (ET.parse(path).getroot().get("version", "") or "").strip() or None
+    except ET.ParseError:
+        return None
 
 
 def _normalize_type(type_name: Optional[str]) -> str:
@@ -272,4 +343,3 @@ def _signature_from_io(inputs: List[Dict[str, Any]], outputs: List[Dict[str, Any
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

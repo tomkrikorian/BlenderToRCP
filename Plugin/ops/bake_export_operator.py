@@ -27,6 +27,7 @@ from .export_operator import (
 )
 
 _ACTIVE_JOB_STATES = {"queued", "running"}
+_WORKER_TIMEOUT_GRACE_SECONDS = 15
 _SERIALIZED_SETTINGS_SKIP_KEYS = {
     "rna_type",
     "name",
@@ -80,23 +81,69 @@ class BLENDERTORCP_OT_bake_export_background(Operator, ExportHelper):
             return {'CANCELLED'}
         settings.filepath = self.filepath
 
-        if not context.blend_data.filepath:
-            self.report({'ERROR'}, "Save the .blend file before running background export.")
-            return {'CANCELLED'}
-
         if getattr(settings, "background_job_dir", ""):
             status = _read_job_status(settings.background_job_dir)
             if status and status.get("state") in {"queued", "running"}:
                 self.report({'ERROR'}, "A background job is already running. Cancel it first.")
                 return {'CANCELLED'}
 
-        objects_to_export = _collect_export_objects(context, settings)
+        try:
+            objects_to_export = _collect_export_objects(context, settings)
+        except Exception as exc:
+            self.report({'ERROR'}, str(exc))
+            return {'CANCELLED'}
         if not objects_to_export:
             self.report({'ERROR'}, "No exportable objects found")
             return {'CANCELLED'}
+        from ..export.animation_export import collect_processing_objects
+
+        snapshot_objects = collect_processing_objects(context, objects_to_export)
+
+        # Resolve source-relative settings while the user's original .blend is
+        # still the active file. The worker loads a private copy from the job
+        # directory, so forwarding a raw Blender ``//`` path would otherwise
+        # retarget it to that directory.
+        try:
+            serialized_settings = _serialize_settings(settings, context=context)
+        except Exception as exc:
+            self.report({'ERROR'}, f"Invalid background export settings: {exc}")
+            return {'CANCELLED'}
+
+        # The native selection can depend on non-selected parents and collection
+        # prototypes. Preflight that processing closure before launching a worker
+        # so missing source pixels cannot turn into a successful but incomplete
+        # bake. The dependency walker is shared with CLI/API bake export.
+        from ..export import asset_preflight
+
+        try:
+            missing_images = asset_preflight.collect_missing_image_files_for_objects(
+                snapshot_objects,
+                bpy,
+            )
+        except Exception as exc:
+            self.report({'ERROR'}, f"Could not validate source image dependencies: {exc}")
+            return {'CANCELLED'}
+        if missing_images:
+            self.report(
+                {'ERROR'},
+                asset_preflight.missing_images_status_message(missing_images),
+            )
+            return {'CANCELLED'}
 
         export_dir = Path(self.filepath).parent
+        _cleanup_stale_scene_snapshots(export_dir)
         job_dir = _create_job_dir(export_dir)
+        try:
+            snapshot_path = _create_scene_snapshot(
+                context,
+                job_dir,
+                objects=snapshot_objects,
+                settings=settings,
+            )
+        except Exception as exc:
+            _cleanup_scene_snapshot(job_dir)
+            self.report({'ERROR'}, f"Could not snapshot the current scene: {exc}")
+            return {'CANCELLED'}
         status_path = job_dir / "status.json"
         log_path = job_dir / "log.txt"
         diagnostics_enabled = bool(getattr(settings, "diagnostics_enabled", False))
@@ -110,15 +157,21 @@ class BLENDERTORCP_OT_bake_export_background(Operator, ExportHelper):
 
         payload = {
             "job_dir": str(job_dir),
-            "blend_file": context.blend_data.filepath,
+            "blend_file": str(snapshot_path),
+            "source_blend_file": context.blend_data.filepath or None,
             "export_path": self.filepath,
-            "export_settings": _serialize_settings(settings),
+            "export_settings": serialized_settings,
             "selected_only": bool(getattr(settings, "selected_objects_only", False)),
             "selection": selection_names,
             "diagnostics_path": diagnostics_path,
         }
         settings_path = job_dir / "settings.json"
-        settings_path.write_text(json.dumps(payload, indent=2))
+        try:
+            settings_path.write_text(json.dumps(payload, indent=2))
+        except Exception as exc:
+            _cleanup_scene_snapshot(job_dir)
+            self.report({'ERROR'}, f"Could not write background job settings: {exc}")
+            return {'CANCELLED'}
 
         _write_status(
             status_path,
@@ -133,24 +186,39 @@ class BLENDERTORCP_OT_bake_export_background(Operator, ExportHelper):
         blender_bin = bpy.app.binary_path
         runner_path = Path(__file__).resolve().parents[1] / "bake_export_runner.py"
         if not runner_path.exists():
+            _cleanup_scene_snapshot(job_dir)
             self.report({'ERROR'}, f"Missing runner script: {runner_path}")
             return {'CANCELLED'}
 
-        with open(log_path, "w") as log_file:
-            proc = subprocess.Popen(
-                [
-                    blender_bin,
-                    "--background",
-                    "--factory-startup",
-                    context.blend_data.filepath,
-                    "--python",
-                    str(runner_path),
-                    "--",
-                    str(settings_path),
-                ],
-                stdout=log_file,
-                stderr=log_file,
+        try:
+            with open(log_path, "w") as log_file:
+                proc = subprocess.Popen(
+                    [
+                        blender_bin,
+                        "--background",
+                        "--factory-startup",
+                        str(snapshot_path),
+                        "--python",
+                        str(runner_path),
+                        "--",
+                        str(settings_path),
+                    ],
+                    stdout=log_file,
+                    stderr=log_file,
+                )
+        except Exception as exc:
+            _cleanup_scene_snapshot(job_dir)
+            _write_status(
+                status_path,
+                state="error",
+                progress=1.0,
+                message=f"Failed to launch background Blender: {exc}",
+                log_path=str(log_path),
+                export_path=self.filepath,
+                diagnostics_path=diagnostics_path,
             )
+            self.report({'ERROR'}, f"Failed to launch background Blender: {exc}")
+            return {'CANCELLED'}
 
         _write_status(
             status_path,
@@ -192,6 +260,7 @@ class BLENDERTORCP_OT_cancel_bake_export(Operator):
         status_path = Path(job_dir) / "status.json"
         status = _read_job_status(job_dir)
         if not status or status.get("state") not in _ACTIVE_JOB_STATES:
+            _cleanup_scene_snapshot(job_dir)
             settings.background_job_pid = 0
             settings.background_job_dir = ""
             self.report({'INFO'}, "Cleared stale background job state.")
@@ -199,6 +268,7 @@ class BLENDERTORCP_OT_cancel_bake_export(Operator):
 
         status_pid = _status_pid(status)
         if status_pid is None or status_pid != pid:
+            _cleanup_scene_snapshot(job_dir)
             settings.background_job_pid = 0
             settings.background_job_dir = ""
             self.report({'INFO'}, "Cleared stale background job state.")
@@ -207,6 +277,7 @@ class BLENDERTORCP_OT_cancel_bake_export(Operator):
         if _pid_is_running(pid):
             _terminate_process(pid)
         else:
+            _cleanup_scene_snapshot(job_dir)
             settings.background_job_pid = 0
             settings.background_job_dir = ""
             self.report({'INFO'}, "Cleared stale background job state.")
@@ -222,6 +293,7 @@ class BLENDERTORCP_OT_cancel_bake_export(Operator):
 
         settings.background_job_pid = 0
         settings.background_job_dir = ""
+        _cleanup_scene_snapshot(job_dir)
         self.report({'INFO'}, "Background job canceled.")
         return {'FINISHED'}
 
@@ -234,6 +306,19 @@ class BLENDERTORCP_OT_clear_bake_job(Operator):
 
     def execute(self, context):
         settings = context.scene.blender_to_rcp_export_settings
+        job_dir = getattr(settings, "background_job_dir", "")
+        status = _read_job_status(job_dir)
+        pid = _status_pid(status or {})
+        if (
+            status
+            and status.get("state") in _ACTIVE_JOB_STATES
+            and pid is not None
+            and _pid_is_running(pid)
+        ):
+            self.report({'ERROR'}, "Background job is active. Cancel it instead.")
+            return {'CANCELLED'}
+        if job_dir:
+            _cleanup_scene_snapshot(job_dir)
         settings.background_job_dir = ""
         settings.background_job_pid = 0
         self.report({'INFO'}, "Cleared background job state.")
@@ -270,6 +355,9 @@ class BLENDERTORCP_OT_watch_bake_export_job(Operator):
         status_path = Path(job_dir) / "status.json"
         status = _read_job_status(job_dir)
         if status is None and not status_path.exists():
+            _cleanup_scene_snapshot(job_dir)
+            settings.background_job_pid = 0
+            settings.background_job_dir = ""
             _tag_export_ui_redraw()
             self._stop(context)
             return {'FINISHED'}
@@ -280,6 +368,7 @@ class BLENDERTORCP_OT_watch_bake_export_job(Operator):
         _tag_export_ui_redraw()
 
         if state in {"done", "error", "canceled"}:
+            _cleanup_scene_snapshot(job_dir)
             settings.background_job_pid = 0
             self._stop(context)
             return {'FINISHED'}
@@ -295,6 +384,7 @@ class BLENDERTORCP_OT_watch_bake_export_job(Operator):
                 diagnostics_path=status.get("diagnostics_path"),
             )
             settings.background_job_pid = 0
+            _cleanup_scene_snapshot(job_dir)
             _tag_export_ui_redraw()
             self._stop(context)
             return {'FINISHED'}
@@ -302,18 +392,33 @@ class BLENDERTORCP_OT_watch_bake_export_job(Operator):
         timeout_seconds = int(getattr(settings, "bake_step_timeout_seconds", 0) or 0)
         if timeout_seconds > 0 and state in {"queued", "running"} and pid > 0:
             step_elapsed = _extract_step_elapsed_seconds(status)
-            if step_elapsed is not None and step_elapsed >= timeout_seconds:
+            failsafe_deadline = timeout_seconds + _WORKER_TIMEOUT_GRACE_SECONDS
+            if step_elapsed is not None and step_elapsed >= failsafe_deadline:
+                # The worker owns timeout enforcement and writes the detailed
+                # BAKE_STEP_TIMEOUT result. Re-read immediately before the UI
+                # failsafe acts so a terminal worker status wins this race.
+                latest = _read_job_status(job_dir) or {}
+                if latest.get("state") in {"done", "error", "canceled"}:
+                    _cleanup_scene_snapshot(job_dir)
+                    settings.background_job_pid = 0
+                    self._stop(context)
+                    return {'FINISHED'}
                 _terminate_process(pid)
                 _write_status(
                     status_path,
                     state="error",
                     progress=1.0,
-                    message=f"Timed out after {timeout_seconds}s in one step; background job canceled.",
+                    message=(
+                        f"Background worker did not exit within "
+                        f"{_WORKER_TIMEOUT_GRACE_SECONDS}s after the "
+                        f"{timeout_seconds}s step timeout; process terminated."
+                    ),
                     log_path=status.get("log_path"),
                     export_path=status.get("export_path") or getattr(settings, "filepath", ""),
                     diagnostics_path=status.get("diagnostics_path"),
                 )
                 settings.background_job_pid = 0
+                _cleanup_scene_snapshot(job_dir)
                 _tag_export_ui_redraw()
                 self._stop(context)
                 return {'FINISHED'}
@@ -412,11 +517,13 @@ def _status_pid(status: dict) -> int | None:
 
 
 def _collect_export_objects(context, settings):
-    if getattr(settings, "selected_objects_only", False):
-        selection = list(context.selected_objects)
-        if selection:
-            return selection
-    return list(context.scene.objects)
+    # Centralized with the direct USD export path so selected-only behavior is
+    # identical for UI, CLI, and background jobs.  In particular an empty
+    # selection stays empty (and fails) rather than exporting the whole scene,
+    # while selected skinned meshes include their deforming armature.
+    from ..export.animation_export import collect_export_objects
+
+    return collect_export_objects(context, settings)
 
 
 def _collect_materials_from_objects(objects):
@@ -490,7 +597,7 @@ def _set_selection(context, objects) -> None:
             pass
 
 
-def _serialize_settings(settings) -> dict:
+def _serialize_settings(settings, *, context=None) -> dict:
     data = {}
     for prop in settings.bl_rna.properties:
         key = prop.identifier
@@ -500,6 +607,21 @@ def _serialize_settings(settings) -> dict:
             data[key] = getattr(settings, key)
         except Exception:
             continue
+
+    if (
+        str(data.get("bake_mode") or "LIT_IBL") == "LIT_IBL"
+        and str(data.get("bake_ibl_source") or "") == "HDRI_FILE"
+    ):
+        from ..export.bake_textures import _resolve_hdri_filepath
+
+        resolver_kwargs = {}
+        if context is not None:
+            resolver_kwargs["blend_file"] = str(
+                getattr(getattr(context, "blend_data", None), "filepath", "") or ""
+            )
+        data["bake_ibl_filepath"] = str(
+            _resolve_hdri_filepath(settings, **resolver_kwargs)
+        )
     return data
 
 
@@ -509,6 +631,314 @@ def _create_job_dir(export_dir: Path) -> Path:
     stamp = time.strftime("%Y%m%d_%H%M%S")
     job_dir = Path(tempfile.mkdtemp(prefix=f"bake_export_{stamp}_", dir=root))
     return job_dir
+
+
+_SCENE_SNAPSHOT_NAME = "scene_snapshot.blend"
+
+
+def _create_scene_snapshot(context, job_dir: Path, objects=None, settings=None) -> Path:
+    """Save the current in-memory scene without changing the user's file.
+
+    ``copy=True`` is Blender's supported "Save Copy" path: it includes unsaved
+    edits (and works when ``bpy.data.filepath`` is empty) while leaving the
+    active mainfile and dirty state untouched. ``relative_remap=True`` keeps
+    ``//`` external assets rooted at an existing saved file. A never-saved
+    file has no base directory, so relative external dependencies fail closed
+    with an actionable error instead of becoming broken job-relative paths.
+    """
+    snapshot_path = Path(job_dir) / _SCENE_SNAPSHOT_NAME
+    original_filepath = str(getattr(context.blend_data, "filepath", "") or "")
+    original_dirty = bool(getattr(context.blend_data, "is_dirty", False))
+
+    dirty_images = _dirty_image_buffers(context, objects, settings=settings)
+    if dirty_images:
+        examples = ", ".join(repr(name) for name in dirty_images[:3])
+        if len(dirty_images) > 3:
+            examples += f", and {len(dirty_images) - 3} more"
+        raise RuntimeError(
+            "Dirty image pixels are not serialized by "
+            f"Blender Save Copy ({examples}). Save them, or pack/repack "
+            "them, before background export."
+        )
+
+    if not original_filepath:
+        relative_paths = _relative_external_paths()
+        if relative_paths:
+            examples = ", ".join(repr(path) for path in relative_paths[:3])
+            if len(relative_paths) > 3:
+                examples += f", and {len(relative_paths) - 3} more"
+            raise RuntimeError(
+                "Never-saved scenes cannot resolve relative external assets "
+                f"({examples}). Save the .blend, pack those assets, or use "
+                "absolute paths before background export."
+            )
+
+    result = bpy.ops.wm.save_as_mainfile(
+        filepath=str(snapshot_path),
+        check_existing=False,
+        copy=True,
+        relative_remap=True,
+    )
+    if "FINISHED" not in set(result or []):
+        raise RuntimeError(f"Blender Save Copy returned {result!r}.")
+    if not snapshot_path.is_file():
+        raise RuntimeError("Blender reported success but did not create the snapshot.")
+
+    current_filepath = str(getattr(context.blend_data, "filepath", "") or "")
+    current_dirty = bool(getattr(context.blend_data, "is_dirty", False))
+    if current_filepath != original_filepath or current_dirty != original_dirty:
+        raise RuntimeError(
+            "Blender Save Copy unexpectedly changed the active file or dirty state."
+        )
+    return snapshot_path
+
+
+def _relative_external_paths() -> list[str]:
+    """Return unpacked ``//`` dependencies that need a saved-file base."""
+    paths: set[str] = set()
+    collections = (
+        "images",
+        "libraries",
+        "movieclips",
+        "sounds",
+        "fonts",
+        "volumes",
+        "cache_files",
+    )
+    for collection_name in collections:
+        for datablock in getattr(bpy.data, collection_name, []) or []:
+            # A linked datablock's // path is relative to its library. The
+            # library datablock itself is checked separately below.
+            if (
+                collection_name != "libraries"
+                and getattr(datablock, "library", None) is not None
+            ):
+                continue
+            if collection_name == "images":
+                if getattr(datablock, "packed_file", None) is not None:
+                    continue
+                try:
+                    if len(getattr(datablock, "packed_files", []) or []) > 0:
+                        continue
+                except Exception:
+                    pass
+                if str(getattr(datablock, "source", "")) not in {
+                    "FILE",
+                    "SEQUENCE",
+                    "MOVIE",
+                    "TILED",
+                }:
+                    continue
+            path = str(
+                getattr(datablock, "filepath", None)
+                or getattr(datablock, "filepath_raw", None)
+                or ""
+            )
+            if path.startswith("//"):
+                paths.add(path)
+    return sorted(paths)
+
+
+def _dirty_image_buffers(context=None, objects=None, *, settings=None) -> list[str]:
+    candidates = (
+        list(getattr(bpy.data, "images", []) or [])
+        if objects is None
+        else _images_used_by_export(context, objects, settings=settings)
+    )
+    names: list[str] = []
+    for image in candidates:
+        if not bool(getattr(image, "is_dirty", False)):
+            continue
+        names.append(str(getattr(image, "name", "<unnamed>")))
+    return sorted(set(names))
+
+
+def _images_used_by_export(context, objects, *, settings=None) -> list:
+    images: list = []
+    seen_images: set[int] = set()
+    seen_trees: set[int] = set()
+    seen_textures: set[int] = set()
+
+    def identity(value) -> int:
+        try:
+            return int(value.as_pointer())
+        except Exception:
+            return id(value)
+
+    def add_image(image) -> None:
+        if image is None or identity(image) in seen_images:
+            return
+        seen_images.add(identity(image))
+        images.append(image)
+
+    def add_image_value(value) -> None:
+        """Add *value* only when it is a Blender Image datablock."""
+        image_type = getattr(getattr(bpy, "types", None), "Image", None)
+        try:
+            if image_type is not None and isinstance(value, image_type):
+                add_image(value)
+                return
+        except TypeError:
+            pass
+        if str(getattr(value, "id_type", "")) == "IMAGE":
+            add_image(value)
+
+    def visit_tree(node_tree) -> None:
+        if node_tree is None or identity(node_tree) in seen_trees:
+            return
+        seen_trees.add(identity(node_tree))
+        for node in getattr(node_tree, "nodes", []) or []:
+            add_image_value(getattr(node, "image", None))
+            for socket in getattr(node, "inputs", []) or []:
+                add_image_value(getattr(socket, "default_value", None))
+            visit_tree(getattr(node, "node_tree", None))
+
+    def visit_texture(texture) -> None:
+        """Collect images behind Blender's legacy Texture datablocks."""
+        if texture is None:
+            return
+        texture_type = getattr(getattr(bpy, "types", None), "Texture", None)
+        is_texture = str(getattr(texture, "id_type", "")) == "TEXTURE"
+        if texture_type is not None:
+            try:
+                is_texture = is_texture or isinstance(texture, texture_type)
+            except TypeError:
+                pass
+        if not is_texture:
+            return
+        marker = identity(texture)
+        if marker in seen_textures:
+            return
+        seen_textures.add(marker)
+        add_image_value(getattr(texture, "image", None))
+        visit_tree(getattr(texture, "node_tree", None))
+
+    def visit_resource(value) -> None:
+        add_image_value(value)
+        visit_texture(value)
+
+    def visit_modifier_resources(modifier) -> None:
+        """Inspect image/texture pointer properties that affect evaluation.
+
+        Displace, Wave, Warp, and vertex-weight modifiers can read legacy
+        ``Texture`` datablocks without a Geometry Nodes tree. Walk their pointer
+        properties generically, while explicit names keep this working for test
+        doubles and any modifier whose RNA metadata is unavailable.
+        """
+        for identifier in ("texture", "mask_texture"):
+            try:
+                visit_resource(getattr(modifier, identifier, None))
+            except Exception:
+                continue
+
+        for prop in getattr(getattr(modifier, "bl_rna", None), "properties", []) or []:
+            if str(getattr(prop, "type", "")) != "POINTER":
+                continue
+            identifier = str(getattr(prop, "identifier", ""))
+            if not identifier or identifier == "rna_type":
+                continue
+            try:
+                visit_resource(getattr(modifier, identifier))
+            except Exception:
+                continue
+
+    def visit_geometry_nodes_modifier_inputs(modifier) -> None:
+        """Inspect Blender 5.2's typed per-modifier node-group inputs.
+
+        Blender 5.2 moved exposed Geometry Nodes values away from modifier
+        IDProperties. Image overrides now live at
+        ``modifier.properties.inputs.<socket identifier>.value`` and can alter
+        evaluated export geometry without appearing on a node itself.
+        """
+        inputs = getattr(
+            getattr(getattr(modifier, "properties", None), "inputs", None),
+            "bl_rna",
+            None,
+        )
+        input_values = getattr(getattr(modifier, "properties", None), "inputs", None)
+        for prop in getattr(inputs, "properties", []) or []:
+            identifier = str(getattr(prop, "identifier", ""))
+            if not identifier or identifier in {"rna_type", "name"}:
+                continue
+            try:
+                socket_state = getattr(input_values, identifier)
+            except Exception:
+                continue
+            visit_resource(getattr(socket_state, "value", None))
+
+    seen_materials: set[int] = set()
+    for obj in objects or []:
+        for modifier in getattr(obj, "modifiers", []) or []:
+            # Geometry Nodes image inputs can change evaluated geometry even
+            # when the image is not referenced by a surface material.
+            visit_tree(getattr(modifier, "node_group", None))
+            visit_geometry_nodes_modifier_inputs(modifier)
+            visit_modifier_resources(modifier)
+        for material_slot in getattr(obj, "material_slots", []) or []:
+            material = getattr(material_slot, "material", None)
+            if material is None or identity(material) in seen_materials:
+                continue
+            seen_materials.add(identity(material))
+            visit_tree(getattr(material, "node_tree", None))
+
+    if _bake_uses_scene_world(settings):
+        world = getattr(getattr(context, "scene", None), "world", None)
+        visit_tree(getattr(world, "node_tree", None))
+    return images
+
+
+def _bake_uses_scene_world(settings) -> bool:
+    """Whether the current bake reads the scene World's image pixels.
+
+    A missing settings object keeps the lower-level snapshot helper
+    conservative for callers that have not declared their bake contract.
+    """
+    if settings is None:
+        return True
+    bake_mode = str(getattr(settings, "bake_mode", "LIT_IBL") or "LIT_IBL")
+    ibl_source = str(
+        getattr(settings, "bake_ibl_source", "SCENE_WORLD") or "SCENE_WORLD"
+    )
+    return bake_mode == "LIT_IBL" and ibl_source == "SCENE_WORLD"
+
+
+def _cleanup_scene_snapshot(job_dir: str | Path) -> None:
+    """Remove only the private scene copy; retain status/log diagnostics."""
+    snapshot_path = Path(job_dir) / _SCENE_SNAPSHOT_NAME
+    try:
+        snapshot_path.unlink()
+    except FileNotFoundError:
+        pass
+    except Exception:
+        # Snapshot cleanup must not hide the terminal export result. The job
+        # directory remains user-inspectable and can be removed manually.
+        pass
+
+
+def _cleanup_stale_scene_snapshots(export_dir: Path) -> None:
+    """Best-effort janitor for snapshots left by a UI/process crash."""
+    jobs_root = Path(export_dir) / ".blendertorcp_jobs"
+    if not jobs_root.is_dir():
+        return
+    try:
+        job_dirs = list(jobs_root.iterdir())
+    except Exception:
+        return
+    for job_dir in job_dirs:
+        if not job_dir.is_dir():
+            continue
+        snapshot = job_dir / _SCENE_SNAPSHOT_NAME
+        if not snapshot.exists():
+            continue
+        status = _read_job_status(str(job_dir)) or {}
+        pid = _status_pid(status)
+        if (
+            status.get("state") in _ACTIVE_JOB_STATES
+            and pid is not None
+            and _pid_is_running(pid)
+        ):
+            continue
+        _cleanup_scene_snapshot(job_dir)
 
 
 def _write_status(

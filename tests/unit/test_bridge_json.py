@@ -133,8 +133,27 @@ class TestBridgeRun:
     def test_file_not_found_raises(self):
         """FileNotFoundError from subprocess -> RuntimeError 'Blender not found'."""
         with patch("Plugin.cli.bridge.subprocess.run", side_effect=FileNotFoundError):
-            with pytest.raises(RuntimeError, match="Blender not found"):
+            with pytest.raises(BridgeError, match="Blender not found") as exc_info:
                 run("version", {}, blender_path="/nonexistent/blender")
+        assert exc_info.value.error_code == "BLENDER_NOT_FOUND"
+
+    @pytest.mark.parametrize(
+        "failure",
+        [
+            PermissionError(13, "Permission denied"),
+            IsADirectoryError(21, "Is a directory"),
+            OSError(8, "Exec format error"),
+        ],
+    )
+    def test_os_launch_failure_is_structured(self, failure):
+        with patch("Plugin.cli.bridge.subprocess.run", side_effect=failure):
+            with pytest.raises(BridgeError, match="failed to start") as exc_info:
+                run("version", {}, blender_path="/bad/blender")
+
+        assert exc_info.value.error_code == "BLENDER_START_FAILED"
+        payload = exc_info.value.to_json()
+        assert payload["error"]["code"] == "BLENDER_START_FAILED"
+        assert payload["context"]["blender_path"] == "/bad/blender"
 
     def test_timeout_raises(self):
         """TimeoutExpired -> RuntimeError with timeout message."""

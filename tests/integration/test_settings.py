@@ -35,6 +35,11 @@ class TestSettingsGet:
         assert "bake_resolution" in result.json
         assert "bake_mode" not in result.json
 
+    def test_group_filter_materials(self, run_cli, blend_file):
+        result = run_cli("settings", "get", str(blend_file), "--group", "materials")
+        assert result.ok
+        assert result.json == {"materialx_surface_profile": "realitykit_portable"}
+
     def test_group_filter_general(self, run_cli, blend_file):
         result = run_cli("settings", "get", str(blend_file), "--group", "general")
         assert result.ok
@@ -65,6 +70,43 @@ class TestSettingsSet:
         result = run_cli("settings", "set", str(blend_file), "no_equals_sign")
         assert not result.ok
 
+    def test_experimental_material_profile_dry_run(self, run_cli, blend_file):
+        result = run_cli(
+            "settings",
+            "set",
+            str(blend_file),
+            "materialx_surface_profile=openpbr_1_1",
+            "--dry-run",
+        )
+        assert result.ok
+        assert result.json == {
+            "valid": True,
+            "would_update": ["materialx_surface_profile"],
+        }
+
+    @pytest.mark.parametrize(
+        "key",
+        [
+            "export_curves",
+            "export_points",
+            "export_hair",
+            "export_volumes",
+            "export_lights",
+            "convert_world_material",
+            "export_cameras",
+        ],
+    )
+    def test_removed_raw_geometry_setting_is_rejected(self, run_cli, blend_file, key):
+        result = run_cli(
+            "settings",
+            "set",
+            str(blend_file),
+            f"{key}=true",
+            "--dry-run",
+        )
+
+        assert not result.ok
+
 
 class TestSettingsList:
     def test_returns_list(self, run_cli):
@@ -92,3 +134,26 @@ class TestSettingsList:
         keys = [entry["key"] for entry in result.json]
         assert "export_format" in keys
         assert "diagnostics_enabled" in keys
+
+    def test_realitykit_os27_defaults_are_strict(self, run_cli):
+        result = run_cli("settings", "list")
+        assert result.ok
+        defaults = {entry["key"]: entry.get("default") for entry in result.json}
+
+        assert defaults["convert_orientation"] is True
+        assert defaults["forward_axis"] == "-Z"
+        assert defaults["up_axis"] == "Y"
+        assert defaults["convert_scene_units"] == "METERS"
+        assert defaults["meters_per_unit"] == 1.0
+        assert defaults["export_meshes"] is True
+        assert defaults["materialx_surface_profile"] == "realitykit_portable"
+        for key in (
+            "export_curves",
+            "export_points",
+            "export_hair",
+            "export_volumes",
+            "export_lights",
+            "convert_world_material",
+            "export_cameras",
+        ):
+            assert key not in defaults

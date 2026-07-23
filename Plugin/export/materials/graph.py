@@ -9,10 +9,54 @@ from typing import Any, Dict, List, Optional
 from ...manifest.materialx_nodes import select_node_def_for_node
 
 
+RCP3_PBR2_NODEDEF = "ND_realitykit_pbr_surfaceshader_2_0"
+OPENPBR_1_1_NODEDEF = "ND_open_pbr_surface_surfaceshader"
+PORTABLE_REALITYKIT_PBR_NODEDEF = "ND_realitykit_pbr_surfaceshader"
+
+_PROFILE_PORTABLE = "realitykit_portable"
+_PROFILE_RCP3 = "realitykit_pbr2"
+_PROFILE_OPENPBR = "openpbr_1_1"
+
+PBR2_EXPERIMENTAL_RUNTIME_WARNING = (
+    "RealityKit PBR Surface 2 is an experimental USDC-to-RCP3-only profile. "
+    "Quick Look and USDKit are incompatible, and mandatory strict USD/USDZ "
+    "validation may reject its nodedef; BlenderToRCP keeps that validation "
+    "gate enabled."
+)
+
+_COLOR_TEXTURE_INPUTS = {
+    "color",
+    "baseColor",
+    "emissiveColor",
+    "subsurfaceColor",
+    "sheenColor",
+    "specularColor",
+    "base_color",
+    "emission_color",
+    "subsurface_color",
+    "fuzz_color",
+    "specular_color",
+    "coat_color",
+}
+
+
+def material_profile_runtime_warnings(surface_profile: str) -> tuple[str, ...]:
+    """Return user-facing compatibility warnings for an explicit profile."""
+    requested = (surface_profile or _PROFILE_PORTABLE).strip().lower()
+    if requested == _PROFILE_RCP3:
+        return (PBR2_EXPERIMENTAL_RUNTIME_WARNING,)
+    return ()
+
+
 class MaterialXGraphBuilder:
     """Build MaterialX graphs for RealityKit-compatible materials."""
 
-    def __init__(self, manifest: Dict[str, Any], diagnostics=None):
+    def __init__(
+        self,
+        manifest: Dict[str, Any],
+        diagnostics=None,
+        surface_profile: str = _PROFILE_PORTABLE,
+    ):
         """Initialize the graph builder.
 
         Args:
@@ -22,6 +66,7 @@ class MaterialXGraphBuilder:
         self.manifest = manifest
         self.diagnostics = diagnostics
         self.node_counter = 0
+        self.surface_profile = surface_profile
 
     def build_pbr_material(self, material_data: Dict[str, Any]) -> Dict[str, Any]:
         """Build a PBR MaterialX graph.
@@ -38,20 +83,58 @@ class MaterialXGraphBuilder:
             'output': None,
         }
 
-        pbr_node_id = 'realitykit_pbr_surfaceshader'
+        pbr_node_id, profile, materialx_version = self._select_surface_profile()
         pbr_node_def = self._find_node_def(pbr_node_id)
 
         if not pbr_node_def:
             raise ValueError(f"PBR node definition not found: {pbr_node_id}")
 
+        pbr_inputs = self._map_pbr_inputs(material_data, profile)
         pbr_node = self._create_node(
             node_id=pbr_node_id,
             node_name='pbr_surfaceshader',
-            inputs=self._map_pbr_inputs(material_data),
+            inputs=pbr_inputs,
         )
         graph['nodes'].append(pbr_node)
-        self._apply_graph_inputs(graph, pbr_node['name'], material_data.get('input_graphs', {}))
+        profile_graphs = self._profile_input_graphs(
+            material_data.get('input_graphs', {}),
+            profile,
+            material_data,
+        )
+        if (
+            profile == _PROFILE_OPENPBR
+            and 'emission_color' in profile_graphs
+            and 'emission_luminance' not in pbr_node['inputs']
+        ):
+            pbr_node['inputs']['emission_luminance'] = 1.0
+
+        if profile == _PROFILE_OPENPBR:
+            weight_name, color_name, base_name = (
+                'subsurface_weight',
+                'subsurface_color',
+                'base_color',
+            )
+        else:
+            weight_name, color_name, base_name = (
+                'subsurfaceWeight',
+                'subsurfaceColor',
+                'baseColor',
+            )
+        has_subsurface = weight_name in pbr_inputs or weight_name in profile_graphs
+        if has_subsurface and color_name not in pbr_inputs and color_name not in profile_graphs:
+            if base_name in profile_graphs:
+                profile_graphs = dict(profile_graphs)
+                profile_graphs[color_name] = profile_graphs[base_name]
+            elif base_name in pbr_inputs:
+                pbr_node['inputs'][color_name] = pbr_inputs[base_name]
+        self._apply_graph_inputs(
+            graph,
+            pbr_node['name'],
+            profile_graphs,
+        )
         graph['output'] = pbr_node['name']
+        graph['surface_profile'] = profile
+        graph['materialx_version'] = materialx_version
 
         return graph
 
@@ -84,6 +167,8 @@ class MaterialXGraphBuilder:
         graph['nodes'].append(unlit_node)
         self._apply_graph_inputs(graph, unlit_node['name'], material_data.get('input_graphs', {}))
         graph['output'] = unlit_node['name']
+        graph['surface_profile'] = "realitykit_unlit"
+        graph['materialx_version'] = "1.38"
 
         return graph
 
@@ -106,6 +191,11 @@ class MaterialXGraphBuilder:
         )
         graph['nodes'].append(rk_node)
         graph['output'] = rk_node['name']
+        graph['surface_profile'] = "realitykit_custom"
+        graph['materialx_version'] = self.manifest.get('metadata', {}).get(
+            'materialx_version',
+            '1.39',
+        )
 
         return graph
 
@@ -119,6 +209,12 @@ class MaterialXGraphBuilder:
                 raise ValueError("RealityKit graph node missing node_id")
             if not self._find_node_def(node_id):
                 raise ValueError(f"RealityKit node definition not found: {node_id}")
+        graph = dict(graph)
+        graph.setdefault('surface_profile', "realitykit_custom")
+        graph.setdefault(
+            'materialx_version',
+            self.manifest.get('metadata', {}).get('materialx_version', '1.39'),
+        )
         return graph
 
     def _find_node_def(self, node_id: str) -> Optional[Dict[str, Any]]:
@@ -127,6 +223,38 @@ class MaterialXGraphBuilder:
         if not node_def and isinstance(node_id, str) and node_id.startswith("ND_"):
             node_def = self.manifest.get("nodes", {}).get(node_id)
         return node_def
+
+    def _select_surface_profile(self):
+        """Select an explicit, versioned surface contract.
+
+        The verified RealityKit PBR graph remains the shipping default while
+        OS 27 beta release notes list PBR Surface 2 Quick Look/USDKit failures
+        and incomplete MaterialX 1.39 support. PBR2 and OpenPBR are explicit,
+        capability-gated enrichments until those platform defects clear.
+        """
+        requested = (self.surface_profile or _PROFILE_PORTABLE).strip().lower()
+        has_portable = bool(
+            self.manifest.get("nodes", {}).get(PORTABLE_REALITYKIT_PBR_NODEDEF)
+        )
+        has_pbr2 = bool(self.manifest.get("nodes", {}).get(RCP3_PBR2_NODEDEF))
+        has_openpbr = bool(self.manifest.get("nodes", {}).get(OPENPBR_1_1_NODEDEF))
+
+        if requested == _PROFILE_PORTABLE:
+            if not has_portable:
+                raise ValueError("Portable RealityKit PBR nodedef is not available")
+            return PORTABLE_REALITYKIT_PBR_NODEDEF, _PROFILE_PORTABLE, "1.38"
+        if requested == _PROFILE_OPENPBR:
+            if not has_openpbr:
+                raise ValueError("OpenPBR 1.1 nodedef is not available in the MaterialX manifest")
+            return OPENPBR_1_1_NODEDEF, _PROFILE_OPENPBR, "1.39"
+        if requested != _PROFILE_RCP3:
+            raise ValueError(f"Unknown MaterialX surface profile: {self.surface_profile}")
+        if has_pbr2:
+            return RCP3_PBR2_NODEDEF, _PROFILE_RCP3, "1.38"
+        raise ValueError(
+            "RealityKit PBR Surface 2 was explicitly selected but its exact OS 27 nodedef "
+            "is unavailable; refusing to switch shading models silently"
+        )
 
     def _create_node(self, node_id: str, node_name: str, inputs: Dict[str, Any]) -> Dict[str, Any]:
         """Create a new node payload with a unique name."""
@@ -149,8 +277,23 @@ class MaterialXGraphBuilder:
         """Attach expression graphs to inputs on a target node."""
         if not graph_inputs:
             return
+        target = next(
+            (node for node in graph.get('nodes', []) if node.get('name') == target_node),
+            None,
+        )
         for input_name, expr in graph_inputs.items():
-            connection = self._inject_expression(graph, expr, f"{target_node}_{input_name}")
+            texture_role = "color" if input_name in _COLOR_TEXTURE_INPUTS else "data"
+            if isinstance(expr, dict) and expr.get("kind") in {"constant", "texture"}:
+                value = self._expression_to_value(expr, texture_role=texture_role)
+                if target is not None and value is not None:
+                    target.setdefault('inputs', {})[input_name] = value
+                continue
+            connection = self._inject_expression(
+                graph,
+                expr,
+                f"{target_node}_{input_name}",
+                texture_role=texture_role,
+            )
             if not connection:
                 continue
             graph['connections'].append(
@@ -167,6 +310,7 @@ class MaterialXGraphBuilder:
         graph: Dict[str, Any],
         expr: Any,
         name_hint: str,
+        texture_role: Optional[str] = None,
     ) -> Optional[Dict[str, Any]]:
         """Convert an expression spec into graph nodes/connections."""
         if not isinstance(expr, dict):
@@ -188,7 +332,12 @@ class MaterialXGraphBuilder:
 
         for input_name, input_expr in (expr.get("inputs") or {}).items():
             if isinstance(input_expr, dict) and input_expr.get("kind") == "node":
-                child = self._inject_expression(graph, input_expr, f"{name_hint}_{input_name}")
+                child = self._inject_expression(
+                    graph,
+                    input_expr,
+                    f"{name_hint}_{input_name}",
+                    texture_role=texture_role,
+                )
                 if child:
                     graph['connections'].append(
                         {
@@ -200,25 +349,33 @@ class MaterialXGraphBuilder:
                     )
                 continue
 
-            value = self._expression_to_value(input_expr)
+            value = self._expression_to_value(input_expr, texture_role=texture_role)
             if value is not None:
                 node["inputs"][input_name] = value
 
         return {"node": node_name, "output": expr.get("output") or "out"}
 
-    def _expression_to_value(self, expr: Any) -> Optional[Any]:
+    def _expression_to_value(
+        self,
+        expr: Any,
+        texture_role: Optional[str] = None,
+    ) -> Optional[Any]:
         if not isinstance(expr, dict):
             return expr
         kind = expr.get("kind")
         if kind == "constant":
             return expr.get("value")
         if kind == "texture":
-            return self._texture_spec_from_expr(expr)
+            return self._texture_spec_from_expr(expr, texture_role=texture_role)
         if kind == "node":
             return None
         return None
 
-    def _texture_spec_from_expr(self, expr: Dict[str, Any]) -> Dict[str, Any]:
+    def _texture_spec_from_expr(
+        self,
+        expr: Dict[str, Any],
+        texture_role: Optional[str] = None,
+    ) -> Dict[str, Any]:
         return self._create_texture_input(
             expr.get("path"),
             expr.get("output_type") or "color3",
@@ -228,10 +385,24 @@ class MaterialXGraphBuilder:
             colorspace=expr.get("colorspace"),
             alpha_mode=expr.get("alpha_mode"),
             scale=expr.get("scale"),
+            texture_role=expr.get("colorspace_role") or texture_role,
+            normal_decode=expr.get("normal_decode"),
         )
 
-    def _map_pbr_inputs(self, material_data: Dict[str, Any]) -> Dict[str, Any]:
+    def _map_pbr_inputs(
+        self,
+        material_data: Dict[str, Any],
+        profile: str = _PROFILE_RCP3,
+    ) -> Dict[str, Any]:
         """Map Blender Principled BSDF inputs to RealityKit PBR inputs."""
+        if profile == _PROFILE_OPENPBR:
+            return self._map_openpbr_inputs(material_data)
+        if profile == _PROFILE_PORTABLE:
+            return self._map_realitykit_portable_inputs(material_data)
+        return self._map_realitykit_pbr2_inputs(material_data)
+
+    def _map_realitykit_pbr2_inputs(self, material_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Map Blender Principled BSDF inputs to RealityKit PBR Surface 2."""
         inputs: Dict[str, Any] = {}
 
         if 'base_color_texture' in material_data:
@@ -242,6 +413,7 @@ class MaterialXGraphBuilder:
                 mapping=material_data.get('base_color_texture_mapping'),
                 colorspace=material_data.get('base_color_texture_colorspace'),
                 alpha_mode=material_data.get('base_color_texture_alpha_mode'),
+                texture_role='color',
             )
         elif 'base_color' in material_data:
             inputs['baseColor'] = self._convert_color(material_data['base_color'])
@@ -255,6 +427,7 @@ class MaterialXGraphBuilder:
                 mapping=material_data.get('metallic_texture_mapping'),
                 colorspace=material_data.get('metallic_texture_colorspace'),
                 alpha_mode=material_data.get('metallic_texture_alpha_mode'),
+                texture_role='data',
             )
         elif 'metallic' in material_data:
             inputs['metallic'] = material_data['metallic']
@@ -268,6 +441,7 @@ class MaterialXGraphBuilder:
                 mapping=material_data.get('roughness_texture_mapping'),
                 colorspace=material_data.get('roughness_texture_colorspace'),
                 alpha_mode=material_data.get('roughness_texture_alpha_mode'),
+                texture_role='data',
             )
         elif 'roughness' in material_data:
             inputs['roughness'] = material_data['roughness']
@@ -295,13 +469,14 @@ class MaterialXGraphBuilder:
                 colorspace=material_data.get('emission_texture_colorspace'),
                 alpha_mode=material_data.get('emission_texture_alpha_mode'),
                 scale=emission_strength,
+                texture_role='color',
             )
         elif 'emission_color' in material_data:
-            inputs['emissiveColor'] = self._convert_color(material_data['emission_color'])
-        elif 'emission_strength' in material_data and material_data['emission_strength'] > 0:
-            base_color = material_data.get('base_color', [1.0, 1.0, 1.0])
-            strength = material_data['emission_strength']
-            inputs['emissiveColor'] = [c * strength for c in base_color]
+            strength = float(material_data.get('emission_strength', 1.0))
+            inputs['emissiveColor'] = [
+                component * strength
+                for component in self._convert_color(material_data['emission_color'])
+            ]
 
         is_transparent = material_data.get('is_transparent', False)
 
@@ -314,6 +489,7 @@ class MaterialXGraphBuilder:
                 mapping=material_data.get('alpha_texture_mapping'),
                 colorspace=material_data.get('alpha_texture_colorspace'),
                 alpha_mode=material_data.get('alpha_texture_alpha_mode'),
+                texture_role='data',
             )
         elif is_transparent and 'alpha' in material_data:
             inputs['opacity'] = material_data['alpha']
@@ -330,6 +506,7 @@ class MaterialXGraphBuilder:
                 mapping=material_data.get('ao_texture_mapping'),
                 colorspace=material_data.get('ao_texture_colorspace'),
                 alpha_mode=material_data.get('ao_texture_alpha_mode'),
+                texture_role='data',
             )
 
         if 'clearcoat' in material_data:
@@ -352,16 +529,348 @@ class MaterialXGraphBuilder:
         else:
             inputs['specular'] = 0.5
 
+        # RealityKit PBR Surface 2 / Blender 5.2 Principled additions.
+        pbr2_fields = {
+            'diffuse_roughness': 'baseDiffuseRoughness',
+            'subsurface_weight': 'subsurfaceWeight',
+            'subsurface_radius': 'subsurfaceRadius',
+            'subsurface_radius_scale': 'subsurfaceRadiusScale',
+            'subsurface_anisotropy': 'subsurfaceScatterAnisotropy',
+            'sheen_color': 'sheenColor',
+            'clearcoat_ior': 'clearcoatIOR',
+            'clearcoat_anisotropy': 'clearcoatAnisotropyLevel',
+            'clearcoat_anisotropy_rotation': 'clearcoatAnisotropyAngle',
+            'ior': 'specularIOR',
+            'anisotropic': 'specularAnisotropyLevel',
+            'anisotropic_rotation': 'specularAnisotropyAngle',
+            'specular_tint': 'specularColor',
+            'specular_weight': 'specularWeight',
+        }
+        for source_name, target_name in pbr2_fields.items():
+            if source_name in material_data:
+                value = material_data[source_name]
+                if target_name in {'subsurfaceRadiusScale', 'sheenColor', 'specularColor'}:
+                    value = self._convert_color(value)
+                inputs[target_name] = value
+
+        if 'subsurfaceWeight' in inputs:
+            if 'baseColor' in inputs and 'subsurfaceColor' not in inputs:
+                inputs['subsurfaceColor'] = inputs['baseColor']
+            elif 'base_color' in material_data and 'subsurfaceColor' not in inputs:
+                inputs['subsurfaceColor'] = self._convert_color(material_data['base_color'])
+
         if material_data.get('has_premultiplied_alpha'):
             inputs['hasPremultipliedAlpha'] = True
 
         return inputs
+
+    def _map_realitykit_portable_inputs(self, material_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Return the beta-safe RealityKit PBR v1 subset used for shipping."""
+        pbr2 = self._map_realitykit_pbr2_inputs(material_data)
+        supported = {
+            'baseColor',
+            'emissiveColor',
+            'normal',
+            'roughness',
+            'metallic',
+            'ambientOcclusion',
+            'specular',
+            'opacity',
+            'opacityThreshold',
+            'clearcoat',
+            'clearcoatRoughness',
+            'clearcoatNormal',
+            'hasPremultipliedAlpha',
+        }
+        return {name: value for name, value in pbr2.items() if name in supported}
+
+    def _map_openpbr_inputs(self, material_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Map the same Principled payload to the explicit OpenPBR 1.1 fallback."""
+        pbr2 = self._map_realitykit_pbr2_inputs(material_data)
+        result: Dict[str, Any] = {'base_weight': 1.0}
+        rename = {
+            'baseColor': 'base_color',
+            'baseDiffuseRoughness': 'base_diffuse_roughness',
+            'metallic': 'base_metalness',
+            'roughness': 'specular_roughness',
+            'specularIOR': 'specular_ior',
+            'specularAnisotropyLevel': 'specular_roughness_anisotropy',
+            'specularColor': 'specular_color',
+            'specularWeight': 'specular_weight',
+            'normal': 'geometry_normal',
+            'opacity': 'geometry_opacity',
+            'clearcoat': 'coat_weight',
+            'clearcoatRoughness': 'coat_roughness',
+            'clearcoatNormal': 'geometry_coat_normal',
+            'clearcoatIOR': 'coat_ior',
+            'clearcoatAnisotropyLevel': 'coat_roughness_anisotropy',
+            'subsurfaceWeight': 'subsurface_weight',
+            'subsurfaceColor': 'subsurface_color',
+            'subsurfaceRadius': 'subsurface_radius',
+            'subsurfaceRadiusScale': 'subsurface_radius_scale',
+            'subsurfaceScatterAnisotropy': 'subsurface_scatter_anisotropy',
+            'emissiveColor': 'emission_color',
+        }
+        for source_name, target_name in rename.items():
+            if source_name in pbr2:
+                value = pbr2[source_name]
+                if source_name in {'normal', 'clearcoatNormal'} and isinstance(value, dict):
+                    value = dict(value)
+                    if (value.get('space') or 'tangent').strip().lower() not in {
+                        '',
+                        'tangent',
+                    }:
+                        raise ValueError(
+                            "OpenPBR geometry normals require a tangent-space normal map; "
+                            "bake object-space normals before export"
+                        )
+                    value['normal_decode'] = 'materialx'
+                result[target_name] = value
+
+        if 'emissiveColor' in pbr2:
+            # The extracted emissive color already contains Blender's strength.
+            result['emission_luminance'] = 1.0
+        if 'sheen_weight' in material_data:
+            result['fuzz_weight'] = material_data['sheen_weight']
+        if 'sheen_tint' in material_data:
+            result['fuzz_color'] = self._convert_color(material_data['sheen_tint'])
+        if 'sheen_roughness' in material_data:
+            result['fuzz_roughness'] = material_data['sheen_roughness']
+        if 'clearcoat_tint' in material_data:
+            result['coat_color'] = self._convert_color(material_data['clearcoat_tint'])
+        return result
+
+    def _profile_input_graphs(
+        self,
+        graph_inputs: Dict[str, Any],
+        profile: str,
+        material_data: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        material_data = material_data or {}
+        graph_inputs = dict(graph_inputs or {})
+        emission_color = graph_inputs.pop('_emissionColor', None)
+        emission_strength = graph_inputs.pop('_emissionStrength', None)
+        sheen_weight = graph_inputs.pop('_sheenWeight', None)
+        sheen_tint = graph_inputs.pop('_sheenTint', None)
+        sheen_roughness = graph_inputs.pop('_sheenRoughness', None)
+        specular_level = graph_inputs.pop('_specularLevel', None)
+
+        if emission_color is not None or emission_strength is not None:
+            color_expr = emission_color or self._emission_expr_from_material_data(material_data)
+            strength_expr = emission_strength or {
+                'kind': 'constant',
+                'value': float(material_data.get('emission_strength', 1.0)),
+            }
+            graph_inputs['emissiveColor'] = self._scaled_color_expr(
+                color_expr,
+                strength_expr,
+            )
+
+        if profile == _PROFILE_RCP3:
+            if sheen_weight is not None or sheen_tint is not None:
+                weight_expr = sheen_weight or {
+                    'kind': 'constant',
+                    'value': material_data.get('sheen_weight', 0.0),
+                }
+                tint_expr = sheen_tint or {
+                    'kind': 'constant',
+                    'value': material_data.get('sheen_tint', [1.0, 1.0, 1.0]),
+                }
+                weight_color = {
+                    'kind': 'node',
+                    'node_id': self._nodedef_for_graph('combine3', 'color3'),
+                    'inputs': {'in1': weight_expr, 'in2': weight_expr, 'in3': weight_expr},
+                }
+                graph_inputs['sheenColor'] = {
+                    'kind': 'node',
+                    'node_id': self._nodedef_for_graph('multiply', 'color3'),
+                    'inputs': {'in1': tint_expr, 'in2': weight_color},
+                }
+            if sheen_roughness is not None and self.diagnostics:
+                self.diagnostics.add_warning(
+                    "RealityKit PBR Surface 2 has no sheen roughness input; bake this control "
+                    "or select OpenPBR 1.1."
+                )
+            if specular_level is not None:
+                graph_inputs['specular'] = specular_level
+                graph_inputs['specularWeight'] = self._scaled_float_expr(specular_level, 2.0)
+            return graph_inputs
+
+        if profile == _PROFILE_OPENPBR:
+            if sheen_weight is not None:
+                graph_inputs['fuzz_weight'] = sheen_weight
+            if sheen_tint is not None:
+                graph_inputs['fuzz_color'] = sheen_tint
+            if sheen_roughness is not None:
+                graph_inputs['fuzz_roughness'] = sheen_roughness
+            if specular_level is not None:
+                graph_inputs['specular_weight'] = self._scaled_float_expr(specular_level, 2.0)
+
+        if profile == _PROFILE_PORTABLE:
+            if specular_level is not None:
+                graph_inputs['specular'] = specular_level
+            supported = {
+                'baseColor',
+                'emissiveColor',
+                'normal',
+                'roughness',
+                'metallic',
+                'specular',
+                'opacity',
+                'clearcoat',
+                'clearcoatRoughness',
+                'clearcoatNormal',
+            }
+            if (
+                sheen_weight is not None
+                or sheen_tint is not None
+                or sheen_roughness is not None
+            ) and self.diagnostics:
+                self.diagnostics.add_warning(
+                    "Portable RealityKit material profile omitted linked sheen controls."
+                )
+            omitted = sorted(set(graph_inputs) - supported)
+            if omitted and self.diagnostics:
+                self.diagnostics.add_warning(
+                    "Portable RealityKit material profile omitted PBR2-only inputs: "
+                    + ", ".join(omitted)
+                )
+            return {name: expr for name, expr in graph_inputs.items() if name in supported}
+        if profile != _PROFILE_OPENPBR:
+            return graph_inputs
+        rename = {
+            'baseColor': 'base_color',
+            'baseDiffuseRoughness': 'base_diffuse_roughness',
+            'metallic': 'base_metalness',
+            'roughness': 'specular_roughness',
+            'specularIOR': 'specular_ior',
+            'specularAnisotropyLevel': 'specular_roughness_anisotropy',
+            'specularColor': 'specular_color',
+            'specularWeight': 'specular_weight',
+            'normal': 'geometry_normal',
+            'opacity': 'geometry_opacity',
+            'clearcoat': 'coat_weight',
+            'clearcoatRoughness': 'coat_roughness',
+            'clearcoatNormal': 'geometry_coat_normal',
+            'clearcoatIOR': 'coat_ior',
+            'subsurfaceWeight': 'subsurface_weight',
+            'subsurfaceColor': 'subsurface_color',
+            'subsurfaceRadius': 'subsurface_radius',
+            'subsurfaceRadiusScale': 'subsurface_radius_scale',
+            'subsurfaceScatterAnisotropy': 'subsurface_scatter_anisotropy',
+            'emissiveColor': 'emission_color',
+        }
+        mapped = {rename.get(name, name): expr for name, expr in graph_inputs.items()}
+        for normal_name in ('geometry_normal', 'geometry_coat_normal'):
+            if normal_name in mapped:
+                mapped[normal_name] = self._with_normal_decode(
+                    mapped[normal_name],
+                    "materialx",
+                )
+        return mapped
+
+    def _nodedef_for_graph(self, node_name: str, output_type: str) -> str:
+        from ...manifest.materialx_nodes import select_nodedef_name_for_node
+
+        return select_nodedef_name_for_node(
+            self.manifest,
+            node_name,
+            output_type=output_type,
+        ) or f"ND_{node_name}_{output_type}"
+
+    def _scaled_float_expr(self, expr: Dict[str, Any], scale: float) -> Dict[str, Any]:
+        return {
+            'kind': 'node',
+            'node_id': self._nodedef_for_graph('multiply', 'float'),
+            'inputs': {
+                'in1': expr,
+                'in2': {'kind': 'constant', 'value': float(scale)},
+            },
+        }
+
+    def _scaled_color_expr(
+        self,
+        color_expr: Dict[str, Any],
+        strength_expr: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        if strength_expr.get('kind') == 'constant':
+            strength = float(strength_expr.get('value', 1.0))
+            if abs(strength - 1.0) <= 1e-6:
+                return color_expr
+            if color_expr.get('kind') == 'texture':
+                result = dict(color_expr)
+                result['scale'] = float(result.get('scale', 1.0)) * strength
+                return result
+        strength_color = {
+            'kind': 'node',
+            'node_id': self._nodedef_for_graph('combine3', 'color3'),
+            'inputs': {
+                'in1': strength_expr,
+                'in2': strength_expr,
+                'in3': strength_expr,
+            },
+        }
+        return {
+            'kind': 'node',
+            'node_id': self._nodedef_for_graph('multiply', 'color3'),
+            'inputs': {'in1': color_expr, 'in2': strength_color},
+        }
+
+    def _emission_expr_from_material_data(
+        self,
+        material_data: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        path = material_data.get('emission_texture')
+        if path:
+            result = {
+                'kind': 'texture',
+                'path': path,
+                'output_type': 'color3',
+                'channel': material_data.get('emission_texture_channel', 'rgb'),
+                'colorspace_role': 'color',
+            }
+            for source_suffix, target_name in (
+                ('texcoord', 'uv_map'),
+                ('mapping', 'mapping'),
+                ('colorspace', 'colorspace'),
+                ('alpha_mode', 'alpha_mode'),
+            ):
+                value = material_data.get(f'emission_texture_{source_suffix}')
+                if value is not None:
+                    result[target_name] = value
+            return result
+        return {
+            'kind': 'constant',
+            'value': self._convert_color(material_data.get('emission_color', [0.0, 0.0, 0.0])),
+        }
+
+    def _with_normal_decode(self, expr: Any, decode: str) -> Any:
+        if not isinstance(expr, dict):
+            return expr
+        result = dict(expr)
+        if result.get('kind') == 'texture':
+            if (result.get('space') or 'tangent').strip().lower() not in {'', 'tangent'}:
+                raise ValueError(
+                    "OpenPBR geometry normals require a tangent-space normal map; "
+                    "bake object-space normals before export"
+                )
+            result['normal_decode'] = decode
+            return result
+        if result.get('kind') == 'node':
+            result['inputs'] = {
+                name: self._with_normal_decode(value, decode)
+                for name, value in (result.get('inputs') or {}).items()
+            }
+        return result
 
     def _map_unlit_inputs(self, material_data: Dict[str, Any]) -> Dict[str, Any]:
         """Map Blender material inputs to RealityKit Unlit inputs."""
         inputs: Dict[str, Any] = {}
 
         if 'base_color_texture' in material_data:
+            color_scale = material_data.get('base_color_texture_scale')
+            if color_scale is None:
+                color_scale = material_data.get('emission_strength')
             inputs['color'] = self._create_texture_input(
                 material_data['base_color_texture'],
                 'color3',
@@ -369,6 +878,8 @@ class MaterialXGraphBuilder:
                 mapping=material_data.get('base_color_texture_mapping'),
                 colorspace=material_data.get('base_color_texture_colorspace'),
                 alpha_mode=material_data.get('base_color_texture_alpha_mode'),
+                scale=color_scale,
+                texture_role='color',
             )
         elif 'base_color' in material_data:
             inputs['color'] = self._convert_color(material_data['base_color'])
@@ -384,6 +895,7 @@ class MaterialXGraphBuilder:
                 mapping=material_data.get('alpha_texture_mapping'),
                 colorspace=material_data.get('alpha_texture_colorspace'),
                 alpha_mode=material_data.get('alpha_texture_alpha_mode'),
+                texture_role='data',
             )
         elif is_transparent and 'alpha' in material_data:
             inputs['opacity'] = material_data['alpha']
@@ -412,6 +924,8 @@ class MaterialXGraphBuilder:
         colorspace: Optional[str] = None,
         alpha_mode: Optional[str] = None,
         scale: Optional[float] = None,
+        texture_role: Optional[str] = None,
+        normal_decode: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Create a texture reference for the USD post-process stage."""
         spec = {
@@ -430,6 +944,10 @@ class MaterialXGraphBuilder:
             spec['alpha_mode'] = alpha_mode
         if scale is not None:
             spec['scale'] = scale
+        if texture_role:
+            spec['colorspace_role'] = texture_role
+        if normal_decode:
+            spec['normal_decode'] = normal_decode
         return spec
 
     def _create_normal_input(
@@ -447,6 +965,7 @@ class MaterialXGraphBuilder:
             'type': 'normal_texture',
             'path': texture_path,
             'output_type': 'vector3',
+            'colorspace_role': 'data',
         }
         if texcoord:
             spec['texcoord'] = texcoord

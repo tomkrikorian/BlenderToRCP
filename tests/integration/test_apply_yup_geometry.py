@@ -129,6 +129,10 @@ def _close(a, b, tol=TOL):
     return (a - b).length <= tol
 
 
+def _matrix_delta(a, b):
+    return max(abs(a[row][col] - b[row][col]) for row in range(4) for col in range(4))
+
+
 def _all_world_rotated(new_obj, old_world_pts):
     """Assert new world geometry == Rg @ old world geometry, vertex by vertex."""
     new = _world_pts(new_obj)
@@ -323,6 +327,98 @@ def scenario_convert_orientation_disabled():
     return ok, "convert_orientation=%r" % (settings.convert_orientation,)
 
 
+def _scenario_transactional_failure(helper_name, use_delta=False):
+    """Force a failure *after* one mutation and require an exact rollback."""
+    scene = _new_scene("transaction_" + helper_name)
+    mesh = _make_cube_mesh("transaction_mesh_" + helper_name)
+    obj = _link(scene, "transaction_obj_" + helper_name, mesh)
+    obj.location = (1.25, -2.5, 3.75)
+    obj.rotation_euler = (0.2, -0.4, 0.6)
+    obj.scale = (1.2, 0.8, 1.5)
+    if use_delta:
+        # Delta transforms take the matrix_world fallback path.
+        obj.delta_location = (0.25, 0.0, 0.0)
+    bpy.context.view_layer.update()
+
+    old_local = _local_pts(mesh)
+    old_basis = obj.matrix_basis.copy()
+    old_parent_inverse = obj.matrix_parent_inverse.copy()
+    old_world = obj.matrix_world.copy()
+    settings = _Settings()
+
+    original = getattr(bake_finalize, helper_name)
+    called = {"failed": False}
+
+    def fail_after_mutation(*args):
+        original(*args)
+        if not called["failed"]:
+            called["failed"] = True
+            raise RuntimeError("forced transactional rewrite failure")
+
+    setattr(bake_finalize, helper_name, fail_after_mutation)
+    raised = False
+    error = ""
+    try:
+        bake_finalize.apply_yup_geometry_bake(
+            bpy.context,
+            settings,
+            objects=None,
+        )
+    except RuntimeError as exc:
+        raised = True
+        error = str(exc)
+    finally:
+        setattr(bake_finalize, helper_name, original)
+
+    new_local = _local_pts(mesh)
+    mesh_restored = all(_close(a, b) for a, b in zip(old_local, new_local))
+    basis_delta = _matrix_delta(obj.matrix_basis, old_basis)
+    parent_inverse_delta = _matrix_delta(
+        obj.matrix_parent_inverse,
+        old_parent_inverse,
+    )
+    world_delta = _matrix_delta(obj.matrix_world, old_world)
+    root_conversion_enabled = settings.convert_orientation is True
+    expected_error = "forced transactional rewrite failure" in error
+    ok = (
+        raised
+        and called["failed"]
+        and expected_error
+        and mesh_restored
+        and basis_delta <= TOL
+        and parent_inverse_delta <= TOL
+        and world_delta <= TOL
+        and root_conversion_enabled
+    )
+    detail = (
+        "raised=%s called=%s expected_error=%s mesh=%s basis=%g "
+        "parent_inverse=%g world=%g root_conversion=%s"
+        % (
+            raised,
+            called["failed"],
+            expected_error,
+            mesh_restored,
+            basis_delta,
+            parent_inverse_delta,
+            world_delta,
+            root_conversion_enabled,
+        )
+    )
+    return ok, detail
+
+
+def scenario_transactional_basis_failure():
+    return _scenario_transactional_failure("_assign_matrix_basis")
+
+
+def scenario_transactional_world_failure():
+    return _scenario_transactional_failure("_assign_matrix_world", use_delta=True)
+
+
+def scenario_transactional_update_failure():
+    return _scenario_transactional_failure("_update_view_layer")
+
+
 SCENARIOS = {
     "instancing_preserved": scenario_instancing_preserved,
     "world_preserving": scenario_world_preserving,
@@ -330,6 +426,9 @@ SCENARIOS = {
     "shape_keys": scenario_shape_keys,
     "scope_guard": scenario_scope_guard,
     "convert_orientation_disabled": scenario_convert_orientation_disabled,
+    "transactional_basis_failure": scenario_transactional_basis_failure,
+    "transactional_world_failure": scenario_transactional_world_failure,
+    "transactional_update_failure": scenario_transactional_update_failure,
 }
 
 
@@ -419,3 +518,12 @@ class TestApplyYupGeometryBake:
 
     def test_convert_orientation_disabled(self, yup_results):
         _check(yup_results, "convert_orientation_disabled")
+
+    def test_transactional_basis_failure(self, yup_results):
+        _check(yup_results, "transactional_basis_failure")
+
+    def test_transactional_world_failure(self, yup_results):
+        _check(yup_results, "transactional_world_failure")
+
+    def test_transactional_update_failure(self, yup_results):
+        _check(yup_results, "transactional_update_failure")

@@ -11,10 +11,17 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from Plugin.api.commands._settings_common import (  # noqa: E402
+    BOOLEAN_FALSE_TOKENS,
+    BOOLEAN_TRUE_TOKENS,
     INTERNAL_KEYS,
+    MATERIALX_SURFACE_PROFILE_DEFAULT,
+    MATERIALX_SURFACE_PROFILES,
     SETTING_GROUPS,
     coerce_value,
+    suspend_setting_persistence,
 )
+from Plugin.api.commands import settings_set  # noqa: E402
+from Plugin.api.errors import CommandError  # noqa: E402
 
 
 # ---------------------------------------------------------------------------
@@ -35,6 +42,26 @@ class TestInternalKeys:
         assert len(INTERNAL_KEYS) >= 3
 
 
+def test_transient_command_settings_suspend_and_restore_persistence():
+    settings = SimpleNamespace(persist_suspended=False)
+
+    with suspend_setting_persistence(settings):
+        assert settings.persist_suspended is True
+
+    assert settings.persist_suspended is False
+
+
+def test_transient_command_settings_restore_persistence_after_failure():
+    settings = SimpleNamespace(persist_suspended=False)
+
+    with pytest.raises(RuntimeError, match="command failed"):
+        with suspend_setting_persistence(settings):
+            assert settings.persist_suspended is True
+            raise RuntimeError("command failed")
+
+    assert settings.persist_suspended is False
+
+
 # ---------------------------------------------------------------------------
 # SETTING_GROUPS
 # ---------------------------------------------------------------------------
@@ -47,6 +74,7 @@ class TestSettingGroups:
             "objects",
             "geometry",
             "rigging",
+            "materials",
             "texture",
             "bake",
             "diagnostics",
@@ -77,6 +105,9 @@ class TestSettingGroups:
     def test_texture_contains_override_toggle(self):
         assert "export_texture_settings_enabled" in SETTING_GROUPS["texture"]
 
+    def test_materials_contains_surface_profile(self):
+        assert SETTING_GROUPS["materials"] == {"materialx_surface_profile"}
+
     def test_geometry_contains_triangulate(self):
         assert "triangulate_meshes" in SETTING_GROUPS["geometry"]
 
@@ -85,6 +116,17 @@ class TestSettingGroups:
 
     def test_objects_contains_meshes(self):
         assert "export_meshes" in SETTING_GROUPS["objects"]
+
+    def test_objects_excludes_unsupported_raw_geometry_switches(self):
+        assert not {
+            "export_curves",
+            "export_points",
+            "export_hair",
+            "export_volumes",
+            "export_lights",
+            "convert_world_material",
+            "export_cameras",
+        }.intersection(SETTING_GROUPS["objects"])
 
     def test_diagnostics_contains_toggle(self):
         assert "diagnostics_enabled" in SETTING_GROUPS["diagnostics"]
@@ -97,6 +139,76 @@ class TestSettingGroups:
         for group_name, keys in SETTING_GROUPS.items():
             for key in keys:
                 assert isinstance(key, str), f"Non-string key {key!r} in group '{group_name}'"
+
+
+def test_export_panel_does_not_expose_unsupported_raw_geometry_switches():
+    import ast
+
+    panel_path = Path(__file__).resolve().parents[2] / "Plugin" / "ui" / "panel.py"
+    tree = ast.parse(panel_path.read_text(), filename=str(panel_path))
+    settings_class = next(
+        node
+        for node in tree.body
+        if isinstance(node, ast.ClassDef)
+        and node.name == "BlenderToRCPExportSettings"
+    )
+    declared = {
+        node.target.id
+        for node in settings_class.body
+        if isinstance(node, ast.AnnAssign)
+        and isinstance(node.target, ast.Name)
+    }
+    drawn = {
+        call.args[1].value
+        for call in ast.walk(tree)
+        if isinstance(call, ast.Call)
+        and isinstance(call.func, ast.Attribute)
+        and call.func.attr == "prop"
+        and len(call.args) >= 2
+        and isinstance(call.args[1], ast.Constant)
+        and isinstance(call.args[1].value, str)
+    }
+    unsupported = {
+        "export_curves",
+        "export_points",
+        "export_hair",
+        "export_volumes",
+        "export_lights",
+        "convert_world_material",
+        "export_cameras",
+    }
+
+    assert not unsupported.intersection(declared)
+    assert not unsupported.intersection(drawn)
+
+
+@pytest.mark.parametrize(
+    "key",
+    [
+        "export_curves",
+        "export_points",
+        "export_hair",
+        "export_volumes",
+        "export_lights",
+        "convert_world_material",
+        "export_cameras",
+    ],
+)
+def test_removed_raw_geometry_setting_has_stable_unknown_key_error(monkeypatch, key):
+    settings = SimpleNamespace(
+        bl_rna=SimpleNamespace(
+            properties=[_mock_prop("BOOLEAN", identifier="export_meshes")]
+        )
+    )
+    monkeypatch.setattr(settings_set, "get_settings", lambda: settings)
+
+    with pytest.raises(CommandError) as caught:
+        settings_set.handle({"settings": {key: True}, "dry_run": True})
+
+    assert caught.value.code == "INVALID_SETTING_OVERRIDE"
+    assert caught.value.details == [
+        {"key": key, "value": True, "reason": "unknown setting"}
+    ]
 
 
 # ---------------------------------------------------------------------------
@@ -138,15 +250,26 @@ class TestCoerceValueBoolean:
         assert coerce_value(prop, "no") is False
 
     def test_off_string(self):
-        """'off' is not in truthy set, so coerce_value returns False."""
+        """Undocumented false-like strings fail instead of disabling options."""
         prop = _mock_prop("BOOLEAN")
-        assert coerce_value(prop, "off") is False
+        with pytest.raises(ValueError, match="Invalid boolean value"):
+            coerce_value(prop, "off")
 
-    def test_on_string_is_not_truthy(self):
-        """'on' is not in the truthy set (true/1/yes), so it returns False."""
+    def test_on_string_is_rejected(self):
+        """Undocumented true-like strings fail instead of becoming false."""
         prop = _mock_prop("BOOLEAN")
-        # NOTE: "on" is not recognized as truthy by the implementation
-        assert coerce_value(prop, "on") is False
+        with pytest.raises(ValueError, match="Invalid boolean value"):
+            coerce_value(prop, "on")
+
+    def test_documented_boolean_token_sets_are_closed(self):
+        assert BOOLEAN_TRUE_TOKENS == ("true", "1", "yes")
+        assert BOOLEAN_FALSE_TOKENS == ("false", "0", "no")
+
+    @pytest.mark.parametrize("value", ["falsee", "truthy", "", "2", None, 2])
+    def test_garbage_boolean_values_are_rejected(self, value):
+        prop = _mock_prop("BOOLEAN")
+        with pytest.raises(ValueError, match="Invalid boolean value"):
+            coerce_value(prop, value)
 
     def test_bool_passthrough(self):
         prop = _mock_prop("BOOLEAN")
@@ -239,6 +362,18 @@ class TestCoerceValueEnum:
         prop = _mock_prop("ENUM", enum_items=["USDA", "USDC", "USDZ"], identifier="export_format")
         with pytest.raises(ValueError):
             coerce_value(prop, "")
+
+    def test_lowercase_enum_identifiers_preserve_canonical_value(self):
+        prop = _mock_prop(
+            "ENUM",
+            enum_items=MATERIALX_SURFACE_PROFILES,
+            identifier="materialx_surface_profile",
+        )
+        assert coerce_value(prop, "REALITYKIT_PBR2") == "realitykit_pbr2"
+        assert coerce_value(prop, "OpenPBR_1_1") == "openpbr_1_1"
+        assert coerce_value(prop, MATERIALX_SURFACE_PROFILE_DEFAULT) == (
+            MATERIALX_SURFACE_PROFILE_DEFAULT
+        )
 
 
 class TestCoerceValueString:

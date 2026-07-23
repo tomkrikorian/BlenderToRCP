@@ -9,7 +9,7 @@ def handle(args: dict) -> list:
     This command works even without a .blend file loaded — it inspects the
     PropertyGroup class definition rather than a live instance.
     """
-    from Plugin.api.commands._settings_common import (
+    from ._settings_common import (
         SETTING_GROUPS,
         INTERNAL_KEYS,
     )

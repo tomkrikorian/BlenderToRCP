@@ -12,8 +12,6 @@ from .usd_utils import Sdf
 
 
 DEFAULT_SOURCE_ANIMATION_NAME = "default subtree animation"
-DEFAULT_TRANSFORM_ANIMATION_NAME = "transform animation"
-DEFAULT_SCENE_ANIMATION_NAME = "default scene animation"
 
 
 def author_animation_library(stage, settings, diagnostics=None) -> None:
@@ -126,23 +124,16 @@ def _remove_existing_animation_library(stage) -> None:
 
 
 def _pick_source_animation_name(stage) -> str:
-    """
-    Reality Composer Pro presents different animation "sources" depending on how
-    the USD encodes animation.
+    """Return the aggregate resource owned by the stage's default prim.
 
-    Heuristic:
-    - If the stage contains UsdSkel animation, use "default subtree animation".
-    - Else if there are time-sampled xformOps, use "transform animation".
-    - Else fall back to "default subtree animation" (and let RCP decide).
+    The AnimationLibrary component is authored on the default prim. Reality
+    Composer Pro 3's ``default subtree animation`` includes that prim's own
+    transform animation as well as animation on descendants (including
+    UsdSkel). ``transform animation`` is entity-local: selecting it here for a
+    time-sampled child compiles successfully but produces no named clips at
+    runtime.
     """
-    try:
-        if _stage_contains_prim_type(stage, {"SkelAnimation", "Skeleton", "SkelRoot"}):
-            return DEFAULT_SOURCE_ANIMATION_NAME
-        if _stage_has_timesampled_xform_ops(stage):
-            return DEFAULT_TRANSFORM_ANIMATION_NAME
-    except Exception:
-        # If inspection fails for any reason, keep previous default.
-        return DEFAULT_SOURCE_ANIMATION_NAME
+    del stage
     return DEFAULT_SOURCE_ANIMATION_NAME
 
 
@@ -163,33 +154,6 @@ def _clip_definition_name(source_animation_name: str) -> str:
     safe = "_".join((source_animation_name or "").strip().lower().split())
     safe = safe or "default_subtree_animation"
     return f"Clip_{safe}"
-
-
-def _stage_contains_prim_type(stage, type_names: set[str]) -> bool:
-    for prim in stage.Traverse():
-        if prim.GetTypeName() in type_names:
-            return True
-    return False
-
-
-def _stage_has_timesampled_xform_ops(stage) -> bool:
-    for prim in stage.Traverse():
-        for attr in prim.GetAttributes():
-            name = attr.GetName()
-            if not name.startswith("xformOp:"):
-                continue
-            # ValueMightBeTimeVarying() is cheap and avoids querying samples for constants.
-            try:
-                if attr.ValueMightBeTimeVarying():
-                    return True
-            except Exception:
-                # Fall back to counting samples if the USD API wrapper doesn't expose it.
-                try:
-                    if attr.GetNumTimeSamples() > 0:
-                        return True
-                except Exception:
-                    continue
-    return False
 
 
 def _ensure_default_prim(stage):

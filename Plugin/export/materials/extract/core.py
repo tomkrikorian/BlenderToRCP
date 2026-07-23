@@ -7,15 +7,23 @@ Extracts supported parameters and emits warnings for unsupported nodes.
 import hashlib
 import os
 import re
+import shutil
 import tempfile
+from array import array
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set
 
 from ....manifest.materialx_nodes import load_manifest, select_nodedef_name_for_node
 
 _MANIFEST_CACHE: Optional[Dict[str, Any]] = None
-_STAGED_IMAGE_CACHE: Dict[int, str] = {}
+_STAGED_IMAGE_CACHE: Dict[Any, str] = {}
 _STAGED_IMAGE_DIR: Optional[Path] = None
+_STAGED_IMAGE_DIR_OWNED = False
+
+# Blender 5.2 no longer has a material render mode that means "alpha clip".
+# A RealityKit opacityThreshold is therefore authored only when the scene opts
+# into this exporter contract with an explicit, finite threshold value.
+_ALPHA_CUTOUT_THRESHOLD_PROPERTY = "blender_to_rcp_alpha_cutout_threshold"
 
 _FORMAT_TO_EXTENSION = {
     "AVIF": ".avif",
@@ -51,9 +59,8 @@ _EXTENSION_TO_FORMAT = {
 def material_has_transparency(material) -> bool:
     """True when a material's alpha actually produces transparency.
 
-    Blender 4.2+/5.x removed the per-material OPAQUE blend mode: ``blend_method``
-    is now a deprecated alias that only ever reports ``HASHED``/``BLEND``, so it
-    can never be used to tell an opaque material apart from a transparent one.
+    Blender 5.2's ``surface_render_method`` chooses how Eevee renders
+    transparency; it does not say whether the active surface contains any.
     Transparency must be read from the real Alpha input instead.
     """
     if not material:
@@ -69,36 +76,56 @@ def material_has_transparency(material) -> bool:
     node_tree = getattr(material, "node_tree", None)
     if not node_tree:
         return False
-    for node in node_tree.nodes:
-        if node.type != 'BSDF_PRINCIPLED':
-            continue
-        alpha_socket = node.inputs.get('Alpha')
-        if not alpha_socket:
-            continue
-        if alpha_socket.is_linked:
-            return True
-        try:
-            if float(alpha_socket.default_value) < 0.999:
-                return True
-        except (TypeError, ValueError):
-            continue
-    return False
+    # Only the shader connected to the active Material Output contributes to
+    # rendering. Disconnected Principled nodes must not make an opaque material
+    # transparent or disagree with the bake pipeline.
+    surface_node = _get_surface_shader_node(material)
+    if not surface_node or surface_node.type != 'BSDF_PRINCIPLED':
+        return False
+    alpha_socket = surface_node.inputs.get('Alpha')
+    if not alpha_socket:
+        return False
+    if alpha_socket.is_linked:
+        return True
+    try:
+        return float(alpha_socket.default_value) < 0.999
+    except (TypeError, ValueError):
+        return False
+
+
+def opacity_threshold_from_material(
+    material,
+    is_transparent: bool,
+) -> Optional[float]:
+    """Return an explicit RealityKit alpha-cutout threshold, if present.
+
+    Blender 5.2 exposes only ``DITHERED`` and ``BLENDED`` surface render
+    methods. Neither is a cutout declaration, so render method must never imply
+    a hard threshold. Scenes that intentionally want a RealityKit cutout can
+    set ``blender_to_rcp_alpha_cutout_threshold`` to a finite value in [0, 1].
+    A boolean flag is deliberately insufficient: without a numeric threshold
+    there is no complete cutout contract to export.
+    """
+    if not is_transparent:
+        return None
+    try:
+        value = material.get(_ALPHA_CUTOUT_THRESHOLD_PROPERTY)
+    except Exception:
+        return None
+    if value is None or isinstance(value, bool):
+        return None
+    try:
+        threshold = float(value)
+    except (TypeError, ValueError, OverflowError):
+        return None
+    if not (0.0 <= threshold <= 1.0):
+        return None
+    return threshold
 
 
 def should_author_opacity_threshold(material, is_transparent: bool) -> bool:
-    """Whether to author ``opacityThreshold`` (an alpha *cutout* control).
-
-    A non-zero threshold makes RealityKit hard-clip alpha below it, so it must
-    only apply to cutout/clip materials, never to smooth alpha blending (a
-    semi-transparent BLEND material would otherwise export as a broken cutout).
-    Only the legacy CLIP/HASHED (dithered) modes are cutout-style; BLEND is
-    smooth. ``blend_method`` is deprecated on Blender 4.2+/5.x but still
-    reliably distinguishes dithered (HASHED) from blended (BLEND), which is all
-    we need here.
-    """
-    if not is_transparent:
-        return False
-    return getattr(material, "blend_method", "OPAQUE") in {"CLIP", "HASHED"}
+    """Whether the explicit BlenderToRCP alpha-cutout contract is complete."""
+    return opacity_threshold_from_material(material, is_transparent) is not None
 
 
 def extract_blender_material_data(material) -> Dict[str, Any]:
@@ -107,7 +134,11 @@ def extract_blender_material_data(material) -> Dict[str, Any]:
         'name': material.name,
         'type': 'unknown',
     }
-    data['blend_method'] = getattr(material, "blend_method", "OPAQUE")
+    data['surface_render_method'] = getattr(
+        material,
+        "surface_render_method",
+        "DITHERED",
+    )
     data['is_transparent'] = material_has_transparency(material)
 
     if not material.use_nodes:
@@ -128,10 +159,6 @@ def extract_blender_material_data(material) -> Dict[str, Any]:
         principled = surface_node
     else:
         principled = None
-        for node in material.node_tree.nodes:
-            if node.type == 'BSDF_PRINCIPLED':
-                principled = node
-                break
 
     if principled:
         data['type'] = 'principled'
@@ -143,29 +170,53 @@ def extract_blender_material_data(material) -> Dict[str, Any]:
             'Base Color': 'baseColor',
             'Metallic': 'metallic',
             'Roughness': 'roughness',
-            'Specular': 'specular',
-            'Specular IOR Level': 'specular',
+            'Specular IOR Level': '_specularLevel',
             'Normal': 'normal',
             'Alpha': 'opacity',
-            'Emission Color': 'emissiveColor',
-            'Emission': 'emissiveColor',
+            'Emission Color': '_emissionColor',
+            'Emission Strength': '_emissionStrength',
+            'Diffuse Roughness': 'baseDiffuseRoughness',
+            'Subsurface Weight': 'subsurfaceWeight',
+            'Subsurface Radius': 'subsurfaceRadiusScale',
+            'Subsurface Scale': 'subsurfaceRadius',
+            'Subsurface Anisotropy': 'subsurfaceScatterAnisotropy',
+            'IOR': 'specularIOR',
+            'Specular Tint': 'specularColor',
+            'Anisotropic': 'specularAnisotropyLevel',
+            'Anisotropic Rotation': 'specularAnisotropyAngle',
+            'Coat IOR': 'clearcoatIOR',
+            'Sheen Weight': '_sheenWeight',
+            'Sheen Roughness': '_sheenRoughness',
+            'Sheen Tint': '_sheenTint',
         }
         expected_type_map = {
             'Base Color': 'color3',
             'Metallic': 'float',
             'Roughness': 'float',
-            'Specular': 'float',
             'Specular IOR Level': 'float',
             'Normal': 'vector3',
             'Alpha': 'float',
             'Emission Color': 'color3',
-            'Emission': 'color3',
+            'Emission Strength': 'float',
+            'Diffuse Roughness': 'float',
+            'Subsurface Weight': 'float',
+            'Subsurface Radius': 'color3',
+            'Subsurface Scale': 'float',
+            'Subsurface Anisotropy': 'float',
+            'IOR': 'float',
+            'Specular Tint': 'color3',
+            'Anisotropic': 'float',
+            'Anisotropic Rotation': 'float',
+            'Coat IOR': 'float',
+            'Sheen Weight': 'float',
+            'Sheen Roughness': 'float',
+            'Sheen Tint': 'color3',
         }
 
         base_color_socket = principled.inputs.get('Base Color')
         metallic_socket = principled.inputs.get('Metallic')
         roughness_socket = principled.inputs.get('Roughness')
-        specular_socket = principled.inputs.get('Specular') or principled.inputs.get('Specular IOR Level')
+        specular_socket = principled.inputs.get('Specular IOR Level')
         alpha_socket = principled.inputs.get('Alpha')
 
         if base_color_socket:
@@ -179,24 +230,61 @@ def extract_blender_material_data(material) -> Dict[str, Any]:
         if alpha_socket:
             data['alpha'] = alpha_socket.default_value
 
-        emission_color_socket = principled.inputs.get('Emission Color') or principled.inputs.get('Emission')
+        emission_color_socket = principled.inputs.get('Emission Color')
         emission_strength_socket = principled.inputs.get('Emission Strength')
-        if emission_color_socket and emission_strength_socket:
-            emission_color = list(emission_color_socket.default_value)[:3]
-            emission_strength = emission_strength_socket.default_value
-            if emission_strength > 0:
-                data['emission_color'] = [c * emission_strength for c in emission_color]
-                data['emission_strength'] = emission_strength
+        if emission_color_socket:
+            data['emission_color'] = list(emission_color_socket.default_value)[:3]
+        if emission_strength_socket and not emission_strength_socket.is_linked:
+            data['emission_strength'] = emission_strength_socket.default_value
 
-        clearcoat_socket = principled.inputs.get('Clearcoat')
-        clearcoat_roughness_socket = principled.inputs.get('Clearcoat Roughness')
+        clearcoat_socket = principled.inputs.get('Coat Weight')
+        clearcoat_roughness_socket = principled.inputs.get('Coat Roughness')
         if clearcoat_socket:
             data['clearcoat'] = clearcoat_socket.default_value
         if clearcoat_roughness_socket:
             data['clearcoat_roughness'] = clearcoat_roughness_socket.default_value
 
-        if should_author_opacity_threshold(material, data['is_transparent']):
-            data['alpha_threshold'] = material.alpha_threshold
+        pbr2_socket_map = {
+            'Diffuse Roughness': ('diffuse_roughness', 'float'),
+            'Subsurface Weight': ('subsurface_weight', 'float'),
+            # Blender's scalar Scale is the physical radius; its RGB Radius is
+            # the per-channel multiplier used by PBR2/OpenPBR.
+            'Subsurface Scale': ('subsurface_radius', 'float'),
+            'Subsurface Radius': ('subsurface_radius_scale', 'color'),
+            'Subsurface Anisotropy': ('subsurface_anisotropy', 'float'),
+            'IOR': ('ior', 'float'),
+            'Specular Tint': ('specular_tint', 'color'),
+            'Anisotropic': ('anisotropic', 'float'),
+            'Anisotropic Rotation': ('anisotropic_rotation', 'float'),
+            'Coat IOR': ('clearcoat_ior', 'float'),
+            'Coat Tint': ('clearcoat_tint', 'color'),
+            'Sheen Weight': ('sheen_weight', 'float'),
+            'Sheen Roughness': ('sheen_roughness', 'float'),
+            'Sheen Tint': ('sheen_tint', 'color'),
+        }
+        for socket_name, (data_name, value_kind) in pbr2_socket_map.items():
+            socket = principled.inputs.get(socket_name)
+            if socket is None or socket.is_linked:
+                continue
+            value = _socket_default_value(socket)
+            if value is None:
+                continue
+            data[data_name] = _coerce_constant_value(value, value_kind)
+        if 'sheen_weight' in data and 'sheen_tint' in data:
+            data['sheen_color'] = [
+                float(component) * float(data['sheen_weight'])
+                for component in data['sheen_tint'][:3]
+            ]
+        if 'specular' in data:
+            # Blender's default 0.5 multiplier corresponds to PBR2 weight 1.
+            data['specular_weight'] = max(0.0, float(data['specular']) * 2.0)
+
+        alpha_threshold = opacity_threshold_from_material(
+            material,
+            data['is_transparent'],
+        )
+        if alpha_threshold is not None:
+            data['alpha_threshold'] = alpha_threshold
 
         # Bake Textures & Export can author AO as a baked texture without wiring it into the
         # Principled node graph. In that case we read it from custom properties.
@@ -220,22 +308,33 @@ def extract_blender_material_data(material) -> Dict[str, Any]:
             'Roughness': 'roughness_texture',
             'Normal': 'normal_texture',
             'Alpha': 'alpha_texture',
-            'Clearcoat Normal': 'clearcoat_normal_texture',
+            'Coat Normal': 'clearcoat_normal_texture',
             'Emission Color': 'emission_texture',
-            'Emission': 'emission_texture',
         }
         constant_map = {
             'Base Color': ('base_color', 'color'),
             'Metallic': ('metallic', 'float'),
             'Roughness': ('roughness', 'float'),
-            'Specular': ('specular', 'float'),
             'Specular IOR Level': ('specular', 'float'),
             'Alpha': ('alpha', 'float'),
             'Emission Color': ('emission_color', 'color'),
-            'Emission': ('emission_color', 'color'),
             'Emission Strength': ('emission_strength', 'float'),
-            'Clearcoat': ('clearcoat', 'float'),
-            'Clearcoat Roughness': ('clearcoat_roughness', 'float'),
+            'Coat Weight': ('clearcoat', 'float'),
+            'Coat Roughness': ('clearcoat_roughness', 'float'),
+            'Diffuse Roughness': ('diffuse_roughness', 'float'),
+            'Subsurface Weight': ('subsurface_weight', 'float'),
+            'Subsurface Radius': ('subsurface_radius_scale', 'color'),
+            'Subsurface Scale': ('subsurface_radius', 'float'),
+            'Subsurface Anisotropy': ('subsurface_anisotropy', 'float'),
+            'IOR': ('ior', 'float'),
+            'Specular Tint': ('specular_tint', 'color'),
+            'Anisotropic': ('anisotropic', 'float'),
+            'Anisotropic Rotation': ('anisotropic_rotation', 'float'),
+            'Coat IOR': ('clearcoat_ior', 'float'),
+            'Coat Tint': ('clearcoat_tint', 'color'),
+            'Sheen Weight': ('sheen_weight', 'float'),
+            'Sheen Roughness': ('sheen_roughness', 'float'),
+            'Sheen Tint': ('sheen_tint', 'color'),
         }
         for input_name, input_socket in principled.inputs.items():
             if not input_socket.is_linked:
@@ -265,8 +364,6 @@ def extract_blender_material_data(material) -> Dict[str, Any]:
                 alpha_mode = resolved.get("alpha_mode")
                 if alpha_mode:
                     data[f"{texture_key}_alpha_mode"] = alpha_mode
-                    if alpha_mode == 'premul':
-                        data['has_premultiplied_alpha'] = True
                 scale = resolved.get("scale")
                 if scale is not None:
                     data[f"{texture_key}_scale"] = scale
@@ -275,12 +372,25 @@ def extract_blender_material_data(material) -> Dict[str, Any]:
                     data[f"{texture_key}_space"] = space
                 if input_name == 'Base Color':
                     data.pop('base_color', None)
+                    _record_base_color_texture_semantics(data, resolved)
+                if resolved.get("current_pixel_snapshot"):
+                    data['native_preview_stale'] = True
                 continue
+
+            if resolved and resolved.get("kind") == "texture":
+                target_input = graph_input_map.get(input_name)
+                if target_input:
+                    input_graphs[target_input] = resolved
+                    if resolved.get("current_pixel_snapshot"):
+                        data['native_preview_stale'] = True
+                    continue
 
             if resolved and resolved.get("kind") == "node":
                 target_input = graph_input_map.get(input_name)
                 if target_input:
                     input_graphs[target_input] = resolved
+                    if input_name == 'Base Color':
+                        _record_base_color_texture_semantics(data, resolved)
                     continue
 
             if resolved and resolved.get("kind") == "constant" and input_name in constant_map:
@@ -291,9 +401,11 @@ def extract_blender_material_data(material) -> Dict[str, Any]:
             if resolved and resolved.get("kind") == "unresolved":
                 chain = resolved.get("provenance") or []
                 if chain:
+                    reason = resolved.get("reason")
+                    suffix = f" ({reason})" if reason else ""
                     unresolved_warnings.append(
                         f"Material '{material.name}': Unable to resolve '{input_name}' "
-                        f"through chain: {' -> '.join(chain)}"
+                        f"through chain: {' -> '.join(chain)}{suffix}"
                     )
 
             constant = _extract_constant_from_socket(input_socket)
@@ -309,42 +421,136 @@ def extract_blender_material_data(material) -> Dict[str, Any]:
 
         if unresolved_warnings:
             data['unresolved_warnings'] = unresolved_warnings
+        # Linked Blender constant nodes are folded during the loop above, so
+        # recompute derived PBR2 controls after all sockets have resolved.
+        if (
+            '_sheenWeight' not in input_graphs
+            and '_sheenTint' not in input_graphs
+            and 'sheen_weight' in data
+            and 'sheen_tint' in data
+        ):
+            data['sheen_color'] = [
+                float(component) * float(data['sheen_weight'])
+                for component in data['sheen_tint'][:3]
+            ]
+        if '_specularLevel' not in input_graphs and 'specular' in data:
+            data['specular_weight'] = max(0.0, float(data['specular']) * 2.0)
+        if '_sheenWeight' in input_graphs or '_sheenTint' in input_graphs:
+            # Preserve the independent Blender controls until graph-profile
+            # selection. PBR2 combines them into sheenColor, while OpenPBR has
+            # distinct fuzz_weight/fuzz_color inputs.
+            data.pop('sheen_color', None)
         if input_graphs:
+            if any(_expression_has_current_pixel_snapshot(expr) for expr in input_graphs.values()):
+                data['native_preview_stale'] = True
             data['input_graphs'] = input_graphs
 
     else:
-        emission_node = None
-        if surface_node and surface_node.type == 'EMISSION':
-            emission_node = surface_node
-        else:
-            emission_nodes = [n for n in material.node_tree.nodes if n.type == 'EMISSION']
-            if emission_nodes:
-                emission_node = emission_nodes[0]
+        # Only the shader wired to the active Material Output contributes.
+        # Never replace an unsupported active shader with an orphan Emission.
+        emission_node = (
+            surface_node
+            if surface_node and surface_node.type == 'EMISSION'
+            else None
+        )
 
         if emission_node:
             data['type'] = 'emission'
             color_socket = emission_node.inputs.get('Color')
             strength_socket = emission_node.inputs.get('Strength')
+            resolve_cache = {}
+            color_expr = None
+            strength_expr = _constant_expr(1.0)
+
             if color_socket:
                 if color_socket.is_linked:
-                    texture_path = _extract_image_path_from_socket(color_socket)
-                    if texture_path:
-                        data['base_color_texture'] = texture_path
-                    else:
-                        constant = _extract_constant_from_socket(color_socket)
-                        if constant is not None:
-                            data['base_color'] = _coerce_constant_value(constant, 'color')
+                    color_expr = _resolve_socket_value(
+                        color_socket,
+                        cache=resolve_cache,
+                        expected_type='color3',
+                    )
                 else:
-                    data['base_color'] = list(color_socket.default_value)[:3]
+                    color_expr = _constant_expr(
+                        _coerce_constant_value(_socket_default_value(color_socket), 'color')
+                    )
+
             if strength_socket:
                 if strength_socket.is_linked:
-                    constant = _extract_constant_from_socket(strength_socket)
-                    if constant is not None:
-                        data['emission_strength'] = _coerce_constant_value(constant, 'float')
-                    else:
-                        data['emission_strength'] = strength_socket.default_value
+                    strength_expr = _resolve_socket_value(
+                        strength_socket,
+                        cache=resolve_cache,
+                        expected_type='float',
+                    )
                 else:
-                    data['emission_strength'] = strength_socket.default_value
+                    strength_expr = _constant_expr(
+                        _coerce_constant_value(_socket_default_value(strength_socket), 'float')
+                    )
+
+            unresolved = []
+            if not color_expr or color_expr.get('kind') == 'unresolved':
+                unresolved.append(
+                    f"Material '{material.name}': standalone Emission Color requires baking; "
+                    "the linked graph could not be resolved exactly."
+                )
+            if not strength_expr or strength_expr.get('kind') == 'unresolved':
+                unresolved.append(
+                    f"Material '{material.name}': standalone Emission Strength requires baking; "
+                    "the linked graph could not be resolved exactly."
+                )
+
+            if unresolved:
+                data['unresolved_warnings'] = unresolved
+            elif color_expr.get('kind') == 'constant' and strength_expr.get('kind') == 'constant':
+                color = _coerce_constant_value(color_expr.get('value'), 'color')
+                strength = _coerce_constant_value(strength_expr.get('value'), 'float')
+                data['base_color'] = [component * strength for component in color]
+                data['emission_strength'] = strength
+            else:
+                if color_expr.get('kind') == 'texture':
+                    color_expr = dict(color_expr)
+                    color_expr['colorspace_role'] = 'color'
+                if strength_expr.get('kind') == 'texture':
+                    strength_expr = dict(strength_expr)
+                    strength_expr['colorspace_role'] = 'data'
+
+                if strength_expr.get('kind') == 'constant':
+                    strength = _coerce_constant_value(strength_expr.get('value'), 'float')
+                    if color_expr.get('kind') == 'texture':
+                        color_expr = dict(color_expr)
+                        color_expr['scale'] = strength
+                        final_expr = color_expr
+                    elif abs(strength - 1.0) <= 1e-6:
+                        final_expr = color_expr
+                    else:
+                        strength_expr = _constant_expr(strength)
+                        strength_color = _make_node_expr(
+                            _nodedef_for('combine3', 'color3'),
+                            {
+                                'in1': strength_expr,
+                                'in2': strength_expr,
+                                'in3': strength_expr,
+                            },
+                        )
+                        final_expr = _make_node_expr(
+                            _nodedef_for('multiply', 'color3'),
+                            {'in1': color_expr, 'in2': strength_color},
+                        )
+                else:
+                    strength_color = _make_node_expr(
+                        _nodedef_for('combine3', 'color3'),
+                        {
+                            'in1': strength_expr,
+                            'in2': strength_expr,
+                            'in3': strength_expr,
+                        },
+                    )
+                    final_expr = _make_node_expr(
+                        _nodedef_for('multiply', 'color3'),
+                        {'in1': color_expr, 'in2': strength_color},
+                    )
+                data['input_graphs'] = {'color': final_expr}
+                if _expression_has_current_pixel_snapshot(final_expr):
+                    data['native_preview_stale'] = True
 
     return data
 
@@ -373,10 +579,14 @@ def collect_material_warnings(material) -> List[str]:
         'NORMAL_MAP',
         'RGB',
         'VALUE',
+        'INPUT_BOOL',
+        'INPUT_INT',
+        'INPUT_VECTOR',
         'SEPARATE_COLOR',
         'SEPARATE_RGB',
         'SEPARATE_XYZ',
         'SEPXYZ',
+        'VALTORGB',
     }
 
     partial_types = {
@@ -483,6 +693,15 @@ def collect_material_warnings(material) -> List[str]:
                 warnings.append(
                     f"Material '{material.name}': Image Texture node '{node_name}' has no image."
                 )
+            if node_type == 'VALTORGB':
+                ramp = getattr(node, "color_ramp", None)
+                interpolation = (getattr(ramp, "interpolation", "LINEAR") or "LINEAR").upper()
+                color_mode = (getattr(ramp, "color_mode", "RGB") or "RGB").upper()
+                if color_mode != "RGB" or interpolation not in {"LINEAR", "CONSTANT", "EASE"}:
+                    warnings.append(
+                        f"Material '{material.name}': Color Ramp '{node_name}' {color_mode}/"
+                        f"{interpolation} requires baking."
+                    )
             continue
 
         if node_type in {'MIX_RGB', 'MIX'}:
@@ -609,6 +828,14 @@ def _extract_rk_group_material_data(group_node, base_data: Dict[str, Any]) -> Di
     if graph:
         data['type'] = 'rk_graph'
         data['rk_graph'] = graph
+        for key in (
+            'base_color_texture_sources',
+            'base_color_texture_alpha_modes',
+            'base_color_alpha_semantics_error',
+            'has_premultiplied_alpha',
+        ):
+            if key in graph:
+                data[key] = graph[key]
         return data
 
     node_tree = group_node.node_tree
@@ -620,6 +847,20 @@ def _extract_rk_group_material_data(group_node, base_data: Dict[str, Any]) -> Di
     data['type'] = 'rk_group'
     data['rk_node_id'] = node_id
     data['rk_inputs'] = _extract_group_inputs(group_node)
+    base_color_inputs = [
+        value
+        for name, value in data['rk_inputs'].items()
+        if _is_surface_base_color_input(name)
+    ]
+    sources = []
+    for value in base_color_inputs:
+        sources.extend(_texture_specs_from_value(value))
+    _apply_base_color_texture_semantics(data, sources)
+    if (
+        data.get('has_premultiplied_alpha')
+        and _input_mtlx_type(node_id, 'hasPremultipliedAlpha')
+    ):
+        data['rk_inputs']['hasPremultipliedAlpha'] = True
     return data
 
 
@@ -694,7 +935,6 @@ def _build_rk_node_graph(surface_node) -> Optional[Dict[str, Any]]:
     connections: List[Dict[str, str]] = []
     node_map: Dict[object, str] = {}
     used_names: Set[str] = set()
-    has_premultiplied_alpha = False
 
     def _unique_name(base: str) -> str:
         base = _sanitize_node_name(base)
@@ -717,7 +957,6 @@ def _build_rk_node_graph(surface_node) -> Optional[Dict[str, Any]]:
         return name
 
     def visit(node) -> None:
-        nonlocal has_premultiplied_alpha
         if node in node_map:
             return
         if not _is_rk_group_node(node):
@@ -771,8 +1010,6 @@ def _build_rk_node_graph(surface_node) -> Optional[Dict[str, Any]]:
                     alpha_mode = _extract_alpha_mode_from_socket(socket)
                     if alpha_mode:
                         texture_spec['alpha_mode'] = alpha_mode
-                        if alpha_mode == 'premul':
-                            has_premultiplied_alpha = True
                     inputs[input_name] = texture_spec
                     continue
 
@@ -802,8 +1039,20 @@ def _build_rk_node_graph(surface_node) -> Optional[Dict[str, Any]]:
         "connections": connections,
         "output": _node_name(surface_node),
     }
-    if has_premultiplied_alpha:
-        result["has_premultiplied_alpha"] = True
+    _apply_base_color_texture_semantics(
+        result,
+        _rk_graph_base_color_texture_sources(result),
+    )
+    if result.get("has_premultiplied_alpha"):
+        surface = next(
+            (node for node in nodes if node.get("name") == result["output"]),
+            None,
+        )
+        if surface and _input_mtlx_type(
+            surface.get("node_id"),
+            "hasPremultipliedAlpha",
+        ):
+            surface.setdefault("inputs", {})["hasPremultipliedAlpha"] = True
     return result
 
 
@@ -852,6 +1101,8 @@ def _socket_output_type(socket) -> str:
     socket_type = getattr(socket, "type", "") or ""
     if socket_type in {'VALUE', 'FLOAT', 'INT'}:
         return 'float'
+    if socket_type in {'BOOLEAN', 'BOOL'}:
+        return 'boolean'
     if socket_type in {'VECTOR'}:
         return 'vector3'
     if socket_type in {'RGBA', 'COLOR'}:
@@ -1577,27 +1828,95 @@ def _resolve_socket_value(
             default=0.0,
         )
         ramp = getattr(from_node, "color_ramp", None)
-        elements = list(getattr(ramp, "elements", []) or [])
-        if len(elements) >= 2:
-            left = elements[0]
-            right = elements[-1]
-            left_color = list(left.color)
-            right_color = list(right.color)
-        else:
-            left_color = [0.0, 0.0, 0.0, 1.0]
-            right_color = [1.0, 1.0, 1.0, 1.0]
-        use_alpha = (left_color[3] < 0.999) or (right_color[3] < 0.999)
-        ramp_type = "color4" if use_alpha else "color3"
-        ramp_inputs = {
-            "valuel": left_color if use_alpha else left_color[:3],
-            "valuer": right_color if use_alpha else right_color[:3],
-        }
-        texcoord_expr = _make_node_expr(
-            _nodedef_for("combine2", "vector2"),
-            {"in1": fac_expr, "in2": _constant_expr(0.0)},
+        elements = sorted(
+            list(getattr(ramp, "elements", []) or []),
+            key=lambda item: float(getattr(item, "position", 0.0)),
         )
-        ramp_inputs["texcoord"] = texcoord_expr
-        return _make_node_expr(_nodedef_for("ramplr", ramp_type), ramp_inputs)
+        if len(elements) < 2:
+            return {"kind": "unresolved", "provenance": list(provenance)}
+
+        interpolation = (getattr(ramp, "interpolation", "LINEAR") or "LINEAR").upper()
+        color_mode = (getattr(ramp, "color_mode", "RGB") or "RGB").upper()
+        if color_mode != "RGB" or interpolation not in {"LINEAR", "CONSTANT", "EASE"}:
+            return {
+                "kind": "unresolved",
+                "provenance": list(provenance),
+                "reason": (
+                    f"Color Ramp mode {color_mode}/{interpolation} requires baking; "
+                    "the OS 27 exporter supports RGB Linear, Constant, and Ease"
+                ),
+            }
+
+        output_name = (getattr(from_socket, "name", "") or "").lower()
+        alpha_output = output_name == "alpha"
+        ramp_type = "float" if alpha_output else "color3"
+
+        stops = []
+        for element in elements:
+            position = float(getattr(element, "position", 0.0))
+            color = list(getattr(element, "color", (0.0, 0.0, 0.0, 1.0)))
+            while len(color) < 4:
+                color.append(1.0)
+            value = float(color[3]) if alpha_output else [float(v) for v in color[:3]]
+            stops.append((position, value))
+
+        result = _constant_expr(stops[0][1])
+        for index in range(1, len(stops)):
+            left_position, left_value = stops[index - 1]
+            right_position, right_value = stops[index]
+
+            if interpolation == "CONSTANT" or right_position <= left_position:
+                result = _make_node_expr(
+                    _nodedef_for("ifgreatereq", ramp_type),
+                    {
+                        "value1": fac_expr,
+                        "value2": _constant_expr(right_position),
+                        "in1": _constant_expr(right_value),
+                        "in2": result,
+                    },
+                )
+                continue
+
+            if interpolation == "EASE":
+                mix_factor = _make_node_expr(
+                    _nodedef_for("smoothstep", "float"),
+                    {
+                        "in": fac_expr,
+                        "low": _constant_expr(left_position),
+                        "high": _constant_expr(right_position),
+                    },
+                )
+            else:
+                mix_factor = _make_node_expr(
+                    _nodedef_for("range", "float"),
+                    {
+                        "in": fac_expr,
+                        "inlow": _constant_expr(left_position),
+                        "inhigh": _constant_expr(right_position),
+                        "outlow": _constant_expr(0.0),
+                        "outhigh": _constant_expr(1.0),
+                        "gamma": _constant_expr(1.0),
+                        "doclamp": _constant_expr(True),
+                    },
+                )
+            segment = _make_node_expr(
+                _nodedef_for("mix", ramp_type),
+                {
+                    "bg": _constant_expr(left_value),
+                    "fg": _constant_expr(right_value),
+                    "mix": mix_factor,
+                },
+            )
+            result = _make_node_expr(
+                _nodedef_for("ifgreatereq", ramp_type),
+                {
+                    "value1": fac_expr,
+                    "value2": _constant_expr(left_position),
+                    "in1": segment,
+                    "in2": result,
+                },
+            )
+        return result
 
     if node_type == 'CURVE_RGB':
         color_expr = _expr_from_socket(
@@ -1628,10 +1947,11 @@ def _resolve_socket_value(
         if not curves:
             return {"kind": "unresolved", "provenance": list(provenance)}
 
-        combined_curve = curves[0] if len(curves) > 0 else None
-        red_curve = curves[1] if len(curves) > 1 else combined_curve
-        green_curve = curves[2] if len(curves) > 2 else combined_curve
-        blue_curve = curves[3] if len(curves) > 3 else combined_curve
+        # Blender 5.2 stores RGB curves as R, G, B, Combined.
+        red_curve = curves[0] if len(curves) > 0 else None
+        green_curve = curves[1] if len(curves) > 1 else red_curve
+        blue_curve = curves[2] if len(curves) > 2 else red_curve
+        combined_curve = curves[3] if len(curves) > 3 else None
 
         combined_knots = _curve_knots_from_curve(combined_curve)
         red_knots = _curve_knots_from_curve(red_curve)
@@ -1887,52 +2207,6 @@ def _resolve_socket_value(
         node_id = _nodedef_for("worleynoise3d", "float")
         return _make_node_expr(node_id, {"position": vector_expr, "jitter": jitter_expr})
 
-    if node_type == 'TEX_MUSGRAVE':
-        vector_expr = _expr_from_socket(
-            from_node.inputs.get('Vector') if hasattr(from_node, "inputs") else None,
-            visited,
-            channel,
-            provenance,
-            cache,
-        )
-        if vector_expr is None:
-            vector_expr = _default_texcoord_expr(vector_dim=3)
-        detail_expr = _expr_from_socket(
-            from_node.inputs.get('Detail') if hasattr(from_node, "inputs") else None,
-            visited,
-            channel,
-            provenance,
-            cache,
-            default=2.0,
-        )
-        lac_expr = _expr_from_socket(
-            from_node.inputs.get('Lacunarity') if hasattr(from_node, "inputs") else None,
-            visited,
-            channel,
-            provenance,
-            cache,
-            default=2.0,
-        )
-        dim_expr = _expr_from_socket(
-            from_node.inputs.get('Dimension') if hasattr(from_node, "inputs") else None,
-            visited,
-            channel,
-            provenance,
-            cache,
-            default=0.5,
-        )
-        node_id = _nodedef_for("fractal3d", "float")
-        return _make_node_expr(
-            node_id,
-            {
-                "position": vector_expr,
-                "octaves": detail_expr,
-                "lacunarity": lac_expr,
-                "diminish": dim_expr,
-                "amplitude": _constant_expr(1.0),
-            },
-        )
-
     if node_type == 'TEX_GRADIENT':
         vector_expr = _expr_from_socket(
             from_node.inputs.get('Vector') if hasattr(from_node, "inputs") else None,
@@ -1972,6 +2246,15 @@ def _resolve_socket_value(
         if cache is not None and cache_key is not None:
             cache[cache_key] = dict(texture_info)
         return texture_info
+
+    if node_type in {'INPUT_BOOL', 'INPUT_INT', 'INPUT_VECTOR'}:
+        value = _input_constant_node_value(from_node)
+        if value is None:
+            return None
+        result = {"kind": "constant", "value": value}
+        if cache is not None and cache_key is not None:
+            cache[cache_key] = dict(result)
+        return result
 
     if node_type == 'RGB':
         output = from_node.outputs.get('Color') if hasattr(from_node, "outputs") else None
@@ -2064,7 +2347,159 @@ def _texture_info_from_image_node(image_node) -> Optional[Dict[str, Any]]:
         "mapping": mapping,
         "colorspace": colorspace,
         "alpha_mode": alpha_mode,
+        "current_pixel_snapshot": bool(
+            getattr(image, "is_dirty", False)
+            or (getattr(image, "source", "") or "").upper() == "GENERATED"
+        ),
     }
+
+
+def _expression_has_current_pixel_snapshot(expr: Any) -> bool:
+    if not isinstance(expr, dict):
+        return False
+    if expr.get("current_pixel_snapshot"):
+        return True
+    return any(
+        _expression_has_current_pixel_snapshot(child)
+        for child in (expr.get("inputs") or {}).values()
+    )
+
+
+def _expression_texture_sources(expr: Any) -> List[Dict[str, Any]]:
+    """Return every texture leaf in a supported MaterialX expression."""
+    if not isinstance(expr, dict):
+        return []
+    sources: List[Dict[str, Any]] = []
+    if expr.get("kind") == "texture" and expr.get("path"):
+        sources.append(
+            {
+                "path": str(expr["path"]),
+                "alpha_mode": expr.get("alpha_mode"),
+            }
+        )
+    for child in (expr.get("inputs") or {}).values():
+        sources.extend(_expression_texture_sources(child))
+    return sources
+
+
+def _texture_specs_from_value(value: Any) -> List[Dict[str, Any]]:
+    """Return texture specs from either expression or RK graph payloads."""
+    if not isinstance(value, dict):
+        return []
+    sources: List[Dict[str, Any]] = []
+    is_texture = value.get("kind") == "texture" or value.get("type") in {
+        "texture",
+        "normal_texture",
+    }
+    if is_texture and value.get("path"):
+        sources.append(
+            {
+                "path": str(value["path"]),
+                "alpha_mode": value.get("alpha_mode"),
+                "output_type": value.get("output_type"),
+            }
+        )
+    for child in (value.get("inputs") or {}).values():
+        sources.extend(_texture_specs_from_value(child))
+    return sources
+
+
+def _is_surface_base_color_input(input_name: str) -> bool:
+    normalized = str(input_name or "").replace("_", "").replace(" ", "").lower()
+    return normalized in {"basecolor", "color"}
+
+
+def _rk_graph_base_color_texture_sources(graph: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """Collect color texture leaves feeding an RK surface's base-color input."""
+    nodes_by_name = {
+        node.get("name"): node
+        for node in graph.get("nodes", [])
+        if node.get("name")
+    }
+    output_name = graph.get("output")
+    surface = nodes_by_name.get(output_name)
+    if surface is None:
+        return []
+
+    sources: List[Dict[str, Any]] = []
+    for input_name, value in (surface.get("inputs") or {}).items():
+        if _is_surface_base_color_input(input_name):
+            sources.extend(_texture_specs_from_value(value))
+
+    incoming = {}
+    for connection in graph.get("connections", []):
+        incoming.setdefault(connection.get("to_node"), []).append(connection)
+    stack = [
+        connection.get("from_node")
+        for connection in incoming.get(output_name, [])
+        if _is_surface_base_color_input(connection.get("to_input"))
+    ]
+    visited = set()
+    while stack:
+        node_name = stack.pop()
+        if not node_name or node_name in visited:
+            continue
+        visited.add(node_name)
+        node = nodes_by_name.get(node_name)
+        if node is None:
+            continue
+        for value in (node.get("inputs") or {}).values():
+            for source in _texture_specs_from_value(value):
+                if str(source.get("output_type") or "").lower() in {
+                    "color3",
+                    "color4",
+                }:
+                    sources.append(source)
+        stack.extend(
+            connection.get("from_node")
+            for connection in incoming.get(node_name, [])
+        )
+    return sources
+
+
+def _apply_base_color_texture_semantics(
+    data: Dict[str, Any],
+    sources: List[Dict[str, Any]],
+) -> None:
+    """Attach surface-wide alpha semantics derived only from base color."""
+    unique_sources = []
+    seen = set()
+    for source in sources:
+        path = str(source.get("path") or "")
+        if not path:
+            continue
+        alpha_mode = str(source.get("alpha_mode") or "").strip().lower() or None
+        key = (path, alpha_mode)
+        if key in seen:
+            continue
+        seen.add(key)
+        unique_sources.append({"path": path, "alpha_mode": alpha_mode})
+    if not unique_sources:
+        return
+
+    data["base_color_texture_sources"] = unique_sources
+    modes = sorted(
+        {
+            source["alpha_mode"]
+            for source in unique_sources
+            if source.get("alpha_mode")
+        }
+    )
+    if modes:
+        data["base_color_texture_alpha_modes"] = modes
+    if modes == ["premul"]:
+        data["has_premultiplied_alpha"] = True
+    else:
+        data.pop("has_premultiplied_alpha", None)
+    if "premul" in modes and any(mode != "premul" for mode in modes):
+        data["base_color_alpha_semantics_error"] = (
+            "Base Color combines textures with incompatible alpha conventions: "
+            + ", ".join(modes)
+        )
+
+
+def _record_base_color_texture_semantics(data: Dict[str, Any], expr: Any) -> None:
+    _apply_base_color_texture_semantics(data, _expression_texture_sources(expr))
 
 
 def _extract_channel_from_socket(socket) -> Optional[str]:
@@ -2203,11 +2638,16 @@ def _expr_from_socket(
             return None
         return _constant_expr(default)
     if socket.is_linked:
+        # ``visited`` is the active ancestry for cycle detection, not a global
+        # graph-visited set. Each sibling branch needs its own copy so a shared
+        # upstream node in a valid diamond graph can be resolved twice.
+        branch_visited = set(visited or ())
+        branch_provenance = list(provenance or ())
         return _resolve_socket_value(
             socket,
-            visited,
+            branch_visited,
             channel,
-            provenance,
+            branch_provenance,
             cache,
         )
     value = _socket_default_value(socket)
@@ -2318,16 +2758,65 @@ def _extract_mapping_from_node(node) -> Optional[Dict[str, Any]]:
     if not node:
         return None
 
+    if node.type == 'REROUTE':
+        input_socket = node.inputs[0] if getattr(node, "inputs", None) else None
+        if input_socket and input_socket.is_linked:
+            return _extract_mapping_from_node(input_socket.links[0].from_node)
+        return None
+
     if node.type == 'MAPPING':
-        translation = getattr(node, "translation", (0.0, 0.0, 0.0))
-        rotation = getattr(node, "rotation", (0.0, 0.0, 0.0))
-        scale = getattr(node, "scale", (1.0, 1.0, 1.0))
+        vector_type = (getattr(node, "vector_type", "POINT") or "POINT").upper()
+        if vector_type not in {"POINT", "TEXTURE"}:
+            raise ValueError(
+                f"Mapping node '{getattr(node, 'name', 'Mapping')}' uses unsupported "
+                f"vector_type={vector_type}; bake the texture transform"
+            )
+
+        def constant_vector(socket_name: str, legacy_name: str, fallback):
+            socket = node.inputs.get(socket_name) if hasattr(node, "inputs") else None
+            if socket is not None:
+                if socket.is_linked:
+                    raise ValueError(
+                        f"Mapping node '{getattr(node, 'name', 'Mapping')}' has linked "
+                        f"{socket_name}; bake the texture transform"
+                    )
+                value = getattr(socket, "default_value", fallback)
+            else:
+                value = getattr(node, legacy_name, fallback)
+            return tuple(float(component) for component in value[:3])
+
+        translation = constant_vector("Location", "translation", (0.0, 0.0, 0.0))
+        rotation = constant_vector("Rotation", "rotation", (0.0, 0.0, 0.0))
+        scale = constant_vector("Scale", "scale", (1.0, 1.0, 1.0))
+        if abs(rotation[0]) > 1e-6 or abs(rotation[1]) > 1e-6:
+            raise ValueError(
+                f"Mapping node '{getattr(node, 'name', 'Mapping')}' has X/Y rotation; "
+                "RealityKit place2d can only represent Z rotation"
+            )
+        if abs(scale[0]) <= 1e-8 or abs(scale[1]) <= 1e-8:
+            raise ValueError(
+                f"Mapping node '{getattr(node, 'name', 'Mapping')}' has zero X/Y scale; "
+                "MaterialX place2d cannot represent it safely"
+            )
+
+        if vector_type == "POINT":
+            # Blender POINT: rotate(uv * scale) + location. MaterialX place2d
+            # SRT implements rotate(uv / scale) - offset.
+            place_scale = (1.0 / float(scale[0]), 1.0 / float(scale[1]))
+            place_offset = (-float(translation[0]), -float(translation[1]))
+            operation_order = 0
+        else:
+            # Blender TEXTURE: rotate(uv - location) / scale. MaterialX place2d
+            # TRS is the same operation order and sign convention.
+            place_scale = (float(scale[0]), float(scale[1]))
+            place_offset = (float(translation[0]), float(translation[1]))
+            operation_order = 1
         return {
-            'offset': (float(translation[0]), float(translation[1])),
+            'offset': place_offset,
             'rotate': float(rotation[2]),
-            'scale': (float(scale[0]), float(scale[1])),
+            'scale': place_scale,
             'pivot': (0.0, 0.0),
-            'operationorder': 0,
+            'operationorder': operation_order,
         }
 
     if node.type == 'TEX_COORD':
@@ -2403,7 +2892,7 @@ def _curve_is_identity(knots: List[List[float]], epsilon: float = 1e-4) -> bool:
 
 
 def _normalize_colorspace(name: Optional[str]) -> Optional[str]:
-    """Normalize Blender colorspace names to simple tags."""
+    """Normalize only color spaces verified in Blender 5.2 MaterialX output."""
     if not name:
         return None
     lowered = str(name).strip().lower()
@@ -2411,11 +2900,21 @@ def _normalize_colorspace(name: Optional[str]) -> Optional[str]:
         return "srgb"
     if "non-color" in lowered or "raw" in lowered:
         return "raw"
-    return lowered
+    if lowered in {
+        "linear rec.709",
+        "linear rec709",
+        "linear rec. 709",
+        "scene_linear",
+        "linear",
+    }:
+        return "lin_rec709"
+    # Keep the original name visible so the USD authoring stage can fail
+    # closed instead of inventing an unverified MaterialX token.
+    return f"unsupported:{str(name).strip()}"
 
 
 def _extract_constant_from_socket(socket):
-    """Extract a constant value from linked RGB/Value nodes."""
+    """Extract a constant value from Blender scalar/color/vector nodes."""
     if not socket or not socket.is_linked:
         return None
     from_node = socket.links[0].from_node
@@ -2435,6 +2934,30 @@ def _extract_constant_from_socket(socket):
         except (TypeError, ValueError):
             return None
 
+    if from_node.type in {'INPUT_BOOL', 'INPUT_INT', 'INPUT_VECTOR'}:
+        return _input_constant_node_value(from_node)
+
+    return None
+
+
+def _input_constant_node_value(node):
+    """Read Blender 5.2 FunctionNode constants from their node properties.
+
+    The display output socket retains its type default; the artist-authored
+    value lives on ``boolean``, ``integer``, or ``vector`` instead.
+    """
+    node_type = getattr(node, "type", "")
+    try:
+        if node_type == 'INPUT_BOOL':
+            return bool(node.boolean)
+        if node_type == 'INPUT_INT':
+            return int(node.integer)
+        if node_type == 'INPUT_VECTOR':
+            dimensions = int(getattr(node, "vector_dimensions", len(node.vector)))
+            dimensions = max(2, min(4, dimensions))
+            return [float(component) for component in list(node.vector)[:dimensions]]
+    except (AttributeError, TypeError, ValueError):
+        return None
     return None
 
 
@@ -2464,6 +2987,15 @@ def _resolve_image_path(image) -> Optional[str]:
         return None
 
     filepath = image.filepath or image.filepath_raw or ""
+    is_dirty = bool(getattr(image, "is_dirty", False))
+    packed = getattr(image, "packed_file", None)
+    source = (getattr(image, "source", "") or "").upper()
+
+    if is_dirty and source in {"TILED", "SEQUENCE", "MOVIE"}:
+        raise ValueError(
+            f"Dirty {source.lower()} image '{getattr(image, 'name', 'Image')}' must be "
+            "baked to a single current frame before RealityKit export"
+        )
 
     try:
         import bpy
@@ -2477,6 +3009,31 @@ def _resolve_image_path(image) -> Optional[str]:
             filepath = str(Path(filepath).resolve())
         except Exception:
             filepath = os.path.normpath(filepath)
+
+    # A Blender datablock pointer alone is not an image identity. Blender may
+    # reuse it after a reload, and a dirty image can become a clean file-backed
+    # image without changing the pointer. Include the resolved source state so
+    # only an exact image/file version can reuse a staged snapshot.
+    cache_key = _image_cache_key(image, filepath)
+    cached_path = _STAGED_IMAGE_CACHE.get(cache_key)
+    if (
+        cached_path
+        and not is_dirty
+        and packed is None
+        and source != "GENERATED"
+        and _is_path_on_disk(cached_path)
+    ):
+        return cached_path
+
+    # Current Blender pixels and packed bytes are authoritative. Never return
+    # an external file first for dirty/packed/generated images.
+    if is_dirty or packed is not None or source == "GENERATED":
+        return _stage_image_to_temp(
+            image,
+            filepath,
+            force_refresh=is_dirty,
+            refresh_packed=packed is not None and not is_dirty,
+        )
 
     if filepath and _is_path_on_disk(filepath) and not _is_temp_path(filepath):
         return filepath
@@ -2506,35 +3063,70 @@ def _is_temp_path(path: str) -> bool:
         return lowered.startswith(str(temp_root).replace("\\", "/").lower())
 
 
-def _stage_image_to_temp(image, filepath: Optional[str]) -> Optional[str]:
+def _stage_image_to_temp(
+    image,
+    filepath: Optional[str],
+    force_refresh: bool = False,
+    refresh_packed: bool = False,
+) -> Optional[str]:
     """Stage image data to a temp file so it can be copied into the export."""
-    cache_key = _image_cache_key(image)
-    if cache_key in _STAGED_IMAGE_CACHE:
-        return _STAGED_IMAGE_CACHE[cache_key]
+    cache_key = _image_cache_key(image, filepath)
+    if not force_refresh and not refresh_packed and cache_key in _STAGED_IMAGE_CACHE:
+        cached_path = _STAGED_IMAGE_CACHE[cache_key]
+        if _is_path_on_disk(cached_path):
+            return cached_path
+        _STAGED_IMAGE_CACHE.pop(cache_key, None)
 
     staging_dir = _get_staging_dir()
-    extension = _guess_image_extension(image, filepath)
+    source = (getattr(image, "source", "") or "").upper()
+    if force_refresh or source == "GENERATED":
+        extension = ".exr" if bool(getattr(image, "is_float", False)) else ".png"
+    else:
+        extension = _guess_image_extension(image, filepath)
     basename = _sanitize_texture_name(Path(filepath).stem if filepath else image.name)
-    digest = hashlib.sha1(f"{image.name}:{filepath}".encode("utf-8")).hexdigest()[:8]
+    destination_key = _image_destination_key(image, filepath)
+    digest = hashlib.sha256(repr(destination_key).encode("utf-8")).hexdigest()[:12]
     dest_path = staging_dir / f"{basename}_{digest}{extension}"
 
-    if dest_path.exists():
-        _STAGED_IMAGE_CACHE[cache_key] = str(dest_path)
-        return str(dest_path)
+    if force_refresh:
+        if _save_current_image_snapshot_to_path(image, dest_path):
+            _STAGED_IMAGE_CACHE[cache_key] = str(dest_path)
+            return str(dest_path)
+        raise ValueError(
+            f"Unable to snapshot current pixels for dirty image "
+            f"'{getattr(image, 'name', 'Image')}'; refusing stale packed or disk bytes"
+        )
+
+    if source == "GENERATED":
+        if _save_current_image_snapshot_to_path(image, dest_path):
+            _STAGED_IMAGE_CACHE[cache_key] = str(dest_path)
+            return str(dest_path)
+        raise ValueError(
+            f"Unable to snapshot generated image '{getattr(image, 'name', 'Image')}'; "
+            "refusing non-current fallback bytes"
+        )
+
+    packed = getattr(image, "packed_file", None)
+    if packed:
+        packed_data = getattr(packed, "data", None)
+        if not packed_data:
+            raise ValueError(
+                f"Packed image '{getattr(image, 'name', 'Image')}' has no readable bytes; "
+                "refusing stale external-file fallback"
+            )
+        try:
+            dest_path.write_bytes(packed_data)
+            _STAGED_IMAGE_CACHE[cache_key] = str(dest_path)
+            return str(dest_path)
+        except Exception as exc:
+            raise ValueError(
+                f"Unable to stage authoritative packed bytes for image "
+                f"'{getattr(image, 'name', 'Image')}'; refusing stale external-file fallback"
+            ) from exc
 
     if filepath and _is_path_on_disk(filepath):
         try:
-            import shutil
             shutil.copy2(filepath, dest_path)
-            _STAGED_IMAGE_CACHE[cache_key] = str(dest_path)
-            return str(dest_path)
-        except Exception:
-            pass
-
-    packed = getattr(image, "packed_file", None)
-    if packed and getattr(packed, "data", None):
-        try:
-            dest_path.write_bytes(packed.data)
             _STAGED_IMAGE_CACHE[cache_key] = str(dest_path)
             return str(dest_path)
         except Exception:
@@ -2547,26 +3139,195 @@ def _stage_image_to_temp(image, filepath: Optional[str]) -> Optional[str]:
     return None
 
 
-def _image_cache_key(image) -> int:
-    """Return a stable cache key for an image."""
+def _save_current_image_snapshot_to_path(image, dest_path: Path) -> bool:
+    """Save current in-memory pixels without mutating the source datablock."""
+    try:
+        import bpy
+
+        width, height = (int(value) for value in image.size[:2])
+        if width <= 0 or height <= 0:
+            return False
+        source_pixels = getattr(image, "pixels", None)
+        if source_pixels is None:
+            return False
+
+        values = array('f', [0.0]) * len(source_pixels)
+        source_pixels.foreach_get(values)
+        snapshot = bpy.data.images.new(
+            name=f"__BlenderToRCP_{getattr(image, 'name', 'Image')}",
+            width=width,
+            height=height,
+            alpha=True,
+            float_buffer=bool(getattr(image, "is_float", False)),
+        )
+        try:
+            # Blender 5.2 can clear a newly assigned pixel buffer when its
+            # colorspace is set afterward, even when assigning the same name.
+            # Configure metadata before copying the authoritative pixels.
+            try:
+                snapshot.colorspace_settings.name = image.colorspace_settings.name
+            except Exception:
+                pass
+            try:
+                snapshot.alpha_mode = image.alpha_mode
+            except Exception:
+                pass
+            snapshot.pixels.foreach_set(values)
+            snapshot.update()
+            snapshot.filepath_raw = str(dest_path)
+            snapshot.file_format = _EXTENSION_TO_FORMAT.get(dest_path.suffix.lower(), "PNG")
+            snapshot.save()
+            return dest_path.is_file()
+        finally:
+            bpy.data.images.remove(snapshot)
+    except Exception:
+        return False
+
+
+def _image_cache_key(image, resolved_filepath: Optional[str] = None):
+    """Return an export-local key for the current image source state.
+
+    ``Image.as_pointer()`` identifies a live datablock, not its pixels. The
+    same pointer survives dirty-to-clean transitions and reloads, and may be
+    reused after a datablock is removed. File identity and mutable Blender
+    source state therefore participate in the key as well.
+    """
+    pointer = None
     if hasattr(image, "as_pointer"):
         try:
-            return int(image.as_pointer())
+            pointer = int(image.as_pointer())
         except Exception:
             pass
-    return id(image)
+    if pointer is None:
+        pointer = id(image)
+
+    filepath = str(
+        resolved_filepath
+        or getattr(image, "filepath", "")
+        or getattr(image, "filepath_raw", "")
+        or ""
+    )
+    file_state = _file_state_fingerprint(filepath)
+    size = getattr(image, "size", ()) or ()
+    try:
+        dimensions = tuple(int(value) for value in size[:2])
+    except Exception:
+        dimensions = ()
+    packed = getattr(image, "packed_file", None)
+    library = getattr(image, "library", None)
+    library_path = str(getattr(library, "filepath", "") or "")
+
+    return (
+        pointer,
+        str(getattr(image, "name", "") or ""),
+        str(getattr(image, "source", "") or "").upper(),
+        bool(getattr(image, "is_dirty", False)),
+        bool(packed is not None),
+        str(getattr(image, "filepath_raw", "") or ""),
+        filepath,
+        file_state,
+        dimensions,
+        bool(getattr(image, "is_float", False)),
+        str(getattr(image, "file_format", "") or ""),
+        library_path,
+    )
+
+
+def _file_state_fingerprint(filepath: str):
+    """Return enough filesystem identity to invalidate a reloaded source."""
+    if not filepath:
+        return None
+    try:
+        stat_result = Path(filepath).stat()
+    except (OSError, ValueError):
+        return None
+    return (
+        int(getattr(stat_result, "st_dev", 0)),
+        int(getattr(stat_result, "st_ino", 0)),
+        int(stat_result.st_size),
+        int(stat_result.st_mtime_ns),
+    )
+
+
+def _image_destination_key(image, resolved_filepath: Optional[str]):
+    """Return a stable filename identity separate from cache invalidation.
+
+    Pointer and file-stat state belong in the cache key, but putting them in a
+    staged filename would make otherwise identical exports nondeterministic.
+    A cache miss always rewrites this file, so a stable image/source identity
+    remains safe across reloads and dirty-state transitions.
+    """
+    size = getattr(image, "size", ()) or ()
+    try:
+        dimensions = tuple(int(value) for value in size[:2])
+    except Exception:
+        dimensions = ()
+    library = getattr(image, "library", None)
+    return (
+        str(getattr(image, "name", "") or ""),
+        str(getattr(image, "source", "") or "").upper(),
+        str(getattr(image, "filepath_raw", "") or resolved_filepath or ""),
+        str(getattr(library, "filepath", "") or ""),
+        dimensions,
+        bool(getattr(image, "is_float", False)),
+        str(getattr(image, "file_format", "") or ""),
+    )
+
+
+def begin_image_staging_session(diagnostics=None) -> Path:
+    """Start a unique image-staging session for one export.
+
+    Any abandoned previous session is removed first. A unique directory avoids
+    reusing files left by an earlier export in the same long-lived Blender
+    process, while clearing the cache prevents datablock-pointer reuse.
+    """
+    global _STAGED_IMAGE_DIR, _STAGED_IMAGE_DIR_OWNED
+    cleanup_image_staging_session(diagnostics)
+    base_dir = Path(tempfile.gettempdir()) / "blendertorcp_textures"
+    base_dir.mkdir(parents=True, exist_ok=True)
+    _STAGED_IMAGE_DIR = Path(
+        tempfile.mkdtemp(prefix=f"export_{os.getpid()}_", dir=str(base_dir))
+    )
+    _STAGED_IMAGE_DIR_OWNED = True
+    _STAGED_IMAGE_CACHE.clear()
+    return _STAGED_IMAGE_DIR
+
+
+def cleanup_image_staging_session(diagnostics=None) -> bool:
+    """Clear image cache state and remove the current owned temp directory."""
+    global _STAGED_IMAGE_DIR, _STAGED_IMAGE_DIR_OWNED
+    staging_dir = _STAGED_IMAGE_DIR
+    owned = _STAGED_IMAGE_DIR_OWNED
+    _STAGED_IMAGE_CACHE.clear()
+    _STAGED_IMAGE_DIR = None
+    _STAGED_IMAGE_DIR_OWNED = False
+
+    if staging_dir is None or not owned:
+        return True
+    try:
+        shutil.rmtree(staging_dir)
+    except FileNotFoundError:
+        pass
+    except OSError as exc:
+        if diagnostics and hasattr(diagnostics, "add_warning"):
+            diagnostics.add_warning(
+                f"Failed to remove temporary image staging directory "
+                f"'{staging_dir}': {exc}"
+            )
+        return False
+
+    try:
+        staging_dir.parent.rmdir()
+    except OSError:
+        pass
+    return not staging_dir.exists()
 
 
 def _get_staging_dir() -> Path:
     """Return the staging directory for temporary textures."""
-    global _STAGED_IMAGE_DIR
     if _STAGED_IMAGE_DIR is None:
-        base_dir = Path(tempfile.gettempdir()) / "blendertorcp_textures"
-        base_dir.mkdir(parents=True, exist_ok=True)
-        session_name = f"session_{os.getpid()}"
-        staging_dir = base_dir / session_name
-        staging_dir.mkdir(parents=True, exist_ok=True)
-        _STAGED_IMAGE_DIR = staging_dir
+        return begin_image_staging_session()
+    _STAGED_IMAGE_DIR.mkdir(parents=True, exist_ok=True)
     return _STAGED_IMAGE_DIR
 
 
