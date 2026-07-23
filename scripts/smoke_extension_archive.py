@@ -717,7 +717,7 @@ def smoke_archive(archive: Path, blender: str) -> dict:
                 "GNU GENERAL PUBLIC LICENSE",
                 "END OF TERMS AND CONDITIONS",
             ),
-            "LICENSES/Apache-2.0.txt": (
+            "THIRD_PARTY_LICENSES/Apache-2.0.txt": (
                 "Apache License",
                 "Version 2.0, January 2004",
                 "END OF TERMS AND CONDITIONS",
@@ -725,7 +725,7 @@ def smoke_archive(archive: Path, blender: str) -> dict:
             "THIRD_PARTY_NOTICES.txt": (
                 "Copyright © 2024 Apple Inc.",
                 "Copyright Contributors to the MaterialX Project.",
-                "LICENSES/Apache-2.0.txt",
+                "THIRD_PARTY_LICENSES/Apache-2.0.txt",
             ),
         }
         for filename, required_texts in legal_files.items():

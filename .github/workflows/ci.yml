@@ -126,7 +126,7 @@ jobs:
               "BlenderToRCP/__main__.py",
               "BlenderToRCP/blender_manifest.toml",
               "BlenderToRCP/LICENSE",
-              "BlenderToRCP/LICENSES/Apache-2.0.txt",
+              "BlenderToRCP/THIRD_PARTY_LICENSES/Apache-2.0.txt",
               "BlenderToRCP/THIRD_PARTY_NOTICES.txt",
           }
           missing = sorted(required - names)

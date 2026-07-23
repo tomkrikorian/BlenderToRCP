@@ -377,5 +377,15 @@ Before pushing a release tag:
 4. Run `bash scripts/check_release.sh --expected-tag <version>` locally.
 5. Push the matching `<version>` tag. The release workflow, not a local command, publishes the ZIP and `.sha256` assets after its own gates pass.
 
+## License
+
+BlenderToRCP has one project license: [GNU GPL version 3 or later](LICENSE), as
+declared by `SPDX:GPL-3.0-or-later` in the Blender extension manifest.
+
+The files under `THIRD_PARTY_LICENSES/` and [THIRD_PARTY_NOTICES.txt](THIRD_PARTY_NOTICES.txt)
+cover only the Apple, MaterialX, and OpenPBR material redistributed by this
+repository. They preserve the upstream MIT and Apache-2.0 notices and do not
+make BlenderToRCP a dual-licensed project.
+
 ## Architecture
 See `docs/ARCHITECTURE.MD`.

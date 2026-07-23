@@ -50,9 +50,13 @@ class ReleaseArchiveTests(unittest.TestCase):
         self.plugin = self.repo / "Plugin"
         self.plugin.mkdir(parents=True)
         (self.repo / "LICENSE").write_bytes((REPOSITORY_ROOT / "LICENSE").read_bytes())
-        (self.repo / "LICENSES").mkdir()
-        (self.repo / "LICENSES" / "Apache-2.0.txt").write_bytes(
-            (REPOSITORY_ROOT / "LICENSES" / "Apache-2.0.txt").read_bytes()
+        (self.repo / "THIRD_PARTY_LICENSES").mkdir()
+        (self.repo / "THIRD_PARTY_LICENSES" / "Apache-2.0.txt").write_bytes(
+            (
+                REPOSITORY_ROOT
+                / "THIRD_PARTY_LICENSES"
+                / "Apache-2.0.txt"
+            ).read_bytes()
         )
         (self.repo / "THIRD_PARTY_NOTICES.txt").write_bytes(
             (REPOSITORY_ROOT / "THIRD_PARTY_NOTICES.txt").read_bytes()
@@ -137,7 +141,9 @@ class ReleaseArchiveTests(unittest.TestCase):
             self.assertIn("BlenderToRCP/blender_manifest.toml", names)
             self.assertIn("BlenderToRCP/core/package_bootstrap.py", names)
             self.assertIn("BlenderToRCP/LICENSE", names)
-            self.assertIn("BlenderToRCP/LICENSES/Apache-2.0.txt", names)
+            self.assertIn(
+                "BlenderToRCP/THIRD_PARTY_LICENSES/Apache-2.0.txt", names
+            )
             self.assertIn("BlenderToRCP/THIRD_PARTY_NOTICES.txt", names)
             self.assertNotIn("BlenderToRCP/.DS_Store", names)
             self.assertFalse(any("__pycache__" in name for name in names))
@@ -150,8 +156,14 @@ class ReleaseArchiveTests(unittest.TestCase):
                 (self.repo / "LICENSE").read_bytes(),
             )
             self.assertEqual(
-                archive.read("BlenderToRCP/LICENSES/Apache-2.0.txt"),
-                (self.repo / "LICENSES" / "Apache-2.0.txt").read_bytes(),
+                archive.read(
+                    "BlenderToRCP/THIRD_PARTY_LICENSES/Apache-2.0.txt"
+                ),
+                (
+                    self.repo
+                    / "THIRD_PARTY_LICENSES"
+                    / "Apache-2.0.txt"
+                ).read_bytes(),
             )
             self.assertEqual(
                 archive.read("BlenderToRCP/THIRD_PARTY_NOTICES.txt"),
@@ -242,7 +254,7 @@ class ReleaseArchiveTests(unittest.TestCase):
     def test_release_legal_files_are_required_and_validated(self) -> None:
         for filename in (
             "LICENSE",
-            "LICENSES/Apache-2.0.txt",
+            "THIRD_PARTY_LICENSES/Apache-2.0.txt",
             "THIRD_PARTY_NOTICES.txt",
         ):
             with self.subTest(filename=filename):
@@ -263,14 +275,18 @@ class ReleaseArchiveTests(unittest.TestCase):
         self.assertIn("complete GNU GPL version 3 text", incomplete_gpl.stderr)
 
         license_path.write_bytes((REPOSITORY_ROOT / "LICENSE").read_bytes())
-        apache_path = self.repo / "LICENSES" / "Apache-2.0.txt"
+        apache_path = self.repo / "THIRD_PARTY_LICENSES" / "Apache-2.0.txt"
         apache_path.write_text("Apache License\n", encoding="utf-8")
         incomplete_apache = self.run_release()
         self.assertNotEqual(incomplete_apache.returncode, 0)
         self.assertIn("complete Apache 2.0 license text", incomplete_apache.stderr)
 
         apache_path.write_bytes(
-            (REPOSITORY_ROOT / "LICENSES" / "Apache-2.0.txt").read_bytes()
+            (
+                REPOSITORY_ROOT
+                / "THIRD_PARTY_LICENSES"
+                / "Apache-2.0.txt"
+            ).read_bytes()
         )
         notices_path = self.repo / "THIRD_PARTY_NOTICES.txt"
         notices_path.write_text("Copyright © 2024 Apple Inc.\n", encoding="utf-8")

@@ -48,7 +48,7 @@ REQUIRED_PLUGIN_FILES = (
 )
 REQUIRED_LEGAL_FILES = (
     "LICENSE",
-    "LICENSES/Apache-2.0.txt",
+    "THIRD_PARTY_LICENSES/Apache-2.0.txt",
     "THIRD_PARTY_NOTICES.txt",
 )
 REQUIRED_ARCHIVE_FILES = REQUIRED_PLUGIN_FILES + REQUIRED_LEGAL_FILES
@@ -73,7 +73,7 @@ APACHE_REQUIRED_MARKERS = (
 MATERIALX_NOTICE_REQUIRED_MARKERS = (
     "Copyright Contributors to the MaterialX Project.",
     "SPDX-License-Identifier: Apache-2.0",
-    "LICENSES/Apache-2.0.txt",
+    "THIRD_PARTY_LICENSES/Apache-2.0.txt",
 )
 SCALAR_ASSIGNMENT = re.compile(
     r'^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*"([^"\\]*(?:\\.[^"\\]*)*)"\s*(?:#.*)?$'
@@ -313,7 +313,7 @@ def collect_source_entries(source_dir: Path) -> List[Tuple[str, Optional[Path], 
 def _validate_legal_texts(legal_paths: Mapping[str, Path]) -> None:
     try:
         license_text = legal_paths["LICENSE"].read_text(encoding="utf-8")
-        apache_text = legal_paths["LICENSES/Apache-2.0.txt"].read_text(
+        apache_text = legal_paths["THIRD_PARTY_LICENSES/Apache-2.0.txt"].read_text(
             encoding="utf-8"
         )
         third_party_text = legal_paths["THIRD_PARTY_NOTICES.txt"].read_text(
@@ -347,7 +347,7 @@ def _validate_legal_texts(legal_paths: Mapping[str, Path]) -> None:
     ]
     if missing_apache_markers:
         raise ReleaseCheckError(
-            "LICENSES/Apache-2.0.txt is not the complete Apache 2.0 license text; missing: "
+            "THIRD_PARTY_LICENSES/Apache-2.0.txt is not the complete Apache 2.0 license text; missing: "
             + ", ".join(repr(marker) for marker in missing_apache_markers)
         )
 

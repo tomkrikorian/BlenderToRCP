@@ -1,6 +1,11 @@
 BlenderToRCP Third-Party Notices
 ================================
 
+BlenderToRCP itself is licensed only under GNU GPL version 3 or later, as
+declared in LICENSE and Plugin/blender_manifest.toml. The notices below apply
+only to third-party material redistributed with the project; they do not
+dual-license BlenderToRCP.
+
 Apple RealityKit MaterialX node definitions
 -------------------------------------------
 
@@ -29,4 +34,4 @@ Copyright Contributors to the MaterialX Project.
 SPDX-License-Identifier: Apache-2.0
 
 The Apache License, Version 2.0 applies to that third-party material. A complete
-copy is included at LICENSES/Apache-2.0.txt.
+copy is included at THIRD_PARTY_LICENSES/Apache-2.0.txt.
