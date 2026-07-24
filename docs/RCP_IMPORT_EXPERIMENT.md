@@ -33,19 +33,39 @@ The first measured capture is:
 | Fixture | Text records | Opaque buffers | Text bytes | Opaque bytes |
 |---|---:|---:|---:|---:|
 | RedCube | 13 | 9 | 20,518 | 6,090 |
-| CubeWith4Animations | 15 | 11 | 23,039 | 8,107 |
-| MeshyRiggedCharacter | 21 | 21 | 89,802 | 100,836,599 |
+| CubeWith4Animations | 15 | 11 | 23,143 | 8,107 |
+| MeshyRiggedCharacter | 21 | 21 | 89,906 | 100,836,599 |
 
 These are one-time observations, not determinism claims. The skeletal example
 also demonstrates why copying full `.import` fixtures into Git is unsuitable:
 almost all of its roughly 96 MiB footprint is opaque buffer data.
 
+Two fresh imports into independent disposable RCP 3 projects produced:
+
+| Fixture | Text records | Opaque buffers | Text bytes | Opaque bytes | Structural SHA-256 |
+|---|---:|---:|---:|---:|---|
+| RedCube | 13 | 9 | 20,166 | 5,274 | `568af6d8676e7d18928121ffddeafea01999bd77d20c80b3c1d3b2602b3601a7` |
+| CubeWith4Animations | 15 | 11 | 22,678 | 7,291 | `3c884b31a88bb9373b0ea99175c51ec0f11cae6602104c2e0dcde6142ca94e6f` |
+| MeshyRiggedCharacter | 24 | 23 | 90,989 | 107,017,565 | `be992d32b8bf5cc9fae2557643bff5038e47c1f15cfe65fa5b7d949231fd9768` |
+
+The structural hash matched between the two clean runs for every fixture.
+Record types, normalized text records, buffer paths, and buffer byte counts
+matched. Raw UUID identities changed. Exactly two same-sized opaque payloads
+under `settings.tm_buffers` changed for each fixture; all other payloads were
+byte-identical. The inspector therefore reports structural equality separately
+from exact opaque-payload equality.
+
 An import is a directory containing UTF-8 `tm_*` record files and opaque files
 under `*.tm_buffers` directories. Records form a UUID graph covering source
 path, root/proxy/optimized entities, scene optimizer, LOD generator, variants,
 sessions, geometry, mesh descriptors, materials, and timelines. Skeletal inputs
-add skeleton definition/hierarchy records and a skeletal timeline. The
-`tm_usd_asset` record stores an absolute source path.
+add skeleton definition/hierarchy records, a skeletal timeline, and observed
+`tm_texture` records when sibling texture sources are present. The
+migrated historical fixture stores an absolute source path. A project
+created directly in RCP 3.0 build `80.0.1.500.1` instead stores a
+project-relative path such as `../sources/static/RedCube.usda`. Contract v1
+accepts both, resolves relative paths against the project package, and rejects
+paths that escape its containing disposable workspace.
 
 The buffer filenames contain an ID plus a short hash, but their encoding and
 all semantic invariants are unpublished. They are treated as opaque bytes.
@@ -76,9 +96,11 @@ python scripts/inspect_rcp_import.py \
 
 The report retains exact content hashes while canonical comparison replaces
 UUIDs, UUID-derived filenames, short payload-name hashes, and the absolute
-source path. This separates likely volatile identity/path fields from stable
-structure and payload bytes. A field is not declared deterministic until at
-least two clean imports and two reimports of the same source agree.
+source path. Structural comparison retains buffer paths and byte counts but
+reports opaque-payload equality separately. This separates volatile
+identity/path/payload fields from stable structure. A field is not declared
+deterministic until at least two clean imports and two reimports of the same
+source agree.
 
 The checked-in corpus catalog is
 `tests/fixtures/rcp_import/corpus.json`. Full opaque payloads stay local. Run the
@@ -99,7 +121,7 @@ The inspector rejects:
 - a known record type with an unknown top-level field;
 - invalid record headers, duplicate UUID definitions, or unbalanced text;
 - unexpected buffer filenames;
-- a missing/non-absolute source path;
+- a missing or unsafe source path;
 - fixtures that do not meet the selected static, transform, or skeletal shape.
 
 This is a structural contract only. Nested values are inventoried, not decoded
@@ -113,8 +135,9 @@ Each fixture/build pair needs retained evidence for all of these gates:
 | Gate | Static | Transform | Skeletal | Automation |
 |---|---:|---:|---:|---|
 | Structural golden capture | required | required | required | implemented |
-| RCP opens without repair | required | required | required | pending |
-| Source change triggers reimport | required | required | required | pending |
+| Two independent clean imports | required | required | required | observed |
+| RCP opens without repair | required | required | required | observed for clean imports |
+| Source change triggers reimport | required | required | required | blocked |
 | RealityKit runtime load | required | required | required | pending |
 | Entity/material bounds match source | required | required | required | pending |
 | Sequence editor exposes intended clip | n/a | required | required | pending |
@@ -127,6 +150,24 @@ generated `.import` candidate must be at least as reliable.
 The corpus catalog pins source size and SHA-256 so a result from a modified USD
 cannot be mistaken for a repeatability measurement.
 
+### Reimport boundary observed
+
+RCP did not refresh a saved `.import` after only a semantically inert comment
+was appended to its source USD and the project was observed for 30 seconds.
+Choosing **Import File** for the same path did not reimport in place: RCP created
+`RedCube (1).import`. That operation also emitted
+`Trying to lookup property of NULL truth object` in the RCP console. It is not
+accepted as a reimport lane.
+
+Import destination is selection-sensitive. Importing while another `.import`
+container is active can nest the new `.import` inside it. Acceptance automation
+must navigate to the project root before each clean import and verify the
+on-disk top-level layout afterward.
+
+The repeated clean-import requirement is satisfied for all three profiles.
+The two-reimport requirement is not satisfied, so runtime and Sequence Editor
+results cannot yet promote this experiment to a writer feasibility claim.
+
 Copy `tests/fixtures/rcp_import/acceptance.template.json` to an evidence
 location, fill every gate with a retained evidence path, then run:
 
@@ -136,8 +177,10 @@ python scripts/validate_rcp_import_acceptance.py /path/to/acceptance.json
 
 The validator fails for pending/failed gates, unknown gates, build drift,
 changed source hashes, changed structural captures, or a claimed pass without
-evidence. The checked-in template intentionally fails because no current
-RCP-open/reimport/runtime/Sequence Editor session has been recorded.
+evidence. It requires exactly two `clean_import` and two `reimport` run records
+per fixture, validates their evidence and hashes, and rejects disagreement
+between passed structural hashes. The checked-in template intentionally fails
+because reimport/runtime/Sequence Editor acceptance is incomplete.
 
 ## What prevents a good writer today
 

@@ -139,11 +139,70 @@ def test_unknown_record_suffix_fails_closed(tmp_path: Path) -> None:
         build_report(inspect_import(root, expected_profile="static"))
 
 
+def test_observed_texture_record_is_accepted(tmp_path: Path) -> None:
+    root = _fixture(tmp_path, "skeletal")
+    _directory(root / "textures", "textures")
+    _record(
+        root / "textures" / "texture.tm_texture",
+        "tm_texture",
+        'source_filename: "../sources/textures/texture.png"\n'
+        f'source_texture: "{_uuid()}"\n'
+        'transform: "6b5fd8e4eec2cf5b"\n'
+        "transform_settings: {\n}\n"
+        "color_space: {\n}\n"
+        f'__asset_uuid: "{_uuid()}"\n'
+        "__asset_labels: [\n]\n"
+        "__asset_thumbnail: {\n}\n",
+    )
+
+    report = build_report(inspect_import(root, expected_profile="skeletal"))
+
+    assert report["record_types"]["tm_texture"] == 1
+
+
 def test_static_profile_rejects_timeline(tmp_path: Path) -> None:
     root = _fixture(tmp_path, "transform")
 
     with pytest.raises(ContractError, match="static profile unexpectedly contains"):
         build_report(inspect_import(root, expected_profile="static"))
+
+
+def test_project_relative_source_path_is_resolved_inside_workspace(
+    tmp_path: Path,
+) -> None:
+    project = tmp_path / "project"
+    root = _fixture(project, "static")
+    source = tmp_path / "sources" / "source.usda"
+    source.parent.mkdir()
+    source.write_text("#usda 1.0\n", encoding="utf-8")
+    settings = root / "settings.tm_usd"
+    settings.write_text(
+        settings.read_text().replace(
+            "/controlled/source.usda", "../sources/source.usda"
+        ),
+        encoding="utf-8",
+    )
+
+    inspection = inspect_import(root)
+    report = build_report(inspection)
+
+    assert inspection.resolved_source_path == source
+    assert report["source"]["path_kind"] == "project-relative"
+    assert report["source"]["exists"]
+
+
+def test_relative_source_path_cannot_escape_workspace(tmp_path: Path) -> None:
+    root = _fixture(tmp_path, "static")
+    settings = root / "settings.tm_usd"
+    settings.write_text(
+        settings.read_text().replace(
+            "/controlled/source.usda", "../../../../outside.usda"
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ContractError, match="escapes the project workspace"):
+        build_report(inspect_import(root))
 
 
 def test_comparison_ignores_uuid_and_absolute_source_path_churn(tmp_path: Path) -> None:
@@ -159,8 +218,23 @@ def test_comparison_ignores_uuid_and_absolute_source_path_churn(tmp_path: Path) 
     comparison = compare_reports(first, second)
 
     assert comparison["normalized_structure_equal"]
+    assert comparison["opaque_payloads_equal"]
     assert comparison["volatile_observations"]["source_path_hash_changed"]
     assert comparison["volatile_observations"]["raw_uuid_identity_changed"]
+
+
+def test_comparison_separates_opaque_payload_churn_from_layout(tmp_path: Path) -> None:
+    first_root = _fixture(tmp_path / "a", "static")
+    first = build_report(inspect_import(first_root))
+    second_root = _fixture(tmp_path / "b", "static")
+    buffer = next(second_root.rglob("*.tm_buffers/*"))
+    buffer.write_bytes(b"change")
+    second = build_report(inspect_import(second_root))
+
+    comparison = compare_reports(first, second)
+
+    assert comparison["normalized_structure_equal"]
+    assert not comparison["opaque_payloads_equal"]
 
 
 def test_real_rcp_corpus_when_available() -> None:

@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "contract": "rcp-import-structural-v0",
+  "contract": "rcp-import-structural-v1",
   "rcp": {
     "application": "Reality Composer Pro",
     "version": "3.0",
@@ -12,7 +12,13 @@
       "id": "minimal-static-mesh",
       "profile": "static",
       "source_sha256": "41518bc65c6d15bd532e5c6baf31269d66aa64ecd7448b9513b2cac838c4ab34",
-      "canonical_contract_sha256": "e4a4083808a5de40f87597677585d6890b0c1e53310d54be3bb350da0127eb34",
+      "canonical_contract_sha256": "d367d93c61636e426bcfdfa71f2c9a38d5072b03b97ca31ea2ef2715b35eac7d",
+      "runs": [
+        {"kind": "clean_import", "ordinal": 1, "status": "not_run", "evidence": "", "source_sha256": "", "canonical_structure_sha256": ""},
+        {"kind": "clean_import", "ordinal": 2, "status": "not_run", "evidence": "", "source_sha256": "", "canonical_structure_sha256": ""},
+        {"kind": "reimport", "ordinal": 1, "status": "not_run", "evidence": "", "source_sha256": "", "canonical_structure_sha256": ""},
+        {"kind": "reimport", "ordinal": 2, "status": "not_run", "evidence": "", "source_sha256": "", "canonical_structure_sha256": ""}
+      ],
       "gates": {
         "golden_structure": {"status": "pass", "evidence": "tests/fixtures/rcp_import/corpus.json"},
         "rcp_open": {"status": "not_run", "evidence": ""},
@@ -25,7 +31,13 @@
       "id": "transform-clip",
       "profile": "transform",
       "source_sha256": "4e9a6bbffebb9031e07ed3e715fe7b201538d06eb189439750091db9bd880356",
-      "canonical_contract_sha256": "af1df8b91df255d315414d708c5f2b1c51225ffdbaf35b2fa65165ef4ef35e60",
+      "canonical_contract_sha256": "e3df88d74704d5b47c0d3c4751f48c2fe33751e5d9db358a9ec7cd9f2f15fc4d",
+      "runs": [
+        {"kind": "clean_import", "ordinal": 1, "status": "not_run", "evidence": "", "source_sha256": "", "canonical_structure_sha256": ""},
+        {"kind": "clean_import", "ordinal": 2, "status": "not_run", "evidence": "", "source_sha256": "", "canonical_structure_sha256": ""},
+        {"kind": "reimport", "ordinal": 1, "status": "not_run", "evidence": "", "source_sha256": "", "canonical_structure_sha256": ""},
+        {"kind": "reimport", "ordinal": 2, "status": "not_run", "evidence": "", "source_sha256": "", "canonical_structure_sha256": ""}
+      ],
       "gates": {
         "golden_structure": {"status": "pass", "evidence": "tests/fixtures/rcp_import/corpus.json"},
         "rcp_open": {"status": "not_run", "evidence": ""},
@@ -40,7 +52,13 @@
       "id": "skeletal-clip",
       "profile": "skeletal",
       "source_sha256": "8156506935c9bdefceb9bf2bf7503a46053c03b1587583bdb94958499942b87f",
-      "canonical_contract_sha256": "13f82c12607f3a50cc635a760083e15b7ce34018f26f969887ed4ee95b8042d0",
+      "canonical_contract_sha256": "588b2f3919176ad8636ec53b7b347dc21135cbcb9bfaefdcf5ef2cffac85deed",
+      "runs": [
+        {"kind": "clean_import", "ordinal": 1, "status": "not_run", "evidence": "", "source_sha256": "", "canonical_structure_sha256": ""},
+        {"kind": "clean_import", "ordinal": 2, "status": "not_run", "evidence": "", "source_sha256": "", "canonical_structure_sha256": ""},
+        {"kind": "reimport", "ordinal": 1, "status": "not_run", "evidence": "", "source_sha256": "", "canonical_structure_sha256": ""},
+        {"kind": "reimport", "ordinal": 2, "status": "not_run", "evidence": "", "source_sha256": "", "canonical_structure_sha256": ""}
+      ],
       "gates": {
         "golden_structure": {"status": "pass", "evidence": "tests/fixtures/rcp_import/corpus.json"},
         "rcp_open": {"status": "not_run", "evidence": ""},

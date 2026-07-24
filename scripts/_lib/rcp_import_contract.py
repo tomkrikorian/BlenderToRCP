@@ -15,7 +15,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-CONTRACT_NAME = "rcp-import-structural-v0"
+CONTRACT_NAME = "rcp-import-structural-v1"
 REPORT_SCHEMA_VERSION = 1
 
 UUID_PATTERN = r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
@@ -33,6 +33,7 @@ RECORD_SUFFIX_TYPES: dict[str, frozenset[str]] = {
     ".tm_mesh_resource": frozenset({"tm_mesh_resource"}),
     ".tm_mesh_descriptor": frozenset({"tm_mesh_descriptor"}),
     ".tm_material": frozenset({"tm_material"}),
+    ".tm_texture": frozenset({"tm_texture"}),
     ".tm_geometry": frozenset({"tm_geometry"}),
     ".tm_animation": frozenset({"tm_timeline"}),
     ".tm_skeleton_hierarchy": frozenset({"tm_skeleton_hierarchy"}),
@@ -93,12 +94,27 @@ TOP_LEVEL_FIELDS: dict[str, frozenset[str]] = {
             "__asset_thumbnail",
         }
     ),
+    "tm_texture": frozenset(
+        {
+            "__type",
+            "__uuid",
+            "source_filename",
+            "source_texture",
+            "transform",
+            "transform_settings",
+            "color_space",
+            "__asset_uuid",
+            "__asset_labels",
+            "__asset_thumbnail",
+        }
+    ),
     "tm_geometry": frozenset(
         {
             "__type",
             "__uuid",
             "name",
             "input_geometry",
+            "transform",
             "transform_settings",
             "output_geometry",
             "validity_hash",
@@ -165,6 +181,8 @@ class Inspection:
     records: list[Record] = field(default_factory=list)
     buffers: list[dict[str, Any]] = field(default_factory=list)
     source_path: str | None = None
+    source_path_kind: str | None = None
+    resolved_source_path: Path | None = None
     all_uuid_definitions: set[str] = field(default_factory=set)
     errors: list[str] = field(default_factory=list)
 
@@ -366,10 +384,24 @@ def inspect_import(
         )
     if inspection.source_path is None:
         inspection.errors.append("tm_usd_asset lacks source_path")
-    elif not Path(inspection.source_path).is_absolute():
-        inspection.errors.append(
-            "source_path is not absolute; this build contract is unsupported"
-        )
+    else:
+        source_path = Path(inspection.source_path)
+        if source_path.is_absolute():
+            inspection.source_path_kind = "absolute"
+            inspection.resolved_source_path = source_path.resolve()
+        else:
+            project_root = root.parent
+            workspace_root = project_root.parent.resolve()
+            resolved_source = (project_root / source_path).resolve()
+            try:
+                resolved_source.relative_to(workspace_root)
+            except ValueError:
+                inspection.errors.append(
+                    "relative source_path escapes the project workspace"
+                )
+            else:
+                inspection.source_path_kind = "project-relative"
+                inspection.resolved_source_path = resolved_source
 
     if expected_profile is not None:
         if expected_profile not in PROFILE_REQUIREMENTS:
@@ -427,6 +459,16 @@ def build_report(
         ),
         key=lambda item: (item["path"], item["sha256"]),
     )
+    canonical_buffer_layout = sorted(
+        (
+            {
+                "path": item["canonical_path"],
+                "byte_count": item["byte_count"],
+            }
+            for item in inspection.buffers
+        ),
+        key=lambda item: (item["path"], item["byte_count"]),
+    )
     source_path = inspection.source_path or ""
     report = {
         "schema_version": REPORT_SCHEMA_VERSION,
@@ -437,8 +479,12 @@ def build_report(
         "source": {
             "basename": Path(source_path).name,
             "extension": Path(source_path).suffix,
-            "path_kind": "absolute",
+            "path_kind": inspection.source_path_kind,
             "redacted_path_sha256": _sha256(source_path.encode("utf-8")),
+            "exists": bool(
+                inspection.resolved_source_path
+                and inspection.resolved_source_path.is_file()
+            ),
         },
         "identity": {
             "uuid_definition_set_sha256": _sha256(
@@ -459,8 +505,20 @@ def build_report(
         },
         "record_types": dict(sorted(type_counts.items())),
         "canonical_record_fingerprints": canonical_record_fingerprints,
+        "canonical_buffer_layout": canonical_buffer_layout,
         "canonical_buffer_fingerprints": canonical_buffer_fingerprints,
     }
+    report["canonical_structure_sha256"] = _sha256(
+        json.dumps(
+            {
+                "record_types": report["record_types"],
+                "records": canonical_record_fingerprints,
+                "buffer_layout": canonical_buffer_layout,
+            },
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+    )
     report["canonical_contract_sha256"] = _sha256(
         json.dumps(
             {
@@ -479,13 +537,16 @@ def compare_reports(
     baseline: dict[str, Any], candidate: dict[str, Any]
 ) -> dict[str, Any]:
     """Compare two captures while separating normalized structure from volatility."""
-    keys = (
+    structure_keys = (
         "record_types",
         "canonical_record_fingerprints",
-        "canonical_buffer_fingerprints",
-        "canonical_contract_sha256",
+        "canonical_buffer_layout",
+        "canonical_structure_sha256",
     )
-    stable = {key: baseline.get(key) == candidate.get(key) for key in keys}
+    stable = {key: baseline.get(key) == candidate.get(key) for key in structure_keys}
+    opaque_payloads_equal = baseline.get(
+        "canonical_buffer_fingerprints"
+    ) == candidate.get("canonical_buffer_fingerprints")
     volatile = {
         "source_path_hash_changed": baseline.get("source", {}).get(
             "redacted_path_sha256"
@@ -502,6 +563,7 @@ def compare_reports(
         "schema_version": 1,
         "contract": CONTRACT_NAME,
         "normalized_structure_equal": all(stable.values()),
+        "opaque_payloads_equal": opaque_payloads_equal,
         "stable_checks": stable,
         "volatile_observations": volatile,
     }

@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "contract": "rcp-import-structural-v0",
+  "contract": "rcp-import-structural-v1",
   "fixture_root_environment": "BLENDERTORCP_RCP3_FIXTURE_ROOT",
   "rcp": {
     "application": "Reality Composer Pro",
@@ -33,7 +33,7 @@
         "opaque_buffer_bytes": 6090,
         "uuid_definitions": 157,
         "uuid_occurrences": 220,
-        "canonical_contract_sha256": "e4a4083808a5de40f87597677585d6890b0c1e53310d54be3bb350da0127eb34"
+        "canonical_contract_sha256": "d367d93c61636e426bcfdfa71f2c9a38d5072b03b97ca31ea2ef2715b35eac7d"
       }
     },
     {
@@ -57,11 +57,11 @@
       },
       "expected_opaque_buffers": 11,
       "captured": {
-        "record_bytes": 23039,
+        "record_bytes": 23143,
         "opaque_buffer_bytes": 8107,
-        "uuid_definitions": 175,
-        "uuid_occurrences": 246,
-        "canonical_contract_sha256": "af1df8b91df255d315414d708c5f2b1c51225ffdbaf35b2fa65165ef4ef35e60"
+        "uuid_definitions": 176,
+        "uuid_occurrences": 247,
+        "canonical_contract_sha256": "e3df88d74704d5b47c0d3c4751f48c2fe33751e5d9db358a9ec7cd9f2f15fc4d"
       }
     },
     {
@@ -87,11 +87,11 @@
       },
       "expected_opaque_buffers": 21,
       "captured": {
-        "record_bytes": 89802,
+        "record_bytes": 89906,
         "opaque_buffer_bytes": 100836599,
-        "uuid_definitions": 530,
-        "uuid_occurrences": 757,
-        "canonical_contract_sha256": "13f82c12607f3a50cc635a760083e15b7ce34018f26f969887ed4ee95b8042d0"
+        "uuid_definitions": 531,
+        "uuid_occurrences": 758,
+        "canonical_contract_sha256": "588b2f3919176ad8636ec53b7b347dc21135cbcb9bfaefdcf5ef2cffac85deed"
       }
     }
   ],

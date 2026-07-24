@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 EVIDENCE_SCHEMA_VERSION = 1
@@ -16,6 +17,8 @@ COMMON_GATES = frozenset(
     }
 )
 ANIMATION_GATES = frozenset({"sequence_editor_clip", "animation_playback"})
+REQUIRED_RUNS = {"clean_import": 2, "reimport": 2}
+SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 
 
 class AcceptanceError(ValueError):
@@ -67,6 +70,69 @@ def validate_acceptance(
             "canonical_contract_sha256"
         ):
             errors.append(f"{fixture_id}: structural capture does not match corpus")
+
+        runs = result.get("runs")
+        if not isinstance(runs, list):
+            errors.append(f"{fixture_id}: runs must be an array")
+        else:
+            expected_runs = {
+                (kind, ordinal)
+                for kind, count in REQUIRED_RUNS.items()
+                for ordinal in range(1, count + 1)
+            }
+            actual_runs: dict[tuple[Any, Any], dict[str, Any]] = {}
+            for run in runs:
+                if not isinstance(run, dict):
+                    errors.append(f"{fixture_id}: run must be an object")
+                    continue
+                kind = run.get("kind")
+                ordinal = run.get("ordinal")
+                if not isinstance(kind, str) or not isinstance(ordinal, int):
+                    errors.append(f"{fixture_id}: invalid run identity")
+                    continue
+                key = (kind, ordinal)
+                if key in actual_runs:
+                    errors.append(f"{fixture_id}: duplicate run {key!r}")
+                    continue
+                actual_runs[key] = run
+            missing_runs = sorted(expected_runs - set(actual_runs))
+            unknown_runs = sorted(set(actual_runs) - expected_runs)
+            if missing_runs:
+                errors.append(f"{fixture_id}: missing runs {missing_runs}")
+            if unknown_runs:
+                errors.append(f"{fixture_id}: unknown runs {unknown_runs}")
+
+            passed_structures: set[str] = set()
+            for key in sorted(expected_runs & set(actual_runs)):
+                run = actual_runs[key]
+                status = run.get("status")
+                if status not in ALLOWED_STATUSES:
+                    errors.append(f"{fixture_id}/{key}: unsupported status {status!r}")
+                    continue
+                if require_pass and status != "pass":
+                    errors.append(f"{fixture_id}/{key}: status is {status!r}, not pass")
+                if status != "pass":
+                    continue
+                if not str(run.get("evidence", "")).strip():
+                    errors.append(f"{fixture_id}/{key}: pass lacks evidence")
+                source_sha256 = str(run.get("source_sha256", ""))
+                structure_sha256 = str(run.get("canonical_structure_sha256", ""))
+                if not SHA256_RE.fullmatch(source_sha256):
+                    errors.append(f"{fixture_id}/{key}: invalid source SHA-256")
+                if not SHA256_RE.fullmatch(structure_sha256):
+                    errors.append(f"{fixture_id}/{key}: invalid structural SHA-256")
+                else:
+                    passed_structures.add(structure_sha256)
+                if key[0] == "clean_import" and source_sha256 != fixture.get(
+                    "source_asset", {}
+                ).get("sha256"):
+                    errors.append(
+                        f"{fixture_id}/{key}: clean source SHA-256 does not match corpus"
+                    )
+            if len(passed_structures) > 1:
+                errors.append(
+                    f"{fixture_id}: passed runs disagree on structural SHA-256"
+                )
 
         gates = result.get("gates", {})
         if not isinstance(gates, dict):
