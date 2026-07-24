@@ -1,0 +1,55 @@
+{
+  "schema_version": 1,
+  "contract": "rcp-import-structural-v0",
+  "rcp": {
+    "application": "Reality Composer Pro",
+    "version": "3.0",
+    "build": "80.0.1.500.1",
+    "xcode_build": "27A5218g"
+  },
+  "fixtures": [
+    {
+      "id": "minimal-static-mesh",
+      "profile": "static",
+      "source_sha256": "41518bc65c6d15bd532e5c6baf31269d66aa64ecd7448b9513b2cac838c4ab34",
+      "canonical_contract_sha256": "e4a4083808a5de40f87597677585d6890b0c1e53310d54be3bb350da0127eb34",
+      "gates": {
+        "golden_structure": {"status": "pass", "evidence": "tests/fixtures/rcp_import/corpus.json"},
+        "rcp_open": {"status": "not_run", "evidence": ""},
+        "rcp_reimport": {"status": "not_run", "evidence": ""},
+        "realitykit_runtime_load": {"status": "not_run", "evidence": ""},
+        "entity_material_bounds": {"status": "not_run", "evidence": ""}
+      }
+    },
+    {
+      "id": "transform-clip",
+      "profile": "transform",
+      "source_sha256": "4e9a6bbffebb9031e07ed3e715fe7b201538d06eb189439750091db9bd880356",
+      "canonical_contract_sha256": "af1df8b91df255d315414d708c5f2b1c51225ffdbaf35b2fa65165ef4ef35e60",
+      "gates": {
+        "golden_structure": {"status": "pass", "evidence": "tests/fixtures/rcp_import/corpus.json"},
+        "rcp_open": {"status": "not_run", "evidence": ""},
+        "rcp_reimport": {"status": "not_run", "evidence": ""},
+        "realitykit_runtime_load": {"status": "not_run", "evidence": ""},
+        "entity_material_bounds": {"status": "not_run", "evidence": ""},
+        "sequence_editor_clip": {"status": "not_run", "evidence": ""},
+        "animation_playback": {"status": "not_run", "evidence": ""}
+      }
+    },
+    {
+      "id": "skeletal-clip",
+      "profile": "skeletal",
+      "source_sha256": "8156506935c9bdefceb9bf2bf7503a46053c03b1587583bdb94958499942b87f",
+      "canonical_contract_sha256": "13f82c12607f3a50cc635a760083e15b7ce34018f26f969887ed4ee95b8042d0",
+      "gates": {
+        "golden_structure": {"status": "pass", "evidence": "tests/fixtures/rcp_import/corpus.json"},
+        "rcp_open": {"status": "not_run", "evidence": ""},
+        "rcp_reimport": {"status": "not_run", "evidence": ""},
+        "realitykit_runtime_load": {"status": "not_run", "evidence": ""},
+        "entity_material_bounds": {"status": "not_run", "evidence": ""},
+        "sequence_editor_clip": {"status": "not_run", "evidence": ""},
+        "animation_playback": {"status": "not_run", "evidence": ""}
+      }
+    }
+  ]
+}

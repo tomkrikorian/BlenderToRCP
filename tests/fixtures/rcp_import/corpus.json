@@ -1,0 +1,111 @@
+{
+  "schema_version": 1,
+  "contract": "rcp-import-structural-v0",
+  "fixture_root_environment": "BLENDERTORCP_RCP3_FIXTURE_ROOT",
+  "rcp": {
+    "application": "Reality Composer Pro",
+    "version": "3.0",
+    "build": "80.0.1.500.1",
+    "xcode_build": "27A5218g"
+  },
+  "fixtures": [
+    {
+      "id": "minimal-static-mesh",
+      "profile": "static",
+      "relative_path": "RedCube/RedCube.import",
+      "source_asset": {
+        "name": "RedCube.usda",
+        "byte_count": 3328,
+        "sha256": "41518bc65c6d15bd532e5c6baf31269d66aa64ecd7448b9513b2cac838c4ab34"
+      },
+      "expected_record_types": {
+        "tm_asset_directory": 5,
+        "tm_entity": 3,
+        "tm_geometry": 1,
+        "tm_material": 1,
+        "tm_mesh_descriptor": 1,
+        "tm_mesh_resource": 1,
+        "tm_usd_asset": 1
+      },
+      "expected_opaque_buffers": 9,
+      "captured": {
+        "record_bytes": 20518,
+        "opaque_buffer_bytes": 6090,
+        "uuid_definitions": 157,
+        "uuid_occurrences": 220,
+        "canonical_contract_sha256": "e4a4083808a5de40f87597677585d6890b0c1e53310d54be3bb350da0127eb34"
+      }
+    },
+    {
+      "id": "transform-clip",
+      "profile": "transform",
+      "relative_path": "CubeWith4Animations/CubeWith4Animations.import",
+      "source_asset": {
+        "name": "CubeWith4Animations.usda",
+        "byte_count": 8143,
+        "sha256": "4e9a6bbffebb9031e07ed3e715fe7b201538d06eb189439750091db9bd880356"
+      },
+      "expected_record_types": {
+        "tm_asset_directory": 6,
+        "tm_entity": 3,
+        "tm_geometry": 1,
+        "tm_material": 1,
+        "tm_mesh_descriptor": 1,
+        "tm_mesh_resource": 1,
+        "tm_timeline": 1,
+        "tm_usd_asset": 1
+      },
+      "expected_opaque_buffers": 11,
+      "captured": {
+        "record_bytes": 23039,
+        "opaque_buffer_bytes": 8107,
+        "uuid_definitions": 175,
+        "uuid_occurrences": 246,
+        "canonical_contract_sha256": "af1df8b91df255d315414d708c5f2b1c51225ffdbaf35b2fa65165ef4ef35e60"
+      }
+    },
+    {
+      "id": "skeletal-clip",
+      "profile": "skeletal",
+      "relative_path": "MeshyRiggedCharacter/MeshyRiggedCharacter.import",
+      "source_asset": {
+        "name": "MeshyRiggedCharacter.usda",
+        "byte_count": 62471681,
+        "sha256": "8156506935c9bdefceb9bf2bf7503a46053c03b1587583bdb94958499942b87f"
+      },
+      "expected_record_types": {
+        "tm_asset_directory": 8,
+        "tm_entity": 3,
+        "tm_geometry": 1,
+        "tm_material": 1,
+        "tm_mesh_descriptor": 1,
+        "tm_mesh_resource": 2,
+        "tm_skeleton_definition": 1,
+        "tm_skeleton_hierarchy": 1,
+        "tm_timeline": 2,
+        "tm_usd_asset": 1
+      },
+      "expected_opaque_buffers": 21,
+      "captured": {
+        "record_bytes": 89802,
+        "opaque_buffer_bytes": 100836599,
+        "uuid_definitions": 530,
+        "uuid_occurrences": 757,
+        "canonical_contract_sha256": "13f82c12607f3a50cc635a760083e15b7ce34018f26f969887ed4ee95b8042d0"
+      }
+    }
+  ],
+  "acceptance_gates": [
+    "golden_structure",
+    "rcp_open",
+    "rcp_reimport",
+    "realitykit_runtime_load",
+    "sequence_editor_transform_clip",
+    "sequence_editor_skeletal_clip"
+  ],
+  "capture_policy": {
+    "commit_opaque_buffers": false,
+    "commit_absolute_source_paths": false,
+    "capture_hashes_and_normalized_structure": true
+  }
+}
