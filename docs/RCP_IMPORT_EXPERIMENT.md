@@ -2,8 +2,10 @@
 
 Status: repeated clean-import/reimport corpus and runtime baseline captured. A
 build-pinned, fail-closed static-mesh and sampled-translation generator is
-implemented behind the experimental `RCP_IMPORT` Blender/CLI format. Skeletal
-generation remains under reverse engineering.
+implemented behind the experimental `RCP_IMPORT` Blender/CLI format. The
+skeletal generator now produces an artifact that RCP renders, but it is not
+accepted yet: build 80 reports three reproducible internal console errors. See
+[the skeletal checkpoint](RCP_IMPORT_SKELETAL_CHECKPOINT.md) before resuming.
 
 ## Decision
 
@@ -363,9 +365,11 @@ python scripts/validate_rcp_import_acceptance.py \
    RCP's canonical geometry-validity function is still private, but controlled
    cube and triangle projects establish an accepted bootstrap value that RCP
    replaces on save.
-3. Translation animation buffers and clip records are implemented. Rotation,
-   scale, multiple animated nodes, and skeletal animation remain unmeasured or
-   unimplemented.
+3. Translation animation buffers and clip records are implemented. The
+   controlled skeletal source's joint transforms, skinning, scene-tree tables,
+   and named clips are implemented, but the resulting package still triggers
+   three RCP internal errors. General rotation, scale, multiple animated nodes,
+   and arbitrary skeletons remain outside the validated subset.
 4. UUID lifetime rules now show a stable clean phase and a stable reimport
    phase, but the opaque skeletal canonicalization between them is unexplained.
 5. RCP may enforce hidden version/build migrations or invariants beyond the text
@@ -391,8 +395,11 @@ python scripts/validate_rcp_import_acceptance.py \
    aggregate sampled timeline, translation/time buffers, entity component, and
    four named clip records pass RCP open/save. Reopen, Sequence Editor, and
    playback evidence remain required.
-4. **Skeletal generator:** map hierarchy, definition, binding, timeline, and
-   texture/resource records, then require skeletal playback acceptance.
+4. **Skeletal generator (rendering, not accepted):** the controlled hierarchy,
+   definition, binding, sampled timeline, scene-tree buffers, and four named
+   clip records are generated. Resume with the record-group differential
+   procedure in `RCP_IMPORT_SKELETAL_CHECKPOINT.md`; do not widen the input
+   subset until the clean-shell console gate passes.
 5. **Acceptance automation:** retain reproducible RCP open/reimport captures;
    extend the RealityKit probe from bounds/resource discovery to controlled
    playback duration only for clips that RCP actually exposes.
