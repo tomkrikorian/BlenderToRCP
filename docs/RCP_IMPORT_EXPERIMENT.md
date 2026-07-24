@@ -1,16 +1,18 @@
 # Reality Composer Pro 3 `.import` experiment
 
-Status: repeated clean-import/reimport corpus and runtime baseline captured. No
-`.import` writer is implemented or claimed.
+Status: repeated clean-import/reimport corpus and runtime baseline captured. A
+build-pinned, fail-closed static-mesh generator is implemented behind the
+experimental `RCP_IMPORT` Blender/CLI format. Transform and skeletal generation
+remain under reverse engineering.
 
 ## Decision
 
-BlenderToRCP must continue to export supported USD as the production ingestion
-path. A `.import` directory is an RCP-private generated cache beside the source
-USD, not a published interchange format. The experiment therefore starts with
-capture, inspection, and acceptance evidence. It must not fabricate opaque
-buffers or advertise compatibility until the exact RCP build opens and
-reimports the output successfully.
+BlenderToRCP must continue to export supported USD as the compatibility
+baseline. A `.import` directory is an RCP-private generated cache beside the
+source USD, not a published interchange format. The experimental generator is
+therefore pinned to one exact RCP build, rejects unmeasured inputs, and is
+accepted only after that build opens, saves, and reopens its output. It must not
+guess an unknown buffer or silently fall back to a nearby schema.
 
 The observed fixture build is:
 
@@ -84,8 +86,69 @@ project-relative path such as `../sources/static/RedCube.usda`. Contract v1
 accepts both, resolves relative paths against the project package, and rejects
 paths that escape its containing disposable workspace.
 
-The buffer filenames contain an ID plus a short hash, but their encoding and
-all semantic invariants are unpublished. They are treated as opaque bytes.
+The buffer filenames contain an ID plus a 16-hex content hash. Controlled
+renaming and byte-level probes identify that suffix as MurmurHash64A with seed
+zero, multiplier `0xc6a4a7935bd1e995`, and shift 47. RCP accepts content-hashed
+geometry buffers and rewrites the UUID portion on save. Buffer layouts still
+remain build-private contracts and must be implemented only where a controlled
+fixture and RCP acceptance establish their semantics.
+
+## Experimental static generator
+
+The branch implements a complete 13-record, 7-buffer static artifact for the
+measured build. It writes:
+
+- source, proxy, and optimized entity records;
+- mesh descriptor, processed geometry, mesh resource, and material records;
+- directory and USD settings records;
+- descriptor buffers for topology, points, UVs, and normals;
+- processed interleaved vertex data and 16-bit triangle indices.
+
+It intentionally omits `settings.tm_buffers`, optimizer output, variant session,
+and other volatile caches. Ablation projects without those fields opened and
+saved with `world Ready`; RCP did not regenerate the omitted caches. Removing
+geometry processing metadata did cause RCP errors, so `transform`,
+`transform_settings`, and `output_geometry` remain required.
+
+The plugin and CLI expose the lane as `RCP_IMPORT`. The CLI publishes the
+adjacent USDA source and the `.import` directory:
+
+```bash
+python -m Plugin.cli \
+  --blender /Applications/Blender.app/Contents/MacOS/Blender \
+  export References/Blender/RedCube.blend \
+  --format RCP_IMPORT \
+  -o /path/to/RedCube.import
+```
+
+The generator currently accepts exactly one unskinned mesh directly below the
+USD default prim. Unknown topology, interpolation, hierarchy, skinning, or an
+unmeasured geometry-validity signature fails closed and removes the incomplete
+destination.
+
+### Direct plugin-output acceptance
+
+On RCP 3.0 build `80.0.1.500.1`, the exact CLI output for
+`References/Blender/RedCube.blend` was copied into an isolated disposable
+project shell with its deterministic asset identity intact. RCP:
+
+1. opened it with `world Ready` and no console error indicator;
+2. completed all background tasks (`Tasks: None`);
+3. saved without repair;
+4. closed and reopened it with `world Ready`.
+
+Before save the artifact contained 13 records, 7 content-hashed buffers, and
+1,536 opaque bytes. After save the record and buffer counts, buffer layout,
+UUID graph counts, and every opaque payload remained equal. RCP canonicalized:
+
+- the UUID portion of two geometry buffer filenames and their references;
+- geometry record formatting and numeric spelling;
+- several material float spellings;
+- geometry `validity_hash` from the accepted bootstrap value
+  `2cfcf0b4ccf2dcd8` to `a28884579325560a`.
+
+This proves the measured static artifact is an accepted staging input, not that
+the private schema is stable across RCP builds or arbitrary mesh payloads.
 
 ## Harness
 
@@ -237,43 +300,47 @@ python scripts/validate_rcp_import_acceptance.py \
   tests/fixtures/rcp_import/acceptance.rcp3-80.0.1.500.1.json
 ```
 
-## What prevents a good writer today
+## What prevents a complete writer today
 
 1. No public writer API or schema exists.
-2. Buffer encodings and the relationship between filename hashes, data IDs, and
-   record validity hashes are unknown.
-3. UUID lifetime rules now show a stable clean phase and a stable reimport
+2. Static buffer filename hashing and the measured cube layouts are understood,
+   but the geometry validity function is private and appears to hash RCP's
+   internal truth-object graph rather than only raw payload bytes.
+3. Transform and skeletal animation buffer layouts and record invariants are
+   not yet implemented.
+4. UUID lifetime rules now show a stable clean phase and a stable reimport
    phase, but the opaque skeletal canonicalization between them is unexplained.
-4. RCP may enforce hidden version/build migrations or invariants beyond the text
+5. RCP may enforce hidden version/build migrations or invariants beyond the text
    records.
-5. RCP 3 demonstrably flattens the named
+6. RCP 3 demonstrably flattens the named
    `RealityKit.AnimationLibrary` clip definitions motivating this experiment;
    the `.import` timeline records show editor state, but do not prove a stable
    authoring contract.
-6. One-USD-per-Blender-Action is a supported parallel experiment, but still
+7. One-USD-per-Blender-Action is a supported parallel experiment, but still
    requires RCP authoring and Sequence Editor acceptance evidence.
 
 ## Phased plan
 
 1. **Corpus repeatability (complete for build 80):** retain the two clean and
    two reimport reports and keep clean/reimport phases separately pinned.
-2. **Parser depth:** add typed, read-only parsing only for fields whose behavior
-   is demonstrated by controlled diffs. Keep unknown nested fields fatal for any
-   future writer lane.
-3. **Acceptance automation:** retain reproducible RCP open/reimport captures;
+2. **Parser and static generator (in progress):** typed parsing, MurmurHash
+   buffer validation, build-pinned record generation, and direct static
+   open/save/reopen acceptance are complete for the measured cube. Determine
+   whether the accepted bootstrap validity value generalizes; otherwise recover
+   or safely invoke the build-80 validity function.
+3. **Transform generator:** map aggregate transform timeline records and buffers
+   from controlled diffs, then require named four-clip Sequence Editor and
+   playback acceptance.
+4. **Skeletal generator:** map hierarchy, definition, binding, timeline, and
+   texture/resource records, then require skeletal playback acceptance.
+5. **Acceptance automation:** retain reproducible RCP open/reimport captures;
    extend the RealityKit probe from bounds/resource discovery to controlled
    playback duration only for clips that RCP actually exposes.
-4. **Staging feasibility gate:** create an RCP-authored entity in the disposable
+6. **Runtime handoff gate:** create an RCP-authored entity in the disposable
    world, export/compile that supported authoring output, and require successful
    public RealityKit loading. Package renaming alone is rejected by the current
    evidence.
-5. **Writer feasibility gate:** proceed only if RCP-generated records can be
-   reproduced without guessing buffer encodings. The first candidate must reuse
-   RCP-generated opaque payloads for an unchanged source and make no semantic
-   edits.
-6. **Bounded writer:** if the feasibility gate passes, write to a staging
-   directory, declare the exact build contract, reject all unsupported fields,
-   and require RCP open/reimport/runtime/Sequence Editor evidence before use.
-7. **Product decision:** if build churn or opaque buffers defeat repeatability,
+7. **Product decision:** if build churn or remaining private invariants defeat
+   repeatability,
    keep `.import` support as a diagnostic/corpus tool and invest in supported
    USD/action-per-file workflows instead.

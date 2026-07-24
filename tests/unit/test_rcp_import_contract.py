@@ -58,7 +58,7 @@ def _fixture(tmp_path: Path, profile: str) -> Path:
     _record(
         root / "geometry" / "Mesh.tm_geometry",
         "tm_geometry",
-        'name: "Mesh"\ninput_geometry: {{\n}}\ntransform_settings: {{\n}}\n'
+        'name: "Mesh"\ninput_geometry: {\n}\ntransform_settings: {\n}\n'
         "output_geometry: {\n}\n"
         f'__asset_uuid: "{_uuid()}"\n',
     )

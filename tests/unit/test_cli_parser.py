@@ -153,6 +153,19 @@ class TestExportCommand:
         args = parser.parse_args(["export", "scene.blend", "-o", "out.usdz", "--format", "USDZ"])
         assert args.format == "USDZ"
 
+    def test_rcp_import_format(self, parser):
+        args = parser.parse_args(
+            [
+                "export",
+                "scene.blend",
+                "-o",
+                "out.import",
+                "--format",
+                "RCP_IMPORT",
+            ]
+        )
+        assert args.format == "RCP_IMPORT"
+
     def test_selected_only(self, parser):
         args = parser.parse_args(["export", "scene.blend", "-o", "out.usdz", "--selected-only"])
         assert args.selected_only is True

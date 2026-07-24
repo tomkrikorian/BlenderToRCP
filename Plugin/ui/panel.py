@@ -30,6 +30,7 @@ _EXPORT_FORMAT_EXTENSIONS = {
     "USDA": ".usda",
     "USDC": ".usdc",
     "USDZ": ".usdz",
+    "RCP_IMPORT": ".import",
 }
 
 
@@ -131,6 +132,11 @@ class BlenderToRCPExportSettings(PropertyGroup):
             ('USDA', "USD ASCII (.usda)", "Export as USD ASCII (.usda)"),
             ('USDC', "USD Binary (.usdc)", "Export as USD binary (.usdc)"),
             ('USDZ', "USDZ Package (.usdz)", "Export as USDZ package (.usdz)"),
+            (
+                'RCP_IMPORT',
+                "RCP 3 Import (.import) [Experimental]",
+                "Generate a build-80 Reality Composer Pro 3 .import directory and its source USDA; unsupported geometry fails closed",
+            ),
         ],
         default='USDA',
         update=_on_settings_changed,

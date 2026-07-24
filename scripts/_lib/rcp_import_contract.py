@@ -1,8 +1,9 @@
 """Fail-closed structural inspection for Reality Composer Pro ``.import`` assets.
 
-This module deliberately does not decode or write opaque ``tm_buffers`` payloads.
-It recognizes only the record/file contract observed in the versioned fixture
-corpus. Unknown record types, top-level fields, or filesystem shapes are errors.
+The text grammar and ordinary buffer content hash are decoded. Nested record
+semantics and optimized geometry validity hashes remain build-pinned work in
+progress. Unknown record types, top-level fields, or filesystem shapes are
+errors.
 """
 
 from __future__ import annotations
@@ -14,6 +15,8 @@ from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
+
+from scripts._lib.rcp_import_format import buffer_content_hash, parse_record
 
 CONTRACT_NAME = "rcp-import-structural-v1"
 REPORT_SCHEMA_VERSION = 1
@@ -127,7 +130,9 @@ TOP_LEVEL_FIELDS: dict[str, frozenset[str]] = {
     "tm_skeleton_hierarchy": frozenset(
         {"__type", "__uuid", "name", "joints", "__asset_uuid"}
     ),
-    "tm_skeleton_definition": frozenset({"__type", "__uuid", "__asset_uuid"}),
+    "tm_skeleton_definition": frozenset(
+        {"__type", "__uuid", "skeleton hierarchy", "__asset_uuid"}
+    ),
 }
 
 PROFILE_REQUIREMENTS: dict[str, dict[str, int]] = {
@@ -279,14 +284,23 @@ def _inspect_record(path: Path, relative_path: str, inspection: Inspection) -> N
         return
 
     balance_error = _check_balanced(text)
+    parsed_record = None
     if balance_error:
         inspection.errors.append(f"{relative_path}: {balance_error}")
+    else:
+        try:
+            parsed_record = parse_record(text)
+        except ValueError as error:
+            inspection.errors.append(f"{relative_path}: invalid record syntax: {error}")
 
-    top_level_fields = tuple(
-        match.group(1)
-        for line in lines
-        if (match := TOP_LEVEL_FIELD_RE.match(line)) is not None
-    )
+    if parsed_record is not None:
+        top_level_fields = tuple(field.name for field in parsed_record.fields)
+    else:
+        top_level_fields = tuple(
+            match.group(1)
+            for line in lines
+            if (match := TOP_LEVEL_FIELD_RE.match(line)) is not None
+        )
     unknown_fields = sorted(set(top_level_fields) - TOP_LEVEL_FIELDS[record_type])
     if unknown_fields:
         inspection.errors.append(
@@ -360,6 +374,8 @@ def inspect_import(
                 )
                 continue
             data = path.read_bytes()
+            content_hash = buffer_content_hash(data)
+            name_hash = match.group(2)
             inspection.buffers.append(
                 {
                     "relative_path": relative_path,
@@ -367,7 +383,10 @@ def inspect_import(
                     "byte_count": len(data),
                     "sha256": _sha256(data),
                     "id": match.group(1),
-                    "name_hash": match.group(2),
+                    "name_hash": name_hash,
+                    "content_hash": content_hash,
+                    "name_hash_matches_content": int(name_hash, 16)
+                    == int(content_hash, 16),
                 }
             )
             continue
@@ -501,6 +520,12 @@ def build_report(
             "uuid_definitions": len(inspection.all_uuid_definitions),
             "uuid_occurrences": sum(
                 record.uuid_occurrence_count for record in inspection.records
+            ),
+            "content_hashed_buffers": sum(
+                bool(item["name_hash_matches_content"]) for item in inspection.buffers
+            ),
+            "derived_or_unknown_hashed_buffers": sum(
+                not item["name_hash_matches_content"] for item in inspection.buffers
             ),
         },
         "record_types": dict(sorted(type_counts.items())),

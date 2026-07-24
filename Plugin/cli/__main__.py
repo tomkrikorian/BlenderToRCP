@@ -476,10 +476,14 @@ def build_parser() -> argparse.ArgumentParser:
     p.set_defaults(func=cmd_settings_list)
 
     # --- export ---
-    p = subs.add_parser("export", help="Export scene to USD/USDZ")
+    p = subs.add_parser("export", help="Export scene to USD/USDZ or experimental RCP .import")
     p.add_argument("blend_file", help="Path to .blend file")
     p.add_argument("-o", "--output", required=True, help="Output file path")
-    p.add_argument("--format", choices=["USDA", "USDC", "USDZ"], help="Export format")
+    p.add_argument(
+        "--format",
+        choices=["USDA", "USDC", "USDZ", "RCP_IMPORT"],
+        help="Export format",
+    )
     p.add_argument("--selected-only", action="store_true", help="Export selected objects only")
     p.add_argument("--diagnostics", action="store_true", help="Write diagnostics JSON sidecar")
     p.add_argument("--no-diagnostics", action="store_true", help="Skip diagnostics")
