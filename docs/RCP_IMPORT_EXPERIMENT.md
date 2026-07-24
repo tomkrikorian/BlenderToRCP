@@ -122,9 +122,8 @@ python -m Plugin.cli \
 ```
 
 The generator currently accepts exactly one unskinned mesh directly below the
-USD default prim. Unknown topology, interpolation, hierarchy, skinning, or an
-unmeasured geometry-validity signature fails closed and removes the incomplete
-destination.
+USD default prim. Unsupported topology, interpolation, hierarchy, or skinning
+fails closed and removes the incomplete destination.
 
 ### Direct plugin-output acceptance
 
@@ -149,6 +148,15 @@ UUID graph counts, and every opaque payload remained equal. RCP canonicalized:
 
 This proves the measured static artifact is an accepted staging input, not that
 the private schema is stable across RCP builds or arbitrary mesh payloads.
+
+A second isolated project tested genuinely different topology: one triangle
+with three points and one face. The generator supplied the same bootstrap
+validity value used by the cube. RCP opened and saved the project with
+`world Ready`, `Tasks: None`, and no error indicator, then canonicalized the
+triangle validity hash to `a529a77de146ba8d`. The artifact retained 13 records,
+7 content-hashed buffers, and 214 opaque bytes. This establishes that
+`2cfcf0b4ccf2dcd8` is an accepted build-80 bootstrap marker for the validated
+static subset rather than a cube-content checksum.
 
 ## Harness
 
@@ -303,9 +311,10 @@ python scripts/validate_rcp_import_acceptance.py \
 ## What prevents a complete writer today
 
 1. No public writer API or schema exists.
-2. Static buffer filename hashing and the measured cube layouts are understood,
-   but the geometry validity function is private and appears to hash RCP's
-   internal truth-object graph rather than only raw payload bytes.
+2. Static buffer filename hashing and the validated layouts are understood.
+   RCP's canonical geometry-validity function is still private, but controlled
+   cube and triangle projects establish an accepted bootstrap value that RCP
+   replaces on save.
 3. Transform and skeletal animation buffer layouts and record invariants are
    not yet implemented.
 4. UUID lifetime rules now show a stable clean phase and a stable reimport
@@ -323,11 +332,12 @@ python scripts/validate_rcp_import_acceptance.py \
 
 1. **Corpus repeatability (complete for build 80):** retain the two clean and
    two reimport reports and keep clean/reimport phases separately pinned.
-2. **Parser and static generator (in progress):** typed parsing, MurmurHash
+2. **Parser and static generator (complete for the bounded build-80 subset):**
+   typed parsing, MurmurHash
    buffer validation, build-pinned record generation, and direct static
-   open/save/reopen acceptance are complete for the measured cube. Determine
-   whether the accepted bootstrap validity value generalizes; otherwise recover
-   or safely invoke the build-80 validity function.
+   open/save/reopen acceptance are complete for cube topology. A different
+   triangle topology confirms that the accepted bootstrap validity value
+   generalizes inside the strict static subset.
 3. **Transform generator:** map aggregate transform timeline records and buffers
    from controlled diffs, then require named four-clip Sequence Editor and
    playback acceptance.

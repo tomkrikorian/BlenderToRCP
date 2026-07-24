@@ -84,7 +84,9 @@ def test_generate_static_import_is_deterministic(tmp_path: Path) -> None:
     assert first_files == second_files
 
 
-def test_generate_static_import_refuses_unknown_geometry_hash(tmp_path: Path) -> None:
+def test_generate_static_import_supports_other_validated_topology(
+    tmp_path: Path,
+) -> None:
     source = tmp_path / "Triangle.usda"
     source.write_text(
         """#usda 1.0
@@ -103,10 +105,10 @@ def Xform "root"
     )
     destination = tmp_path / "Triangle.import"
 
-    with pytest.raises(ImportGenerationError, match="validity hash"):
-        generate_static_import(source, destination)
+    generate_static_import(source, destination)
 
-    assert not destination.exists()
+    geometry = (destination / "geometry" / "Triangle.tm_geometry").read_text()
+    assert 'validity_hash: "2cfcf0b4ccf2dcd8"' in geometry
 
 
 def test_generate_static_import_refuses_overwrite(tmp_path: Path) -> None:

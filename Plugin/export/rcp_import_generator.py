@@ -25,6 +25,7 @@ _MURMUR_MULTIPLIER = 0xC6A4A7935BD1E995
 _MURMUR_SHIFT = 47
 _U64_MASK = (1 << 64) - 1
 _SAFE_NAME = re.compile(r"[^A-Za-z0-9_.-]+")
+_BOOTSTRAP_GEOMETRY_VALIDITY_HASH = "2cfcf0b4ccf2dcd8"
 
 
 class ImportGenerationError(RuntimeError):
@@ -674,33 +675,17 @@ def _geometry_transform_settings(mesh: StaticMesh, ids: _Ids) -> str:
 }}'''
 
 
-def _geometry_record(mesh: StaticMesh, ids: _Ids, buffers: dict[str, str]) -> str:
+def _geometry_record(
+    mesh: StaticMesh,
+    ids: _Ids,
+    buffers: dict[str, str],
+) -> str:
     input_geometry = _geometry_block(
         mesh, ids, buffers, label="input_geometry", physical_buffers=True
     )
     output_geometry = _geometry_block(
         mesh, ids, buffers, label="output_geometry", physical_buffers=False
     )
-    geometry_bytes = (
-        _pack_floats(
-            value
-            for index in mesh.face_indices
-            for value in mesh.points[index]
-        )
-        + _pack_floats(value for uv in mesh.face_uvs for value in uv)
-        + _pack_floats(value for normal in mesh.face_normals for value in normal)
-    )
-    triangles = _triangulated_corner_indices(mesh.face_counts)
-    triangle_bytes = struct.pack(f"<{len(triangles)}H", *triangles)
-    geometry_signature = (_content_hash(geometry_bytes), _content_hash(triangle_bytes))
-    known_validity_hashes = {
-        ("6705d5317d2f37d2", "3bfb2ec7c2b4f09f"): "2cfcf0b4ccf2dcd8",
-    }
-    validity_hash = known_validity_hashes.get(geometry_signature)
-    if validity_hash is None:
-        raise ImportGenerationError(
-            "geometry validity hash is not yet measured for this mesh payload"
-        )
     return f'''__type: "tm_geometry"
 __uuid: "{ids("geometry")}"
 name: "{mesh.mesh_name}"
@@ -708,7 +693,7 @@ input_geometry: {input_geometry}
 transform: "3865a2eea51b6038"
 transform_settings: {_geometry_transform_settings(mesh, ids)}
 output_geometry: {output_geometry}
-validity_hash: "{validity_hash}"
+validity_hash: "{_BOOTSTRAP_GEOMETRY_VALIDITY_HASH}"
 __asset_uuid: "{ids("geometry.asset")}"'''
 
 
