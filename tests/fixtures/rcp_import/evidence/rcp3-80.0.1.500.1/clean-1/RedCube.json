@@ -1,0 +1,191 @@
+{
+  "asset_name": "RedCube.import",
+  "canonical_buffer_fingerprints": [
+    {
+      "byte_count": 72,
+      "path": "geometry/Cube.tm_buffers/<uuid>.<payload-hash>",
+      "sha256": "111344a69a3f4c9c714bfdd23c3b16f9ad6beb430821bd310f33d9f795061012"
+    },
+    {
+      "byte_count": 768,
+      "path": "geometry/Cube.tm_buffers/<uuid>.<payload-hash>",
+      "sha256": "6938010f44be761f0578cbe3d77614e2ef608b1dc6760e932e4ec498d1e0141c"
+    },
+    {
+      "byte_count": 24,
+      "path": "mesh_descriptors/Cube.tm_buffers/<uuid>.<payload-hash>",
+      "sha256": "2faa22b347b8490cb98efe94c89904376c04e9c2dcebf68ae81a247d842f26d0"
+    },
+    {
+      "byte_count": 96,
+      "path": "mesh_descriptors/Cube.tm_buffers/<uuid>.<payload-hash>",
+      "sha256": "7e2e78c06c7dd734464f7ac40d0fcd92b757ec4dc2171a9ec5cde90827c939b4"
+    },
+    {
+      "byte_count": 96,
+      "path": "mesh_descriptors/Cube.tm_buffers/<uuid>.<payload-hash>",
+      "sha256": "a342723ef82d189411d3d9fbdecb73e24708acf8359fd28902bd06f4aa5869f1"
+    },
+    {
+      "byte_count": 192,
+      "path": "mesh_descriptors/Cube.tm_buffers/<uuid>.<payload-hash>",
+      "sha256": "a71ca9231617d5b88eb289cab5490a2e13ce85e5e704103219b1e55b309455c4"
+    },
+    {
+      "byte_count": 288,
+      "path": "mesh_descriptors/Cube.tm_buffers/<uuid>.<payload-hash>",
+      "sha256": "b0c9dea653dc8ad973f70428bb7bc7201ba3c522d9dbfb0db5110220c0756637"
+    },
+    {
+      "byte_count": 1378,
+      "path": "settings.tm_buffers/<uuid>.<payload-hash>",
+      "sha256": "93ce608e0b29ab80768f8064e50ec6dca3272525b8d848f776e7fc21e9b5b623"
+    },
+    {
+      "byte_count": 2360,
+      "path": "settings.tm_buffers/<uuid>.<payload-hash>",
+      "sha256": "c2a3f151bb117a8af9d82a0cff4368fae733133479222509dfb3231a31464078"
+    }
+  ],
+  "canonical_buffer_layout": [
+    {
+      "byte_count": 72,
+      "path": "geometry/Cube.tm_buffers/<uuid>.<payload-hash>"
+    },
+    {
+      "byte_count": 768,
+      "path": "geometry/Cube.tm_buffers/<uuid>.<payload-hash>"
+    },
+    {
+      "byte_count": 24,
+      "path": "mesh_descriptors/Cube.tm_buffers/<uuid>.<payload-hash>"
+    },
+    {
+      "byte_count": 96,
+      "path": "mesh_descriptors/Cube.tm_buffers/<uuid>.<payload-hash>"
+    },
+    {
+      "byte_count": 96,
+      "path": "mesh_descriptors/Cube.tm_buffers/<uuid>.<payload-hash>"
+    },
+    {
+      "byte_count": 192,
+      "path": "mesh_descriptors/Cube.tm_buffers/<uuid>.<payload-hash>"
+    },
+    {
+      "byte_count": 288,
+      "path": "mesh_descriptors/Cube.tm_buffers/<uuid>.<payload-hash>"
+    },
+    {
+      "byte_count": 1378,
+      "path": "settings.tm_buffers/<uuid>.<payload-hash>"
+    },
+    {
+      "byte_count": 2360,
+      "path": "settings.tm_buffers/<uuid>.<payload-hash>"
+    }
+  ],
+  "canonical_contract_sha256": "b5c8cc38837dac1169b653d86d49a8d5cefddd8eeb19c3242462a688d1bdeb05",
+  "canonical_record_fingerprints": [
+    {
+      "normalized_sha256": "1ef6a35643a4e1a642c791f723051af613bf46e41ed4af7f6a87d10369cff6f7",
+      "path": "RedCube.tm_entity",
+      "record_type": "tm_entity"
+    },
+    {
+      "normalized_sha256": "149a29a6345fc4861095bef4d9f8fb7319bf1a31832502953149361388789b71",
+      "path": "__RedCube.tm_entity",
+      "record_type": "tm_entity"
+    },
+    {
+      "normalized_sha256": "149a29a6345fc4861095bef4d9f8fb7319bf1a31832502953149361388789b71",
+      "path": "__RedCube_optimized.tm_entity",
+      "record_type": "tm_entity"
+    },
+    {
+      "normalized_sha256": "04d80cb8f67ededf937b8c3d20d3d8f24f2ae1034235d4d83a8d2e216dc86b04",
+      "path": "__tm_directory.tm_dir",
+      "record_type": "tm_asset_directory"
+    },
+    {
+      "normalized_sha256": "51226adada89995bcf10f2ec3eea34e773746fe8cf3d0fe10eaff46b0a0e818e",
+      "path": "geometry/Cube.tm_geometry",
+      "record_type": "tm_geometry"
+    },
+    {
+      "normalized_sha256": "df0fb052e27652ec095bf6f5ee0d31f6d6778593088917277693e5128f4974b5",
+      "path": "geometry/__tm_directory.tm_dir",
+      "record_type": "tm_asset_directory"
+    },
+    {
+      "normalized_sha256": "54232588dc116d3be096494cfae1a251c389a1b60272c89083c1c33ca696106f",
+      "path": "materials/Material.tm_material",
+      "record_type": "tm_material"
+    },
+    {
+      "normalized_sha256": "bc131272dedc4bae76a016228df36661333228675272b5fa2f0851d6afe63f27",
+      "path": "materials/__tm_directory.tm_dir",
+      "record_type": "tm_asset_directory"
+    },
+    {
+      "normalized_sha256": "4e4c92dc495d2540d95741476b3a95e172f69ff2c811c0495d1fa84cd1710377",
+      "path": "mesh_descriptors/Cube.tm_mesh_descriptor",
+      "record_type": "tm_mesh_descriptor"
+    },
+    {
+      "normalized_sha256": "c8e6f684fefafa5ba531578811a376f51499a325d5721e2296b5e2b37f689bc0",
+      "path": "mesh_descriptors/__tm_directory.tm_dir",
+      "record_type": "tm_asset_directory"
+    },
+    {
+      "normalized_sha256": "f52b06aacb8e4f7c144da809ca0964607b897931a779ca9340c1a76394c3a0e3",
+      "path": "meshes/Cube.tm_mesh_resource",
+      "record_type": "tm_mesh_resource"
+    },
+    {
+      "normalized_sha256": "50acf6ca7664448e5725ca816bae37ae03fbd5c978a182db0cead295a581d452",
+      "path": "meshes/__tm_directory.tm_dir",
+      "record_type": "tm_asset_directory"
+    },
+    {
+      "normalized_sha256": "cc2af22b94216c27d5f476b582fb166ee6d92ed7e19868866f6ae169ded4c6d4",
+      "path": "settings.tm_usd",
+      "record_type": "tm_usd_asset"
+    }
+  ],
+  "canonical_structure_sha256": "568af6d8676e7d18928121ffddeafea01999bd77d20c80b3c1d3b2602b3601a7",
+  "contract": "rcp-import-structural-v1",
+  "counts": {
+    "opaque_buffer_bytes": 5274,
+    "opaque_buffers": 9,
+    "record_bytes": 20166,
+    "records": 13,
+    "uuid_definitions": 156,
+    "uuid_occurrences": 218
+  },
+  "expected_profile": "static",
+  "identity": {
+    "uuid_definition_set_sha256": "5ea437012220c89b779b9b9f0646c4d4a1316d22edd549c7a3d713c485792c53"
+  },
+  "rcp": {
+    "build": "80.0.1.500.1",
+    "version": "3.0"
+  },
+  "record_types": {
+    "tm_asset_directory": 5,
+    "tm_entity": 3,
+    "tm_geometry": 1,
+    "tm_material": 1,
+    "tm_mesh_descriptor": 1,
+    "tm_mesh_resource": 1,
+    "tm_usd_asset": 1
+  },
+  "schema_version": 1,
+  "source": {
+    "basename": "RedCube.usda",
+    "exists": true,
+    "extension": ".usda",
+    "path_kind": "project-relative",
+    "redacted_path_sha256": "8942f4e7fea54a9095ab7f7ce2fd7b3f9e0991a81f1c31bc7fe72e2ee00e0c0a"
+  }
+}

@@ -1,0 +1,376 @@
+{
+  "asset_name": "MeshyRiggedCharacter.import",
+  "canonical_buffer_fingerprints": [
+    {
+      "byte_count": 1344,
+      "path": "__MeshyRiggedCharacter.tm_buffers/<uuid>.<payload-hash>",
+      "sha256": "62e87474af6089f9125f5666d26d37c8ecf1c4730c927a3404eed9139e62bd5d"
+    },
+    {
+      "byte_count": 1536,
+      "path": "__MeshyRiggedCharacter.tm_buffers/<uuid>.<payload-hash>",
+      "sha256": "93391a76074591723248483636ddb1bb1848863989b2ff64cf2c1ae0e33c13a5"
+    },
+    {
+      "byte_count": 910,
+      "path": "__MeshyRiggedCharacter.tm_buffers/<uuid>.<payload-hash>",
+      "sha256": "9d4df31b580cd0c0f4778a4d756bfe32c4132950ebbbd897407082ee7fabe1e3"
+    },
+    {
+      "byte_count": 1344,
+      "path": "__MeshyRiggedCharacter_optimized.tm_buffers/<uuid>.<payload-hash>",
+      "sha256": "62e87474af6089f9125f5666d26d37c8ecf1c4730c927a3404eed9139e62bd5d"
+    },
+    {
+      "byte_count": 910,
+      "path": "__MeshyRiggedCharacter_optimized.tm_buffers/<uuid>.<payload-hash>",
+      "sha256": "9d4df31b580cd0c0f4778a4d756bfe32c4132950ebbbd897407082ee7fabe1e3"
+    },
+    {
+      "byte_count": 72904500,
+      "path": "geometry/char1.tm_buffers/<uuid>.<payload-hash>",
+      "sha256": "409805f896546dcb7f189603d77915d71fd810e4e5776eaa76a84846ea0f0475"
+    },
+    {
+      "byte_count": 2916180,
+      "path": "geometry/char1.tm_buffers/<uuid>.<payload-hash>",
+      "sha256": "eea29faddbfa1498a0f4a2f6d05738d5f7e8d7397b0ac5f3bfb6ec4ae6ce13ed"
+    },
+    {
+      "byte_count": 972060,
+      "path": "mesh_descriptors/char1.tm_buffers/<uuid>.<payload-hash>",
+      "sha256": "1683d97a558e11508666db185f0900ecab190ec4959c4f55fba0174ca44815e8"
+    },
+    {
+      "byte_count": 5832360,
+      "path": "mesh_descriptors/char1.tm_buffers/<uuid>.<payload-hash>",
+      "sha256": "285145afe95053322a830089a6eb336561dca68d4eba28f01c458a10db68b078"
+    },
+    {
+      "byte_count": 8748540,
+      "path": "mesh_descriptors/char1.tm_buffers/<uuid>.<payload-hash>",
+      "sha256": "347d1bd95ccd0349f60fbdee0ab1c1241030b067f53f59202e59a38b3a9fc5d9"
+    },
+    {
+      "byte_count": 2281520,
+      "path": "mesh_descriptors/char1.tm_buffers/<uuid>.<payload-hash>",
+      "sha256": "362b62a3c1b5a320e2c773464b78dde9ce739a7d4b77f1ee4ede3767418bef24"
+    },
+    {
+      "byte_count": 1711140,
+      "path": "mesh_descriptors/char1.tm_buffers/<uuid>.<payload-hash>",
+      "sha256": "3633bb4ebd3f7ad713979208ea8a1dd68f0874b69ff096c343e15f00d2eb0230"
+    },
+    {
+      "byte_count": 2916180,
+      "path": "mesh_descriptors/char1.tm_buffers/<uuid>.<payload-hash>",
+      "sha256": "5dcfd6cfb1b62b9ae253c1a9c862e0b790f041c9ca3195c404dc292fec3e1f9f"
+    },
+    {
+      "byte_count": 2281520,
+      "path": "mesh_descriptors/char1.tm_buffers/<uuid>.<payload-hash>",
+      "sha256": "d88108efa546ae5a6428e1c0feba79464e62433c8231a175f6cb3526b824e601"
+    },
+    {
+      "byte_count": 12,
+      "path": "settings.tm_buffers/<uuid>.<payload-hash>",
+      "sha256": "32196bec8b51bf276b99ba702152b0eb0454aa71aa57fb304c03f1cb8831323c"
+    },
+    {
+      "byte_count": 3064,
+      "path": "settings.tm_buffers/<uuid>.<payload-hash>",
+      "sha256": "4bf261e9a9b8819a7d9e4b239cf48a5c2b59d5a11ee980cf1b362d1953aaba15"
+    },
+    {
+      "byte_count": 147072,
+      "path": "settings.tm_buffers/<uuid>.<payload-hash>",
+      "sha256": "617f815e45636fdfed863ad58e7baa522acc9e972582fe3f395202fda352f943"
+    },
+    {
+      "byte_count": 2971,
+      "path": "settings.tm_buffers/<uuid>.<payload-hash>",
+      "sha256": "861aa1dcbdb13fd794054ff5e3b41d2c5ffa09f40c5a5acb2dfbbbdc584e7efd"
+    },
+    {
+      "byte_count": 4,
+      "path": "settings.tm_buffers/<uuid>.<payload-hash>",
+      "sha256": "e00e5eb9444182f352323374ef4e08ebcb784725fdd4fd612d7730540b3e0c8c"
+    },
+    {
+      "byte_count": 110304,
+      "path": "settings.tm_buffers/<uuid>.<payload-hash>",
+      "sha256": "ebfdf491b7ec6f964a246765058ae2f2f28567bb207a5761707768fd8ff510ea"
+    },
+    {
+      "byte_count": 2360,
+      "path": "settings.tm_buffers/<uuid>.<payload-hash>",
+      "sha256": "f29634a92e7769024cc8742fbfba55a367a9cfa67922343b15af83e7dc299769"
+    },
+    {
+      "byte_count": 3090867,
+      "path": "textures/texture_0.tm_buffers/<uuid>.<payload-hash>.texture_0.png",
+      "sha256": "34bc827e1bb5ff54fa7d4d404a00dd1752ae73010c0d5ecb8fc673691c0f65ac"
+    },
+    {
+      "byte_count": 3090867,
+      "path": "textures/texture_0_617726e3.tm_buffers/<uuid>.<payload-hash>.texture_0_617726e3.png",
+      "sha256": "34bc827e1bb5ff54fa7d4d404a00dd1752ae73010c0d5ecb8fc673691c0f65ac"
+    }
+  ],
+  "canonical_buffer_layout": [
+    {
+      "byte_count": 910,
+      "path": "__MeshyRiggedCharacter.tm_buffers/<uuid>.<payload-hash>"
+    },
+    {
+      "byte_count": 1344,
+      "path": "__MeshyRiggedCharacter.tm_buffers/<uuid>.<payload-hash>"
+    },
+    {
+      "byte_count": 1536,
+      "path": "__MeshyRiggedCharacter.tm_buffers/<uuid>.<payload-hash>"
+    },
+    {
+      "byte_count": 910,
+      "path": "__MeshyRiggedCharacter_optimized.tm_buffers/<uuid>.<payload-hash>"
+    },
+    {
+      "byte_count": 1344,
+      "path": "__MeshyRiggedCharacter_optimized.tm_buffers/<uuid>.<payload-hash>"
+    },
+    {
+      "byte_count": 2916180,
+      "path": "geometry/char1.tm_buffers/<uuid>.<payload-hash>"
+    },
+    {
+      "byte_count": 72904500,
+      "path": "geometry/char1.tm_buffers/<uuid>.<payload-hash>"
+    },
+    {
+      "byte_count": 972060,
+      "path": "mesh_descriptors/char1.tm_buffers/<uuid>.<payload-hash>"
+    },
+    {
+      "byte_count": 1711140,
+      "path": "mesh_descriptors/char1.tm_buffers/<uuid>.<payload-hash>"
+    },
+    {
+      "byte_count": 2281520,
+      "path": "mesh_descriptors/char1.tm_buffers/<uuid>.<payload-hash>"
+    },
+    {
+      "byte_count": 2281520,
+      "path": "mesh_descriptors/char1.tm_buffers/<uuid>.<payload-hash>"
+    },
+    {
+      "byte_count": 2916180,
+      "path": "mesh_descriptors/char1.tm_buffers/<uuid>.<payload-hash>"
+    },
+    {
+      "byte_count": 5832360,
+      "path": "mesh_descriptors/char1.tm_buffers/<uuid>.<payload-hash>"
+    },
+    {
+      "byte_count": 8748540,
+      "path": "mesh_descriptors/char1.tm_buffers/<uuid>.<payload-hash>"
+    },
+    {
+      "byte_count": 4,
+      "path": "settings.tm_buffers/<uuid>.<payload-hash>"
+    },
+    {
+      "byte_count": 12,
+      "path": "settings.tm_buffers/<uuid>.<payload-hash>"
+    },
+    {
+      "byte_count": 2360,
+      "path": "settings.tm_buffers/<uuid>.<payload-hash>"
+    },
+    {
+      "byte_count": 2971,
+      "path": "settings.tm_buffers/<uuid>.<payload-hash>"
+    },
+    {
+      "byte_count": 3064,
+      "path": "settings.tm_buffers/<uuid>.<payload-hash>"
+    },
+    {
+      "byte_count": 110304,
+      "path": "settings.tm_buffers/<uuid>.<payload-hash>"
+    },
+    {
+      "byte_count": 147072,
+      "path": "settings.tm_buffers/<uuid>.<payload-hash>"
+    },
+    {
+      "byte_count": 3090867,
+      "path": "textures/texture_0.tm_buffers/<uuid>.<payload-hash>.texture_0.png"
+    },
+    {
+      "byte_count": 3090867,
+      "path": "textures/texture_0_617726e3.tm_buffers/<uuid>.<payload-hash>.texture_0_617726e3.png"
+    }
+  ],
+  "canonical_contract_sha256": "c157e67ad5d889b0d0f95347abdec70b4b87349d1fdc768376fd88b5020428ce",
+  "canonical_record_fingerprints": [
+    {
+      "normalized_sha256": "1ef6a35643a4e1a642c791f723051af613bf46e41ed4af7f6a87d10369cff6f7",
+      "path": "MeshyRiggedCharacter.tm_entity",
+      "record_type": "tm_entity"
+    },
+    {
+      "normalized_sha256": "b33e508280157644eed86e7dc7390b89d669e1392612803370988d97e734c766",
+      "path": "__MeshyRiggedCharacter.tm_entity",
+      "record_type": "tm_entity"
+    },
+    {
+      "normalized_sha256": "0156613ed1f32716a6a944a45ce1e86a7905c8b030d187f5930cc86294d65819",
+      "path": "__MeshyRiggedCharacter_optimized.tm_entity",
+      "record_type": "tm_entity"
+    },
+    {
+      "normalized_sha256": "c6b3c5e79289a046c94e52381c21339ac4df9e6e4268dc0f6fb39ee1ebba3d3f",
+      "path": "__tm_directory.tm_dir",
+      "record_type": "tm_asset_directory"
+    },
+    {
+      "normalized_sha256": "d169ccceaab6d7d8044e695c8793e4ba074f951008da4abe16deac0c2553f99d",
+      "path": "animations/MeshyRiggedCharacter_transform.tm_animation",
+      "record_type": "tm_timeline"
+    },
+    {
+      "normalized_sha256": "1e224f1252476a8aa0a8ea762180220bac3a7dc0e16041d2990ebac1c26217b9",
+      "path": "animations/__tm_directory.tm_dir",
+      "record_type": "tm_asset_directory"
+    },
+    {
+      "normalized_sha256": "819b24bcac43d8fc8c6c4a5633d391442023d9213af476c68d6e7e1aecadd368",
+      "path": "animations/root/MeshyRiggedCharacter.tm_animation",
+      "record_type": "tm_timeline"
+    },
+    {
+      "normalized_sha256": "b9458442fdf011ac24b68344921a0c8687c3ce8dbe51a488232e382c3385de8d",
+      "path": "animations/root/__tm_directory.tm_dir",
+      "record_type": "tm_asset_directory"
+    },
+    {
+      "normalized_sha256": "f29ac42bbbc911b9615f5e4f29a00b8d8140c4a1f340ca78a5dbaeee7b98ea53",
+      "path": "geometry/Armature_merged.tm_mesh_resource",
+      "record_type": "tm_mesh_resource"
+    },
+    {
+      "normalized_sha256": "df0fb052e27652ec095bf6f5ee0d31f6d6778593088917277693e5128f4974b5",
+      "path": "geometry/__tm_directory.tm_dir",
+      "record_type": "tm_asset_directory"
+    },
+    {
+      "normalized_sha256": "3ab418f18245121953133a63d5bfc856e5fa5a85ec962fe18ea24453ff68411e",
+      "path": "geometry/char1.tm_geometry",
+      "record_type": "tm_geometry"
+    },
+    {
+      "normalized_sha256": "88b639fd6588847948b705d42a9dad06dae5026ac107b0c3081143dd1c846b10",
+      "path": "materials/Material_1.tm_material",
+      "record_type": "tm_material"
+    },
+    {
+      "normalized_sha256": "bc131272dedc4bae76a016228df36661333228675272b5fa2f0851d6afe63f27",
+      "path": "materials/__tm_directory.tm_dir",
+      "record_type": "tm_asset_directory"
+    },
+    {
+      "normalized_sha256": "c8e6f684fefafa5ba531578811a376f51499a325d5721e2296b5e2b37f689bc0",
+      "path": "mesh_descriptors/__tm_directory.tm_dir",
+      "record_type": "tm_asset_directory"
+    },
+    {
+      "normalized_sha256": "6f917c6c922a706e5e37f4257eede063f6534ccad92a18d6b2e6d835d49c6791",
+      "path": "mesh_descriptors/char1.tm_mesh_descriptor",
+      "record_type": "tm_mesh_descriptor"
+    },
+    {
+      "normalized_sha256": "50acf6ca7664448e5725ca816bae37ae03fbd5c978a182db0cead295a581d452",
+      "path": "meshes/__tm_directory.tm_dir",
+      "record_type": "tm_asset_directory"
+    },
+    {
+      "normalized_sha256": "fce0bf76933cfde004b112a02e751f66a91386d0ee23aecc32861f4447b6afd1",
+      "path": "meshes/char1.tm_mesh_resource",
+      "record_type": "tm_mesh_resource"
+    },
+    {
+      "normalized_sha256": "416e635e62b96c078710964f07aa68595c37d1d9f5dcfcab90277744ed301057",
+      "path": "settings.tm_usd",
+      "record_type": "tm_usd_asset"
+    },
+    {
+      "normalized_sha256": "87cef2ddb9adacbba41543da185ddefa705246fd9172e2142ad20f3ae3f006c5",
+      "path": "skeletons/__tm_directory.tm_dir",
+      "record_type": "tm_asset_directory"
+    },
+    {
+      "normalized_sha256": "ad306fcc1a63e4392345535d1d44f65615f82c719c27f05160c5c8a225420750",
+      "path": "skeletons/root.tm_skeleton_hierarchy",
+      "record_type": "tm_skeleton_hierarchy"
+    },
+    {
+      "normalized_sha256": "40870f78e1117b4260f08df37d262bf0844baa286ee52ac3aa4ae74b3662c7c7",
+      "path": "skeletons/root_skeldef.tm_skeleton_definition",
+      "record_type": "tm_skeleton_definition"
+    },
+    {
+      "normalized_sha256": "2a7185aa9e6510c4baed16adf1d5799a87146f87b0fd501d98f21e365e64e493",
+      "path": "textures/__tm_directory.tm_dir",
+      "record_type": "tm_asset_directory"
+    },
+    {
+      "normalized_sha256": "63d4192b13b503876b5feef6021ed3efb40d0f6b2c13f5038b8d16205ee667ec",
+      "path": "textures/texture_0.tm_texture",
+      "record_type": "tm_texture"
+    },
+    {
+      "normalized_sha256": "2daac3822923abf10c5255bfa5843386a30ad4c32de4a66d07ce7e821784fb4f",
+      "path": "textures/texture_0_617726e3.tm_texture",
+      "record_type": "tm_texture"
+    }
+  ],
+  "canonical_structure_sha256": "af958e472308e52bba3f74adee45e972ef7e57d78274eea031d531c634d0fb60",
+  "contract": "rcp-import-structural-v1",
+  "counts": {
+    "opaque_buffer_bytes": 107017565,
+    "opaque_buffers": 23,
+    "record_bytes": 91060,
+    "records": 24,
+    "uuid_definitions": 537,
+    "uuid_occurrences": 774
+  },
+  "expected_profile": "skeletal",
+  "identity": {
+    "uuid_definition_set_sha256": "a0ca6923d2cf740c779dc2d6408ec4e11dde472b1d961b91fe683c9bc88a3f72"
+  },
+  "rcp": {
+    "build": "80.0.1.500.1",
+    "version": "3.0"
+  },
+  "record_types": {
+    "tm_asset_directory": 9,
+    "tm_entity": 3,
+    "tm_geometry": 1,
+    "tm_material": 1,
+    "tm_mesh_descriptor": 1,
+    "tm_mesh_resource": 2,
+    "tm_skeleton_definition": 1,
+    "tm_skeleton_hierarchy": 1,
+    "tm_texture": 2,
+    "tm_timeline": 2,
+    "tm_usd_asset": 1
+  },
+  "schema_version": 1,
+  "source": {
+    "basename": "MeshyRiggedCharacter.usda",
+    "exists": true,
+    "extension": ".usda",
+    "path_kind": "project-relative",
+    "redacted_path_sha256": "04f93fec25b77e19037418ec4b3827d3014fb5475604cff3a008aef77fd81084"
+  }
+}

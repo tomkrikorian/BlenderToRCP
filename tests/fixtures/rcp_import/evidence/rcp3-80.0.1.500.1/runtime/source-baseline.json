@@ -1,0 +1,482 @@
+{
+  "assets" : [
+    {
+      "animationGraphs" : [
+
+      ],
+      "animationLibraries" : [
+
+      ],
+      "availableAnimations" : [
+
+      ],
+      "componentTypes" : [
+        "RealityKit.ModelComponent",
+        "RealityKit.SynchronizationComponent",
+        "RealityKit.Transform"
+      ],
+      "discoveredAnimationKeys" : [
+
+      ],
+      "discoveredAnimationNames" : [
+
+      ],
+      "entityCount" : 3,
+      "entityPaths" : [
+        "/<unnamed>",
+        "/<unnamed>/root",
+        "/<unnamed>/root/Cube"
+      ],
+      "expectations" : {
+        "animation" : false,
+        "animationKeys" : [
+
+        ],
+        "animationNames" : [
+
+        ],
+        "componentTypes" : [
+
+        ],
+        "model" : true,
+        "shaderGraph" : true
+      },
+      "failures" : [
+
+      ],
+      "kind" : "usdc",
+      "materials" : [
+        {
+          "entityPath" : "/<unnamed>/root/Cube",
+          "name" : "Material",
+          "shaderGraphParameterNames" : [
+
+          ],
+          "slot" : 0,
+          "type" : "RealityFoundation.ShaderGraphMaterial"
+        }
+      ],
+      "modelEntityCount" : 1,
+      "path" : "/tmp/blendertorcp-rcp3-acceptance.PvjVsn/runtime/source-usdc/RedCube.usdc",
+      "shaderGraphMaterialCount" : 1,
+      "status" : "pass",
+      "visualBounds" : {
+        "boundingRadius" : 1.7320508,
+        "center" : [
+          0,
+          0,
+          0
+        ],
+        "extents" : [
+          2,
+          2,
+          2
+        ],
+        "isEmpty" : false,
+        "max" : [
+          1,
+          1,
+          1
+        ],
+        "min" : [
+          -1,
+          -1,
+          -1
+        ]
+      }
+    },
+    {
+      "animationGraphs" : [
+
+      ],
+      "animationLibraries" : [
+        {
+          "entityPath" : "/<unnamed>",
+          "keys" : [
+            "default subtree animation",
+            "global scene animation"
+          ],
+          "resources" : [
+            "default subtree animation",
+            "global scene animation"
+          ],
+          "unkeyedResources" : [
+
+          ]
+        },
+        {
+          "entityPath" : "/<unnamed>/root",
+          "keys" : [
+            "GoBackward",
+            "GoBackward__auto_generated_looping",
+            "GoDown",
+            "GoDown__auto_generated_looping",
+            "GoForward",
+            "GoForward__auto_generated_looping",
+            "GoUp",
+            "GoUp__auto_generated_looping",
+            "default subtree animation"
+          ],
+          "resources" : [
+            "GoBackward",
+            "GoBackward",
+            "GoDown",
+            "GoDown",
+            "GoForward",
+            "GoForward",
+            "GoUp",
+            "GoUp",
+            "default subtree animation"
+          ],
+          "unkeyedResources" : [
+
+          ]
+        },
+        {
+          "entityPath" : "/<unnamed>/root/Cube",
+          "keys" : [
+            "default scene animation",
+            "default subtree animation",
+            "transform animation"
+          ],
+          "resources" : [
+            "/root/Cube",
+            "default scene animation",
+            "default subtree animation"
+          ],
+          "unkeyedResources" : [
+
+          ]
+        }
+      ],
+      "availableAnimations" : [
+        {
+          "entityPath" : "/<unnamed>",
+          "resources" : [
+            "default subtree animation",
+            "global scene animation"
+          ]
+        },
+        {
+          "entityPath" : "/<unnamed>/root",
+          "resources" : [
+            "GoBackward",
+            "GoBackward",
+            "GoDown",
+            "GoDown",
+            "GoForward",
+            "GoForward",
+            "GoUp",
+            "GoUp",
+            "default subtree animation"
+          ]
+        },
+        {
+          "entityPath" : "/<unnamed>/root/Cube",
+          "resources" : [
+            "/root/Cube",
+            "default scene animation",
+            "default subtree animation"
+          ]
+        }
+      ],
+      "componentTypes" : [
+        "RealityFoundation.AnimationLibraryComponent",
+        "RealityKit.ModelComponent",
+        "RealityKit.SynchronizationComponent",
+        "RealityKit.Transform"
+      ],
+      "discoveredAnimationKeys" : [
+        "GoBackward",
+        "GoBackward__auto_generated_looping",
+        "GoDown",
+        "GoDown__auto_generated_looping",
+        "GoForward",
+        "GoForward__auto_generated_looping",
+        "GoUp",
+        "GoUp__auto_generated_looping",
+        "default scene animation",
+        "default subtree animation",
+        "global scene animation",
+        "transform animation"
+      ],
+      "discoveredAnimationNames" : [
+        "/root/Cube",
+        "GoBackward",
+        "GoDown",
+        "GoForward",
+        "GoUp",
+        "default scene animation",
+        "default subtree animation",
+        "global scene animation"
+      ],
+      "entityCount" : 3,
+      "entityPaths" : [
+        "/<unnamed>",
+        "/<unnamed>/root",
+        "/<unnamed>/root/Cube"
+      ],
+      "expectations" : {
+        "animation" : true,
+        "animationKeys" : [
+          "GoBackward",
+          "GoDown",
+          "GoForward",
+          "GoUp"
+        ],
+        "animationNames" : [
+
+        ],
+        "componentTypes" : [
+
+        ],
+        "model" : true,
+        "shaderGraph" : true
+      },
+      "failures" : [
+
+      ],
+      "kind" : "usdc",
+      "materials" : [
+        {
+          "entityPath" : "/<unnamed>/root/Cube",
+          "name" : "Material",
+          "shaderGraphParameterNames" : [
+
+          ],
+          "slot" : 0,
+          "type" : "RealityFoundation.ShaderGraphMaterial"
+        }
+      ],
+      "modelEntityCount" : 1,
+      "path" : "/tmp/blendertorcp-rcp3-acceptance.PvjVsn/runtime/source-usdc/CubeWith4Animations.usdc",
+      "shaderGraphMaterialCount" : 1,
+      "status" : "pass",
+      "visualBounds" : {
+        "boundingRadius" : 1.7320508,
+        "center" : [
+          0,
+          2,
+          1.1920929e-07
+        ],
+        "extents" : [
+          2,
+          2,
+          2
+        ],
+        "isEmpty" : false,
+        "max" : [
+          1,
+          3,
+          1.0000001
+        ],
+        "min" : [
+          -1,
+          0.9999999,
+          -0.9999999
+        ]
+      }
+    },
+    {
+      "animationGraphs" : [
+
+      ],
+      "animationLibraries" : [
+        {
+          "entityPath" : "/<unnamed>",
+          "keys" : [
+            "default subtree animation",
+            "global scene animation"
+          ],
+          "resources" : [
+            "default subtree animation",
+            "global scene animation"
+          ],
+          "unkeyedResources" : [
+
+          ]
+        },
+        {
+          "entityPath" : "/<unnamed>/root",
+          "keys" : [
+            "Agree_Gesture",
+            "Agree_Gesture__auto_generated_looping",
+            "Running",
+            "Running__auto_generated_looping",
+            "Walking",
+            "Walking__auto_generated_looping",
+            "default subtree animation",
+            "walking_2",
+            "walking_2__auto_generated_looping"
+          ],
+          "resources" : [
+            "Agree_Gesture",
+            "Agree_Gesture",
+            "Running",
+            "Running",
+            "Walking",
+            "Walking",
+            "default subtree animation",
+            "walking_2",
+            "walking_2"
+          ],
+          "unkeyedResources" : [
+
+          ]
+        },
+        {
+          "entityPath" : "/<unnamed>/root/Armature",
+          "keys" : [
+            "default scene animation",
+            "default subtree animation",
+            "skeletal animation 1"
+          ],
+          "resources" : [
+            "/root/Armature/Armature/__B2RCP_BAKED_ARMATURE_Armature[0]",
+            "default scene animation",
+            "default subtree animation"
+          ],
+          "unkeyedResources" : [
+
+          ]
+        }
+      ],
+      "availableAnimations" : [
+        {
+          "entityPath" : "/<unnamed>",
+          "resources" : [
+            "default subtree animation",
+            "global scene animation"
+          ]
+        },
+        {
+          "entityPath" : "/<unnamed>/root",
+          "resources" : [
+            "Agree_Gesture",
+            "Agree_Gesture",
+            "Running",
+            "Running",
+            "Walking",
+            "Walking",
+            "default subtree animation",
+            "walking_2",
+            "walking_2"
+          ]
+        },
+        {
+          "entityPath" : "/<unnamed>/root/Armature",
+          "resources" : [
+            "/root/Armature/Armature/__B2RCP_BAKED_ARMATURE_Armature[0]",
+            "default scene animation",
+            "default subtree animation"
+          ]
+        }
+      ],
+      "componentTypes" : [
+        "RealityFoundation.AnimationLibraryComponent",
+        "RealityFoundation.MeshDeformerComponent",
+        "RealityFoundation.SkeletalPosesComponent",
+        "RealityKit.ModelComponent",
+        "RealityKit.SynchronizationComponent",
+        "RealityKit.Transform"
+      ],
+      "discoveredAnimationKeys" : [
+        "Agree_Gesture",
+        "Agree_Gesture__auto_generated_looping",
+        "Running",
+        "Running__auto_generated_looping",
+        "Walking",
+        "Walking__auto_generated_looping",
+        "default scene animation",
+        "default subtree animation",
+        "global scene animation",
+        "skeletal animation 1",
+        "walking_2",
+        "walking_2__auto_generated_looping"
+      ],
+      "discoveredAnimationNames" : [
+        "/root/Armature/Armature/__B2RCP_BAKED_ARMATURE_Armature[0]",
+        "Agree_Gesture",
+        "Running",
+        "Walking",
+        "default scene animation",
+        "default subtree animation",
+        "global scene animation",
+        "walking_2"
+      ],
+      "entityCount" : 5,
+      "entityPaths" : [
+        "/<unnamed>",
+        "/<unnamed>/root",
+        "/<unnamed>/root/Armature",
+        "/<unnamed>/root/Armature/Armature",
+        "/<unnamed>/root/Armature/char1"
+      ],
+      "expectations" : {
+        "animation" : true,
+        "animationKeys" : [
+          "Agree_Gesture",
+          "Running",
+          "Walking",
+          "walking_2"
+        ],
+        "animationNames" : [
+
+        ],
+        "componentTypes" : [
+          "MeshDeformerComponent",
+          "SkeletalPosesComponent"
+        ],
+        "model" : true,
+        "shaderGraph" : true
+      },
+      "failures" : [
+
+      ],
+      "kind" : "usdc",
+      "materials" : [
+        {
+          "entityPath" : "/<unnamed>/root/Armature",
+          "name" : "Material_1",
+          "shaderGraphParameterNames" : [
+
+          ],
+          "slot" : 0,
+          "type" : "RealityFoundation.ShaderGraphMaterial"
+        }
+      ],
+      "modelEntityCount" : 1,
+      "path" : "/tmp/blendertorcp-rcp3-acceptance.PvjVsn/runtime/source-usdc/MeshyRiggedCharacter.usdc",
+      "shaderGraphMaterialCount" : 1,
+      "status" : "pass",
+      "visualBounds" : {
+        "boundingRadius" : 1.0897163,
+        "center" : [
+          0,
+          0.84999996,
+          4.4703484e-08
+        ],
+        "extents" : [
+          1.2410427,
+          1.6999997,
+          0.56545544
+        ],
+        "isEmpty" : false,
+        "max" : [
+          0.62052137,
+          1.6999998,
+          0.28272775
+        ],
+        "min" : [
+          -0.62052137,
+          1.2881742e-07,
+          -0.28272766
+        ]
+      }
+    }
+  ],
+  "metalDevice" : "Apple M5 Max",
+  "operatingSystem" : "Version 27.0 (Build 26A5388g)",
+  "schemaVersion" : 3,
+  "status" : "pass"
+}

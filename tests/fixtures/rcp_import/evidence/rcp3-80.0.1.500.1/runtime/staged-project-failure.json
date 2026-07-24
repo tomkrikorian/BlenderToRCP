@@ -1,0 +1,58 @@
+{
+  "assets" : [
+    {
+      "animationGraphs" : [
+
+      ],
+      "animationLibraries" : [
+
+      ],
+      "availableAnimations" : [
+
+      ],
+      "componentTypes" : [
+
+      ],
+      "discoveredAnimationKeys" : [
+
+      ],
+      "discoveredAnimationNames" : [
+
+      ],
+      "entityCount" : 0,
+      "entityPaths" : [
+
+      ],
+      "expectations" : {
+        "animation" : false,
+        "animationKeys" : [
+
+        ],
+        "animationNames" : [
+
+        ],
+        "componentTypes" : [
+
+        ],
+        "model" : true,
+        "shaderGraph" : false
+      },
+      "failures" : [
+        "RealityKit failed to load the asset: The operation couldn’t be completed. (RealityKit.__RealityFileError error 4.)"
+      ],
+      "kind" : "reality",
+      "loadError" : "RealityKit failed to load the asset: The operation couldn’t be completed. (RealityKit.__RealityFileError error 4.)",
+      "materials" : [
+
+      ],
+      "modelEntityCount" : 0,
+      "path" : "/tmp/blendertorcp-rcp3-acceptance.PvjVsn/runtime/compiled/AcceptanceRun1.reality",
+      "shaderGraphMaterialCount" : 0,
+      "status" : "fail"
+    }
+  ],
+  "metalDevice" : "Apple M5 Max",
+  "operatingSystem" : "Version 27.0 (Build 26A5388g)",
+  "schemaVersion" : 2,
+  "status" : "fail"
+}

@@ -24,6 +24,10 @@ def test_complete_evidence_passes() -> None:
     corpus = _load("corpus.json")
     evidence = copy.deepcopy(_load("acceptance.template.json"))
     for fixture in evidence["fixtures"]:
+        fixture["expected_structures"] = {
+            "clean_import": "a" * 64,
+            "reimport": "a" * 64,
+        }
         for run in fixture["runs"]:
             run["status"] = "pass"
             run["evidence"] = "evidence/session.json"
@@ -60,4 +64,30 @@ def test_missing_repeatability_run_fails_closed() -> None:
     evidence["fixtures"][0]["runs"].pop()
 
     with pytest.raises(AcceptanceError, match="missing runs"):
+        validate_acceptance(_load("corpus.json"), evidence, require_pass=False)
+
+
+def test_phase_pinned_reimport_canonicalization_passes() -> None:
+    corpus = _load("corpus.json")
+    evidence = copy.deepcopy(_load("acceptance.template.json"))
+    fixture = evidence["fixtures"][2]
+    for run in fixture["runs"]:
+        run["status"] = "pass"
+        run["evidence"] = "evidence/session.json"
+        run["source_sha256"] = fixture["source_sha256"]
+        run["canonical_structure_sha256"] = fixture["expected_structures"][run["kind"]]
+
+    validate_acceptance(corpus, evidence, require_pass=False)
+
+
+def test_unpinned_structural_change_fails_closed() -> None:
+    evidence = copy.deepcopy(_load("acceptance.template.json"))
+    fixture = evidence["fixtures"][2]
+    run = fixture["runs"][2]
+    run["status"] = "pass"
+    run["evidence"] = "evidence/session.json"
+    run["source_sha256"] = fixture["source_sha256"]
+    run["canonical_structure_sha256"] = "f" * 64
+
+    with pytest.raises(AcceptanceError, match="pinned reimport phase"):
         validate_acceptance(_load("corpus.json"), evidence, require_pass=False)

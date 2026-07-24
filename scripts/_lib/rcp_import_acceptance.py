@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from typing import Any
 
-EVIDENCE_SCHEMA_VERSION = 1
+EVIDENCE_SCHEMA_VERSION = 2
 ALLOWED_STATUSES = frozenset({"pass", "fail", "not_run"})
 COMMON_GATES = frozenset(
     {
@@ -71,6 +71,35 @@ def validate_acceptance(
         ):
             errors.append(f"{fixture_id}: structural capture does not match corpus")
 
+        expected_structures = result.get("expected_structures")
+        if not isinstance(expected_structures, dict):
+            errors.append(f"{fixture_id}: expected_structures must be an object")
+            expected_structures = {}
+        else:
+            missing_structure_kinds = sorted(
+                set(REQUIRED_RUNS) - set(expected_structures)
+            )
+            unknown_structure_kinds = sorted(
+                set(expected_structures) - set(REQUIRED_RUNS)
+            )
+            if missing_structure_kinds:
+                errors.append(
+                    f"{fixture_id}: missing expected structures "
+                    f"{missing_structure_kinds}"
+                )
+            if unknown_structure_kinds:
+                errors.append(
+                    f"{fixture_id}: unknown expected structures "
+                    f"{unknown_structure_kinds}"
+                )
+            for kind, structure_sha256 in expected_structures.items():
+                if kind in REQUIRED_RUNS and not SHA256_RE.fullmatch(
+                    str(structure_sha256)
+                ):
+                    errors.append(
+                        f"{fixture_id}/{kind}: invalid expected structural SHA-256"
+                    )
+
         runs = result.get("runs")
         if not isinstance(runs, list):
             errors.append(f"{fixture_id}: runs must be an array")
@@ -102,7 +131,6 @@ def validate_acceptance(
             if unknown_runs:
                 errors.append(f"{fixture_id}: unknown runs {unknown_runs}")
 
-            passed_structures: set[str] = set()
             for key in sorted(expected_runs & set(actual_runs)):
                 run = actual_runs[key]
                 status = run.get("status")
@@ -121,19 +149,17 @@ def validate_acceptance(
                     errors.append(f"{fixture_id}/{key}: invalid source SHA-256")
                 if not SHA256_RE.fullmatch(structure_sha256):
                     errors.append(f"{fixture_id}/{key}: invalid structural SHA-256")
-                else:
-                    passed_structures.add(structure_sha256)
+                elif structure_sha256 != expected_structures.get(key[0]):
+                    errors.append(
+                        f"{fixture_id}/{key}: structural SHA-256 does not match "
+                        f"the pinned {key[0]} phase"
+                    )
                 if key[0] == "clean_import" and source_sha256 != fixture.get(
                     "source_asset", {}
                 ).get("sha256"):
                     errors.append(
                         f"{fixture_id}/{key}: clean source SHA-256 does not match corpus"
                     )
-            if len(passed_structures) > 1:
-                errors.append(
-                    f"{fixture_id}: passed runs disagree on structural SHA-256"
-                )
-
         gates = result.get("gates", {})
         if not isinstance(gates, dict):
             errors.append(f"{fixture_id}: gates must be an object")

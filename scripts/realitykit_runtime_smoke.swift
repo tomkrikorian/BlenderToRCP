@@ -9,7 +9,7 @@ import Foundation
 import Metal
 import RealityKit
 
-private let schemaVersion = 2
+private let schemaVersion = 3
 
 private struct AssetExpectation {
     let path: String
@@ -72,6 +72,15 @@ private struct AvailableAnimationReport: Encodable {
     let resources: [String]
 }
 
+private struct BoundsReport: Encodable {
+    let min: [Float]
+    let max: [Float]
+    let center: [Float]
+    let extents: [Float]
+    let boundingRadius: Float
+    let isEmpty: Bool
+}
+
 private struct AssetReport: Encodable {
     let path: String
     let kind: String
@@ -90,6 +99,7 @@ private struct AssetReport: Encodable {
     let animationGraphs: [AnimationGraphReport]
     let discoveredAnimationKeys: [String]
     let discoveredAnimationNames: [String]
+    let visualBounds: BoundsReport?
 }
 
 private struct RunReport: Encodable {
@@ -373,7 +383,8 @@ private func unloadedReport(
         animationLibraries: [],
         animationGraphs: [],
         discoveredAnimationKeys: [],
-        discoveredAnimationNames: []
+        discoveredAnimationNames: [],
+        visualBounds: nil
     )
 }
 
@@ -411,10 +422,30 @@ private func validate(_ expectation: AssetExpectation) async -> AssetReport {
 
     var inspection = Inspection()
     inspect(entity, path: "", into: &inspection)
+    let bounds = entity.visualBounds(relativeTo: nil)
+    let boundsValues = [
+        bounds.min.x, bounds.min.y, bounds.min.z,
+        bounds.max.x, bounds.max.y, bounds.max.z,
+        bounds.extents.x, bounds.extents.y, bounds.extents.z,
+        bounds.boundingRadius,
+    ]
+    let boundsReport = BoundsReport(
+        min: [bounds.min.x, bounds.min.y, bounds.min.z],
+        max: [bounds.max.x, bounds.max.y, bounds.max.z],
+        center: [bounds.center.x, bounds.center.y, bounds.center.z],
+        extents: [bounds.extents.x, bounds.extents.y, bounds.extents.z],
+        boundingRadius: bounds.boundingRadius,
+        isEmpty: bounds.isEmpty
+    )
     var failures: [String] = []
 
     if expectation.requiresModel && inspection.modelEntityCount == 0 {
         failures.append("Expected at least one ModelComponent in the entity hierarchy")
+    }
+    if expectation.requiresModel
+        && (bounds.isEmpty || boundsValues.contains(where: { !$0.isFinite }))
+    {
+        failures.append("Expected finite, non-empty recursive visual bounds")
     }
     if expectation.requiresShaderGraph && inspection.shaderGraphMaterialCount == 0 {
         let actualTypes = Set(inspection.materials.map(\.type)).sorted()
@@ -470,7 +501,8 @@ private func validate(_ expectation: AssetExpectation) async -> AssetReport {
         animationLibraries: inspection.animationLibraries,
         animationGraphs: inspection.animationGraphs,
         discoveredAnimationKeys: inspection.animationKeys.sorted(),
-        discoveredAnimationNames: inspection.animationNames.sorted()
+        discoveredAnimationNames: inspection.animationNames.sorted(),
+        visualBounds: boundsReport
     )
 }
 

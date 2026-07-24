@@ -1,0 +1,226 @@
+{
+  "schema_version": 2,
+  "contract": "rcp-import-structural-v1",
+  "rcp": {
+    "application": "Reality Composer Pro",
+    "version": "3.0",
+    "build": "80.0.1.500.1",
+    "xcode_build": "27A5218g"
+  },
+  "fixtures": [
+    {
+      "id": "minimal-static-mesh",
+      "profile": "static",
+      "source_sha256": "41518bc65c6d15bd532e5c6baf31269d66aa64ecd7448b9513b2cac838c4ab34",
+      "canonical_contract_sha256": "d367d93c61636e426bcfdfa71f2c9a38d5072b03b97ca31ea2ef2715b35eac7d",
+      "expected_structures": {
+        "clean_import": "568af6d8676e7d18928121ffddeafea01999bd77d20c80b3c1d3b2602b3601a7",
+        "reimport": "568af6d8676e7d18928121ffddeafea01999bd77d20c80b3c1d3b2602b3601a7"
+      },
+      "runs": [
+        {
+          "kind": "clean_import",
+          "ordinal": 1,
+          "status": "pass",
+          "evidence": "evidence/rcp3-80.0.1.500.1/clean-1/RedCube.json",
+          "source_sha256": "41518bc65c6d15bd532e5c6baf31269d66aa64ecd7448b9513b2cac838c4ab34",
+          "canonical_structure_sha256": "568af6d8676e7d18928121ffddeafea01999bd77d20c80b3c1d3b2602b3601a7"
+        },
+        {
+          "kind": "clean_import",
+          "ordinal": 2,
+          "status": "pass",
+          "evidence": "evidence/rcp3-80.0.1.500.1/clean-2/RedCube.json",
+          "source_sha256": "41518bc65c6d15bd532e5c6baf31269d66aa64ecd7448b9513b2cac838c4ab34",
+          "canonical_structure_sha256": "568af6d8676e7d18928121ffddeafea01999bd77d20c80b3c1d3b2602b3601a7"
+        },
+        {
+          "kind": "reimport",
+          "ordinal": 1,
+          "status": "pass",
+          "evidence": "evidence/rcp3-80.0.1.500.1/reimport-1/RedCube.json",
+          "source_sha256": "4210dd85b5e74445bd25f1219612c9289c1760cf6303e3b7627b555958aebf24",
+          "canonical_structure_sha256": "568af6d8676e7d18928121ffddeafea01999bd77d20c80b3c1d3b2602b3601a7"
+        },
+        {
+          "kind": "reimport",
+          "ordinal": 2,
+          "status": "pass",
+          "evidence": "evidence/rcp3-80.0.1.500.1/reimport-2/RedCube.json",
+          "source_sha256": "425a2c87a93cc8a6b10b1117b2b9838ff7a5282d7959370a884aa36576f938ee",
+          "canonical_structure_sha256": "568af6d8676e7d18928121ffddeafea01999bd77d20c80b3c1d3b2602b3601a7"
+        }
+      ],
+      "gates": {
+        "golden_structure": {
+          "status": "pass",
+          "evidence": "tests/fixtures/rcp_import/corpus.json"
+        },
+        "rcp_open": {
+          "status": "pass",
+          "evidence": "RCP 3.0 build 80.0.1.500.1 opened and saved both disposable projects without repair or error."
+        },
+        "rcp_reimport": {
+          "status": "pass",
+          "evidence": "Two Editor > Reimport operations completed with Tasks: None and no error indicator."
+        },
+        "realitykit_runtime_load": {
+          "status": "fail",
+          "evidence": "evidence/rcp3-80.0.1.500.1/runtime/staged-project-failure.json"
+        },
+        "entity_material_bounds": {
+          "status": "pass",
+          "evidence": "evidence/rcp3-80.0.1.500.1/runtime/source-baseline.json"
+        }
+      }
+    },
+    {
+      "id": "transform-clip",
+      "profile": "transform",
+      "source_sha256": "4e9a6bbffebb9031e07ed3e715fe7b201538d06eb189439750091db9bd880356",
+      "canonical_contract_sha256": "e3df88d74704d5b47c0d3c4751f48c2fe33751e5d9db358a9ec7cd9f2f15fc4d",
+      "expected_structures": {
+        "clean_import": "3c884b31a88bb9373b0ea99175c51ec0f11cae6602104c2e0dcde6142ca94e6f",
+        "reimport": "3c884b31a88bb9373b0ea99175c51ec0f11cae6602104c2e0dcde6142ca94e6f"
+      },
+      "runs": [
+        {
+          "kind": "clean_import",
+          "ordinal": 1,
+          "status": "pass",
+          "evidence": "evidence/rcp3-80.0.1.500.1/clean-1/CubeWith4Animations.json",
+          "source_sha256": "4e9a6bbffebb9031e07ed3e715fe7b201538d06eb189439750091db9bd880356",
+          "canonical_structure_sha256": "3c884b31a88bb9373b0ea99175c51ec0f11cae6602104c2e0dcde6142ca94e6f"
+        },
+        {
+          "kind": "clean_import",
+          "ordinal": 2,
+          "status": "pass",
+          "evidence": "evidence/rcp3-80.0.1.500.1/clean-2/CubeWith4Animations.json",
+          "source_sha256": "4e9a6bbffebb9031e07ed3e715fe7b201538d06eb189439750091db9bd880356",
+          "canonical_structure_sha256": "3c884b31a88bb9373b0ea99175c51ec0f11cae6602104c2e0dcde6142ca94e6f"
+        },
+        {
+          "kind": "reimport",
+          "ordinal": 1,
+          "status": "pass",
+          "evidence": "evidence/rcp3-80.0.1.500.1/reimport-1/CubeWith4Animations.json",
+          "source_sha256": "e35f4d5e1af3834fa349b64e6dccc55e2745ed14f8e6894b023fb2cd260db683",
+          "canonical_structure_sha256": "3c884b31a88bb9373b0ea99175c51ec0f11cae6602104c2e0dcde6142ca94e6f"
+        },
+        {
+          "kind": "reimport",
+          "ordinal": 2,
+          "status": "pass",
+          "evidence": "evidence/rcp3-80.0.1.500.1/reimport-2/CubeWith4Animations.json",
+          "source_sha256": "c62d558dcdc1deda6fe2d159cd74fc2d4cc336eef6b9a0ef935d5fe4315e8ee0",
+          "canonical_structure_sha256": "3c884b31a88bb9373b0ea99175c51ec0f11cae6602104c2e0dcde6142ca94e6f"
+        }
+      ],
+      "gates": {
+        "golden_structure": {
+          "status": "pass",
+          "evidence": "tests/fixtures/rcp_import/corpus.json"
+        },
+        "rcp_open": {
+          "status": "pass",
+          "evidence": "RCP 3.0 build 80.0.1.500.1 opened and saved both disposable projects without repair or error."
+        },
+        "rcp_reimport": {
+          "status": "pass",
+          "evidence": "Two Editor > Reimport operations completed with Tasks: None and no error indicator."
+        },
+        "realitykit_runtime_load": {
+          "status": "fail",
+          "evidence": "evidence/rcp3-80.0.1.500.1/runtime/staged-project-failure.json"
+        },
+        "entity_material_bounds": {
+          "status": "pass",
+          "evidence": "evidence/rcp3-80.0.1.500.1/runtime/source-baseline.json"
+        },
+        "sequence_editor_clip": {
+          "status": "fail",
+          "evidence": "RCP generated only animations/CubeWith4Animations_transform.tm_animation; GoBackward, GoDown, GoForward, and GoUp were absent from the .import records."
+        },
+        "animation_playback": {
+          "status": "not_run",
+          "evidence": "No separately addressable intended RCP clip existed to play."
+        }
+      }
+    },
+    {
+      "id": "skeletal-clip",
+      "profile": "skeletal",
+      "source_sha256": "8156506935c9bdefceb9bf2bf7503a46053c03b1587583bdb94958499942b87f",
+      "canonical_contract_sha256": "588b2f3919176ad8636ec53b7b347dc21135cbcb9bfaefdcf5ef2cffac85deed",
+      "expected_structures": {
+        "clean_import": "be992d32b8bf5cc9fae2557643bff5038e47c1f15cfe65fa5b7d949231fd9768",
+        "reimport": "af958e472308e52bba3f74adee45e972ef7e57d78274eea031d531c634d0fb60"
+      },
+      "runs": [
+        {
+          "kind": "clean_import",
+          "ordinal": 1,
+          "status": "pass",
+          "evidence": "evidence/rcp3-80.0.1.500.1/clean-1/MeshyRiggedCharacter.json",
+          "source_sha256": "8156506935c9bdefceb9bf2bf7503a46053c03b1587583bdb94958499942b87f",
+          "canonical_structure_sha256": "be992d32b8bf5cc9fae2557643bff5038e47c1f15cfe65fa5b7d949231fd9768"
+        },
+        {
+          "kind": "clean_import",
+          "ordinal": 2,
+          "status": "pass",
+          "evidence": "evidence/rcp3-80.0.1.500.1/clean-2/MeshyRiggedCharacter.json",
+          "source_sha256": "8156506935c9bdefceb9bf2bf7503a46053c03b1587583bdb94958499942b87f",
+          "canonical_structure_sha256": "be992d32b8bf5cc9fae2557643bff5038e47c1f15cfe65fa5b7d949231fd9768"
+        },
+        {
+          "kind": "reimport",
+          "ordinal": 1,
+          "status": "pass",
+          "evidence": "evidence/rcp3-80.0.1.500.1/reimport-1/MeshyRiggedCharacter.json",
+          "source_sha256": "152e52cf998c3a9a3682f5dde5680461b59a3db851d73220900ea29c25565ff2",
+          "canonical_structure_sha256": "af958e472308e52bba3f74adee45e972ef7e57d78274eea031d531c634d0fb60"
+        },
+        {
+          "kind": "reimport",
+          "ordinal": 2,
+          "status": "pass",
+          "evidence": "evidence/rcp3-80.0.1.500.1/reimport-2/MeshyRiggedCharacter.json",
+          "source_sha256": "53a1ff2b4c45693746aea8cbfb076b8ab6c85ed910572534fdddd04d5443a936",
+          "canonical_structure_sha256": "af958e472308e52bba3f74adee45e972ef7e57d78274eea031d531c634d0fb60"
+        }
+      ],
+      "gates": {
+        "golden_structure": {
+          "status": "pass",
+          "evidence": "tests/fixtures/rcp_import/corpus.json"
+        },
+        "rcp_open": {
+          "status": "pass",
+          "evidence": "RCP 3.0 build 80.0.1.500.1 opened and saved both disposable projects without repair or error."
+        },
+        "rcp_reimport": {
+          "status": "pass",
+          "evidence": "Two Editor > Reimport operations completed; each optimizer run reached Tasks: None and rendered the character preview."
+        },
+        "realitykit_runtime_load": {
+          "status": "fail",
+          "evidence": "evidence/rcp3-80.0.1.500.1/runtime/staged-project-failure.json"
+        },
+        "entity_material_bounds": {
+          "status": "pass",
+          "evidence": "evidence/rcp3-80.0.1.500.1/runtime/source-baseline.json"
+        },
+        "sequence_editor_clip": {
+          "status": "fail",
+          "evidence": "RCP generated a transform timeline plus one root skeletal timeline; the four source library keys were absent from the .import records."
+        },
+        "animation_playback": {
+          "status": "not_run",
+          "evidence": "No separately addressable intended RCP clip existed to play."
+        }
+      }
+    }
+  ]
+}
