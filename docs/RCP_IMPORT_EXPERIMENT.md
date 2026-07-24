@@ -1,9 +1,9 @@
 # Reality Composer Pro 3 `.import` experiment
 
 Status: repeated clean-import/reimport corpus and runtime baseline captured. A
-build-pinned, fail-closed static-mesh generator is implemented behind the
-experimental `RCP_IMPORT` Blender/CLI format. Transform and skeletal generation
-remain under reverse engineering.
+build-pinned, fail-closed static-mesh and sampled-translation generator is
+implemented behind the experimental `RCP_IMPORT` Blender/CLI format. Skeletal
+generation remains under reverse engineering.
 
 ## Decision
 
@@ -122,8 +122,9 @@ python -m Plugin.cli \
 ```
 
 The generator currently accepts exactly one unskinned mesh directly below the
-USD default prim. Unsupported topology, interpolation, hierarchy, or skinning
-fails closed and removes the incomplete destination.
+USD default prim or inside Blender 5.2's single-mesh object Xform wrapper.
+Unsupported topology, interpolation, hierarchy, or skinning fails closed and
+removes the incomplete destination.
 
 ### Direct plugin-output acceptance
 
@@ -157,6 +158,53 @@ triangle validity hash to `a529a77de146ba8d`. The artifact retained 13 records,
 7 content-hashed buffers, and 214 opaque bytes. This establishes that
 `2cfcf0b4ccf2dcd8` is an accepted build-80 bootstrap marker for the validated
 static subset rather than a cube-content checksum.
+
+## Experimental transform generator
+
+The controlled `CubeWith4Animations` record shows that RCP stores transform
+animation in three layers:
+
+1. a sampled type-2 timeline nested inside `settings.tm_usd`;
+2. little-endian float32 frame and translation buffers under
+   `settings.tm_buffers`;
+3. one type-1 `tm_timeline` record per named clip, each referencing the sampled
+   timeline and carrying its start/end trim.
+
+For the original 97-sample corpus, the time buffer is exactly the float32
+sequence `1...97` (388 bytes), and the position buffer is 97 XYZ float32 tuples
+(1,164 bytes). Their MurmurHash suffixes are respectively
+`31e4244ce368fb5c` and `6dfa4c9b558eb501`, matching RCP's own import byte for
+byte. The other four potential rotation/scale key/time slots are declared but
+have no backing buffers for a translation-only animation.
+
+The generator reads the authored `RealityKit.AnimationLibrary` clip names and
+start times, samples translation at each integer stage frame, writes the two
+buffers, adds `tm_animation_library_component` to both entity variants, and
+emits all named clip records. Sampled rotation, scale, multiple animated nodes,
+or conflicting clip definitions fail closed.
+
+Two disposable RCP projects accepted generated transform artifacts:
+
+- the controlled 97-frame corpus source;
+- the exact Blender 5.2 CLI export from
+  `References/Blender/CubeWith4Animations.blend` with
+  `export-animation=true`.
+
+Both reached `world Ready`, saved with no error indicator, retained all four
+clip records, and preserved every opaque payload. The direct plugin output also
+closed and reopened with `world Ready`; it had 100 samples, 18 records, 9
+content-hashed buffers, and 3,136 opaque bytes.
+Its clip ranges were derived from the current Blender Actions at 24 fps:
+
+| Clip | Start | End |
+|---|---:|---:|
+| GoBackward | 0 | 1.0416666666666667 |
+| GoDown | 1.0416666666666667 | 2.0833333333333335 |
+| GoForward | 2.0833333333333335 | 3.125 |
+| GoUp | 3.125 | 4.125 |
+
+RCP save canonicalized text/UUID details but retained the record types, buffer
+layout, UUID graph counts, clip names/ranges, and opaque animation payloads.
 
 ## Harness
 
@@ -315,8 +363,9 @@ python scripts/validate_rcp_import_acceptance.py \
    RCP's canonical geometry-validity function is still private, but controlled
    cube and triangle projects establish an accepted bootstrap value that RCP
    replaces on save.
-3. Transform and skeletal animation buffer layouts and record invariants are
-   not yet implemented.
+3. Translation animation buffers and clip records are implemented. Rotation,
+   scale, multiple animated nodes, and skeletal animation remain unmeasured or
+   unimplemented.
 4. UUID lifetime rules now show a stable clean phase and a stable reimport
    phase, but the opaque skeletal canonicalization between them is unexplained.
 5. RCP may enforce hidden version/build migrations or invariants beyond the text
@@ -338,9 +387,10 @@ python scripts/validate_rcp_import_acceptance.py \
    open/save/reopen acceptance are complete for cube topology. A different
    triangle topology confirms that the accepted bootstrap validity value
    generalizes inside the strict static subset.
-3. **Transform generator:** map aggregate transform timeline records and buffers
-   from controlled diffs, then require named four-clip Sequence Editor and
-   playback acceptance.
+3. **Transform generator (implemented, final acceptance in progress):** the
+   aggregate sampled timeline, translation/time buffers, entity component, and
+   four named clip records pass RCP open/save. Reopen, Sequence Editor, and
+   playback evidence remain required.
 4. **Skeletal generator:** map hierarchy, definition, binding, timeline, and
    texture/resource records, then require skeletal playback acceptance.
 5. **Acceptance automation:** retain reproducible RCP open/reimport captures;

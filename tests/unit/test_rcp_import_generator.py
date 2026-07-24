@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import struct
 from pathlib import Path
 
 import pytest
@@ -109,6 +110,118 @@ def Xform "root"
 
     geometry = (destination / "geometry" / "Triangle.tm_geometry").read_text()
     assert 'validity_hash: "2cfcf0b4ccf2dcd8"' in geometry
+
+
+def test_generate_transform_import_preserves_named_clips_and_samples(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "Animated.usda"
+    source.write_text(
+        """#usda 1.0
+(
+    defaultPrim = "root"
+    startTimeCode = 1
+    endTimeCode = 5
+    timeCodesPerSecond = 2
+)
+def Xform "root"
+{
+    def Mesh "Triangle"
+    {
+        int[] faceVertexCounts = [3]
+        int[] faceVertexIndices = [0, 1, 2]
+        point3f[] points = [(0, 0, 0), (1, 0, 0), (0, 1, 0)]
+        double3 xformOp:translate.timeSamples = {
+            1: (0, 0, 0),
+            3: (1, 0, 0),
+            5: (2, 0, 0),
+        }
+        uniform token[] xformOpOrder = ["xformOp:translate"]
+    }
+    def RealityKitComponent "AnimationLibrary"
+    {
+        def RealityKitClipDefinition "Clips"
+        {
+            uniform string[] clipNames = ["First", "Second"]
+            uniform double[] startTimes = [0, 1]
+        }
+    }
+}
+""",
+        encoding="utf-8",
+    )
+
+    destination = generate_static_import(source, tmp_path / "Animated.import")
+    report = build_report(
+        inspect_import(destination, expected_profile="transform"),
+        expected_profile="transform",
+        rcp_build="80.0.1.500.1",
+    )
+    assert report["record_types"]["tm_timeline"] == 2
+    assert report["counts"]["content_hashed_buffers"] == 9
+    assert (destination / "animations" / "First.tm_animation").is_file()
+    assert (destination / "animations" / "Second.tm_animation").is_file()
+    settings = (destination / "settings.tm_usd").read_text()
+    assert 'name: "Animated_transform"' in settings
+    assert "sample_count: 5" in settings
+    buffers = sorted(
+        (destination / "settings.tm_buffers").iterdir(),
+        key=lambda path: path.stat().st_size,
+    )
+    assert struct.unpack("<5f", buffers[0].read_bytes()) == (1, 2, 3, 4, 5)
+    assert struct.unpack("<15f", buffers[1].read_bytes()) == (
+        0,
+        0,
+        0,
+        0.5,
+        0,
+        0,
+        1,
+        0,
+        0,
+        1.5,
+        0,
+        0,
+        2,
+        0,
+        0,
+    )
+
+
+def test_generate_transform_import_rejects_unmeasured_rotation_samples(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "Rotating.usda"
+    source.write_text(
+        """#usda 1.0
+(
+    defaultPrim = "root"
+    startTimeCode = 1
+    endTimeCode = 2
+)
+def Xform "root"
+{
+    def Mesh "Triangle"
+    {
+        int[] faceVertexCounts = [3]
+        int[] faceVertexIndices = [0, 1, 2]
+        point3f[] points = [(0, 0, 0), (1, 0, 0), (0, 1, 0)]
+        float3 xformOp:rotateXYZ.timeSamples = {
+            1: (0, 0, 0),
+            2: (0, 90, 0),
+        }
+        uniform token[] xformOpOrder = ["xformOp:rotateXYZ"]
+    }
+}
+""",
+        encoding="utf-8",
+    )
+    destination = tmp_path / "Rotating.import"
+
+    with pytest.raises(ImportGenerationError, match="translation only"):
+        generate_static_import(source, destination)
+
+    assert not destination.exists()
 
 
 def test_generate_static_import_refuses_overwrite(tmp_path: Path) -> None:

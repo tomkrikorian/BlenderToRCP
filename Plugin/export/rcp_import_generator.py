@@ -55,6 +55,27 @@ class StaticMesh:
     mesh_scale: tuple[float, float, float]
 
 
+@dataclass(frozen=True)
+class TransformClip:
+    name: str
+    start: float
+    end: float
+
+
+@dataclass(frozen=True)
+class TransformAnimation:
+    name: str
+    node_name: str
+    frames_per_second: float
+    frames: tuple[float, ...]
+    positions: tuple[tuple[float, float, float], ...]
+    clips: tuple[TransformClip, ...]
+
+    @property
+    def duration(self) -> float:
+        return (self.frames[-1] - self.frames[0]) / self.frames_per_second
+
+
 class _Ids:
     def __init__(self, identity: str):
         self.identity = identity
@@ -227,6 +248,33 @@ def _write_mesh_buffers(destination: Path, mesh: StaticMesh, ids: _Ids) -> dict[
     return buffer_ids
 
 
+def _write_transform_animation_buffers(
+    destination: Path,
+    animation: TransformAnimation,
+    ids: _Ids,
+) -> dict[str, str]:
+    buffer_ids = {
+        "positions": ids("animation.positions_buffer"),
+        "times": ids("animation.times_buffer"),
+    }
+    settings_buffers = destination / "settings.tm_buffers"
+    _write_buffer(
+        settings_buffers,
+        buffer_ids["positions"],
+        _pack_floats(
+            component
+            for position in animation.positions
+            for component in position
+        ),
+    )
+    _write_buffer(
+        settings_buffers,
+        buffer_ids["times"],
+        _pack_floats(animation.frames),
+    )
+    return buffer_ids
+
+
 def _local_transform(prim) -> tuple[
     tuple[float, float, float],
     tuple[float, float, float, float],
@@ -383,18 +431,31 @@ def load_static_mesh(source: str | Path, *, asset_name: str | None = None) -> St
                     else:
                         opacity = float(value)
 
-    parent = mesh_prim.GetParent()
     root_prim = stage.GetDefaultPrim()
-    if not root_prim or parent != root_prim:
+    parent = mesh_prim.GetParent()
+    if not root_prim:
+        raise ImportGenerationError("USD stage requires a defaultPrim")
+    if parent == root_prim:
+        model_prim = mesh_prim
+    elif (
+        parent.GetParent() == root_prim
+        and parent.IsA(UsdGeom.Xform)
+        and len(tuple(parent.GetChildren())) == 1
+    ):
+        # Blender 5.2 writes an object Xform containing its Mesh data. RCP's
+        # entity graph collapses that pair to one model entity.
+        model_prim = parent
+    else:
         raise ImportGenerationError(
-            "build-80 static subset requires the mesh directly below defaultPrim"
+            "build-80 subset requires a mesh directly below defaultPrim or "
+            "inside one single-mesh object Xform"
         )
     root_translation, root_rotation, root_scale = _local_transform(root_prim)
-    mesh_translation, mesh_rotation, mesh_scale = _local_transform(mesh_prim)
+    mesh_translation, mesh_rotation, mesh_scale = _local_transform(model_prim)
     return StaticMesh(
         asset_name=_safe_name(asset_name or source_path.stem, "Asset"),
         root_name=_safe_name(root_prim.GetName(), "root"),
-        mesh_name=_safe_name(mesh_prim.GetName(), "Mesh"),
+        mesh_name=_safe_name(model_prim.GetName(), "Mesh"),
         material_name=material_name,
         points=points,
         face_counts=face_counts,
@@ -411,6 +472,111 @@ def load_static_mesh(source: str | Path, *, asset_name: str | None = None) -> St
         mesh_translation=mesh_translation,
         mesh_rotation=mesh_rotation,
         mesh_scale=mesh_scale,
+    )
+
+
+def load_transform_animation(
+    source: str | Path,
+    mesh: StaticMesh,
+) -> TransformAnimation | None:
+    """Load the measured build-80 translation-sampled animation subset."""
+
+    from pxr import Usd, UsdGeom
+
+    source_path = Path(source).resolve()
+    stage = Usd.Stage.Open(str(source_path))
+    if stage is None:
+        raise ImportGenerationError(f"cannot open USD stage: {source_path}")
+    mesh_prim = stage.GetDefaultPrim().GetChild(mesh.mesh_name)
+    if not mesh_prim or not (
+        mesh_prim.IsA(UsdGeom.Mesh) or mesh_prim.IsA(UsdGeom.Xform)
+    ):
+        raise ImportGenerationError("animated mesh path no longer matches static mesh")
+
+    animated_ops = []
+    for op in UsdGeom.Xformable(mesh_prim).GetOrderedXformOps():
+        samples = tuple(float(value) for value in op.GetTimeSamples())
+        if len(samples) > 1:
+            animated_ops.append((str(op.GetOpName()), op, samples))
+    if not animated_ops:
+        return None
+    unsupported = [name for name, _, _ in animated_ops if name != "xformOp:translate"]
+    if unsupported:
+        raise ImportGenerationError(
+            "build-80 transform subset supports sampled translation only; "
+            f"found {unsupported}"
+        )
+    if len(animated_ops) != 1:
+        raise ImportGenerationError("multiple sampled translation ops are unsupported")
+
+    start_frame = float(stage.GetStartTimeCode())
+    end_frame = float(stage.GetEndTimeCode())
+    if not start_frame.is_integer() or not end_frame.is_integer():
+        raise ImportGenerationError("fractional stage frame boundaries are unsupported")
+    if end_frame <= start_frame:
+        raise ImportGenerationError("animated stage requires a positive frame range")
+    frames_per_second = float(stage.GetTimeCodesPerSecond())
+    if not math.isfinite(frames_per_second) or frames_per_second <= 0:
+        raise ImportGenerationError("animated stage requires a positive frame rate")
+    frames = tuple(
+        float(frame)
+        for frame in range(int(start_frame), int(end_frame) + 1)
+    )
+    translate_op = animated_ops[0][1]
+    positions = tuple(
+        tuple(float(component) for component in translate_op.Get(Usd.TimeCode(frame)))
+        for frame in frames
+    )
+    duration = (end_frame - start_frame) / frames_per_second
+
+    clip_contracts: set[tuple[tuple[str, ...], tuple[float, ...]]] = set()
+    for prim in stage.Traverse():
+        if prim.GetTypeName() != "RealityKitClipDefinition":
+            continue
+        names_attr = prim.GetAttribute("clipNames")
+        starts_attr = prim.GetAttribute("startTimes")
+        names = tuple(str(value) for value in (names_attr.Get() or ()))
+        starts = tuple(float(value) for value in (starts_attr.Get() or ()))
+        if not names and not starts:
+            continue
+        if len(names) != len(starts):
+            raise ImportGenerationError("AnimationLibrary clip names/times mismatch")
+        clip_contracts.add((names, starts))
+    if len(clip_contracts) > 1:
+        raise ImportGenerationError(
+            "conflicting AnimationLibrary clip definitions are unsupported"
+        )
+    if clip_contracts:
+        names, starts = next(iter(clip_contracts))
+    else:
+        names = (f"{mesh.asset_name}_transform",)
+        starts = (0.0,)
+    if not names:
+        raise ImportGenerationError("animation clip list is empty")
+    if any(not math.isfinite(value) for value in starts):
+        raise ImportGenerationError("animation clip times must be finite")
+    if tuple(sorted(starts)) != starts or len(set(starts)) != len(starts):
+        raise ImportGenerationError("animation clip start times must be unique and sorted")
+    if starts[0] < 0 or starts[-1] >= duration:
+        raise ImportGenerationError("animation clip times fall outside stage duration")
+    safe_names = tuple(_safe_name(name, "Clip") for name in names)
+    if len(set(safe_names)) != len(safe_names):
+        raise ImportGenerationError("animation clip names collide after normalization")
+    clips = tuple(
+        TransformClip(
+            name=name,
+            start=starts[index],
+            end=starts[index + 1] if index + 1 < len(starts) else duration,
+        )
+        for index, name in enumerate(safe_names)
+    )
+    return TransformAnimation(
+        name=f"{mesh.asset_name}_transform",
+        node_name=str(mesh_prim.GetPath()).lstrip("/"),
+        frames_per_second=frames_per_second,
+        frames=frames,
+        positions=positions,
+        clips=clips,
     )
 
 
@@ -849,10 +1015,23 @@ __asset_thumbnail: {{
 }}'''
 
 
-def _entity_record(mesh: StaticMesh, ids: _Ids, *, optimized: bool) -> str:
+def _entity_record(
+    mesh: StaticMesh,
+    ids: _Ids,
+    *,
+    optimized: bool,
+    animation: TransformAnimation | None,
+) -> str:
     prefix = "optimized" if optimized else "source"
     root_transform = _transform_component(ids, f"{prefix}.root_transform", mesh, True)
     mesh_transform = _transform_component(ids, f"{prefix}.mesh_transform", mesh, False)
+    animation_component = ""
+    if animation is not None:
+        animation_component = f'''
+\t\t\t{{
+\t\t\t\t__type: "tm_animation_library_component"
+\t\t\t\t__uuid: "{ids(f"{prefix}.animation_library_component")}"
+\t\t\t}}'''
     return f'''__type: "tm_entity"
 __uuid: "{ids(f"{prefix}.entity")}"
 name: "/"
@@ -877,6 +1056,7 @@ children: [
 \t\tname: "{mesh.root_name}"
 \t\tcomponents: [
 \t\t\t{root_transform}
+\t\t\t{animation_component}
 \t\t]
 \t\tchildren: [
 \t\t\t{{
@@ -919,7 +1099,102 @@ __prototype_uuid: "{ids("optimized.entity")}"
 __asset_uuid: "{ids("proxy.asset")}"'''
 
 
-def _settings_record(mesh: StaticMesh, ids: _Ids, source_path: str) -> str:
+def _animation_settings_block(
+    animation: TransformAnimation,
+    ids: _Ids,
+    buffers: dict[str, str],
+) -> str:
+    position_buffer = ids("animation.positions")
+    rotation_buffer = ids("animation.rotations")
+    scale_buffer = ids("animation.scales")
+    position_time_buffer = ids("animation.position_times")
+    rotation_time_buffer = ids("animation.rotation_times")
+    scale_time_buffer = ids("animation.scale_times")
+    clip_refs = "\n".join(
+        f'\t\t\t\t\t"{ids(f"clip.{clip.name}.timeline")}"'
+        for clip in animation.clips
+    )
+    return f'''\t{{
+\t\t__type: "tm_usd_animation_settings"
+\t\t__uuid: "{ids("animation.settings")}"
+\t\tanimations: [
+\t\t\t{{
+\t\t\t\t__type: "tm_timeline"
+\t\t\t\t__uuid: "{ids("animation.sampled_timeline")}"
+\t\t\t\tname: "{animation.name}"
+\t\t\t\ttype: 2
+\t\t\t\tproperties: {{
+\t\t\t\t\t__type: "tm_timeline_sampled"
+\t\t\t\t\t__uuid: "{ids("animation.sampled_properties")}"
+\t\t\t\t\tsamples_per_second: {_f(animation.frames_per_second)}
+\t\t\t\t\tusd_samples: {{
+\t\t\t\t\t\t__uuid: "{ids("animation.usd_samples")}"
+\t\t\t\t\t\tsample_count: {len(animation.frames)}
+\t\t\t\t\t\tframes_per_second: {_f(animation.frames_per_second)}
+\t\t\t\t\t\tbuffers: [
+\t\t\t\t\t\t\t{{
+\t\t\t\t\t\t\t\t__uuid: "{position_buffer}"
+\t\t\t\t\t\t\t\tdata: "{buffers["positions"]}"
+\t\t\t\t\t\t\t}}
+\t\t\t\t\t\t\t{{
+\t\t\t\t\t\t\t\t__uuid: "{rotation_buffer}"
+\t\t\t\t\t\t\t}}
+\t\t\t\t\t\t\t{{
+\t\t\t\t\t\t\t\t__uuid: "{scale_buffer}"
+\t\t\t\t\t\t\t}}
+\t\t\t\t\t\t\t{{
+\t\t\t\t\t\t\t\t__uuid: "{position_time_buffer}"
+\t\t\t\t\t\t\t\tdata: "{buffers["times"]}"
+\t\t\t\t\t\t\t}}
+\t\t\t\t\t\t\t{{
+\t\t\t\t\t\t\t\t__uuid: "{rotation_time_buffer}"
+\t\t\t\t\t\t\t}}
+\t\t\t\t\t\t\t{{
+\t\t\t\t\t\t\t\t__uuid: "{scale_time_buffer}"
+\t\t\t\t\t\t\t}}
+\t\t\t\t\t\t]
+\t\t\t\t\t\tnode_animations: [
+\t\t\t\t\t\t\t{{
+\t\t\t\t\t\t\t\t__uuid: "{ids("animation.node")}"
+\t\t\t\t\t\t\t\tnode_name: "{animation.node_name}"
+\t\t\t\t\t\t\t\tposition_keys: {{
+\t\t\t\t\t\t\t\t\t__uuid: "{ids("animation.position_keys")}"
+\t\t\t\t\t\t\t\t\tcount: {len(animation.frames)}
+\t\t\t\t\t\t\t\t\ttime_buffer: "{position_time_buffer}"
+\t\t\t\t\t\t\t\t\ttime_stride: 4
+\t\t\t\t\t\t\t\t\tkey_buffer: "{position_buffer}"
+\t\t\t\t\t\t\t\t\tkey_stride: 12
+\t\t\t\t\t\t\t\t\tkey_format: 16910368
+\t\t\t\t\t\t\t\t}}
+\t\t\t\t\t\t\t}}
+\t\t\t\t\t\t]
+\t\t\t\t\t\tmeters_per_unit: 1
+\t\t\t\t\t}}
+\t\t\t\t\tsample_count: {len(animation.frames)}
+\t\t\t\t}}
+\t\t\t\tclips: [
+{clip_refs}
+\t\t\t\t]
+\t\t\t}}
+\t\t]
+\t}}'''
+
+
+def _settings_record(
+    mesh: StaticMesh,
+    ids: _Ids,
+    source_path: str,
+    *,
+    animation: TransformAnimation | None,
+    animation_buffers: dict[str, str] | None,
+) -> str:
+    animation_settings = ""
+    if animation is not None:
+        if animation_buffers is None:
+            raise ImportGenerationError("animation buffers are required")
+        animation_settings = (
+            "\n" + _animation_settings_block(animation, ids, animation_buffers)
+        )
     return f'''__type: "tm_usd_asset"
 __uuid: "{ids("settings")}"
 source_path: "{source_path}"
@@ -962,7 +1237,7 @@ settings: [
 \t{{
 \t\t__type: "tm_lod_generator"
 \t\t__uuid: "{ids("settings.lod")}"
-\t}}
+\t}}{animation_settings}
 ]
 pro_settings: [
 \t{{
@@ -986,13 +1261,46 @@ variants: [
 __asset_uuid: "{ids("settings.asset")}"'''
 
 
+def _transform_clip_record(
+    clip: TransformClip,
+    animation: TransformAnimation,
+    ids: _Ids,
+) -> str:
+    start_line = f"\tstart: {_f(clip.start)}\n" if clip.start else ""
+    return f'''__type: "tm_timeline"
+__uuid: "{ids(f"clip.{clip.name}.timeline")}"
+name: "{clip.name}"
+type: 1
+properties: {{
+\t__type: "tm_timeline_clip"
+\t__uuid: "{ids(f"clip.{clip.name}.properties")}"
+{start_line}\tend: {_f(clip.end)}
+\tspeed: 1
+\tloop_duration: {_f(animation.duration)}
+\tsource_group: {{
+\t\t__uuid: "{ids(f"clip.{clip.name}.source_group")}"
+\t\treferenced_member: [
+\t\t\t"{ids("animation.sampled_timeline")}"
+\t\t]
+\t\tmembers_sort_values: [
+\t\t\t{{
+\t\t\t\t__uuid: "{ids(f"clip.{clip.name}.sort_value")}"
+\t\t\t\tdouble: 2
+\t\t\t}}
+\t\t]
+\t}}
+\tloop_duration_infinite: true
+}}
+__asset_uuid: "{ids(f"clip.{clip.name}.asset")}"'''
+
+
 def generate_static_import(
     source: str | Path,
     destination: str | Path,
     *,
     asset_name: str | None = None,
 ) -> Path:
-    """Generate a complete build-80 static ``.import`` artifact."""
+    """Generate a complete build-80 static or sampled-translation artifact."""
 
     source_path = Path(source).resolve()
     destination_path = Path(destination).resolve()
@@ -1004,19 +1312,25 @@ def generate_static_import(
         raise ImportGenerationError(f"refusing to overwrite {destination_path}")
 
     mesh = load_static_mesh(source_path, asset_name=asset_name)
+    animation = load_transform_animation(source_path, mesh)
     identity = hashlib.sha256(source_path.read_bytes()).hexdigest()
     ids = _Ids(f"{RCP_BUILD}|{identity}|{mesh.asset_name}")
     destination_path.mkdir(parents=True)
     try:
         buffers = _write_mesh_buffers(destination_path, mesh, ids)
+        animation_buffers = (
+            _write_transform_animation_buffers(destination_path, animation, ids)
+            if animation is not None
+            else None
+        )
         root_dir_id = ids("directory.root")
         records = {
             f"{mesh.asset_name}.tm_entity": _proxy_record(mesh, ids),
             f"__{mesh.asset_name}.tm_entity": _entity_record(
-                mesh, ids, optimized=False
+                mesh, ids, optimized=False, animation=animation
             ),
             f"__{mesh.asset_name}_optimized.tm_entity": _entity_record(
-                mesh, ids, optimized=True
+                mesh, ids, optimized=True, animation=animation
             ),
             "__tm_directory.tm_dir": _directory_record(
                 ids, "directory.root", f"{mesh.asset_name}.import", None
@@ -1027,6 +1341,8 @@ def generate_static_import(
                 os.path.relpath(source_path, destination_path.parent).replace(
                     os.sep, "/"
                 ),
+                animation=animation,
+                animation_buffers=animation_buffers,
             ),
             f"geometry/{mesh.mesh_name}.tm_geometry": _geometry_record(
                 mesh, ids, buffers
@@ -1053,6 +1369,18 @@ def generate_static_import(
                 ids, "directory.meshes", "meshes", root_dir_id
             ),
         }
+        if animation is not None:
+            records["animations/__tm_directory.tm_dir"] = _directory_record(
+                ids, "directory.animations", "animations", root_dir_id
+            )
+            records.update(
+                {
+                    f"animations/{clip.name}.tm_animation": _transform_clip_record(
+                        clip, animation, ids
+                    )
+                    for clip in animation.clips
+                }
+            )
         for relative_path, text in records.items():
             output = destination_path / relative_path
             output.parent.mkdir(parents=True, exist_ok=True)
