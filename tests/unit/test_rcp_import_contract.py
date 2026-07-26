@@ -131,6 +131,20 @@ def test_unknown_top_level_field_fails_closed(tmp_path: Path) -> None:
         build_report(inspect_import(root, expected_profile="static"))
 
 
+def test_missing_asset_uuid_fails_closed(tmp_path: Path) -> None:
+    root = _fixture(tmp_path, "skeletal")
+    hierarchy = root / "skeletons" / "root.tm_skeleton_hierarchy"
+    lines = [
+        line
+        for line in hierarchy.read_text().splitlines()
+        if not line.startswith("__asset_uuid:")
+    ]
+    hierarchy.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+    with pytest.raises(ContractError, match="missing required top-level fields"):
+        build_report(inspect_import(root, expected_profile="skeletal"))
+
+
 def test_unknown_record_suffix_fails_closed(tmp_path: Path) -> None:
     root = _fixture(tmp_path, "static")
     (root / "future.tm_magic").write_text("opaque", encoding="utf-8")

@@ -3,8 +3,11 @@
 Status: repeated clean-import/reimport corpus and runtime baseline captured. A
 build-pinned, fail-closed static-mesh and sampled-translation generator is
 implemented behind the experimental `RCP_IMPORT` Blender/CLI format. The
-skeletal generator now produces an artifact that RCP renders, but it is not
-accepted yet: build 80 reports three reproducible internal console errors. See
+skeletal generator now produces an artifact that renders and passes the three
+previously failing build-80 Truth loader paths after adding the required
+skeleton-hierarchy `__asset_uuid`. RCP save/reopen persistence now passes for
+the controlled candidate. It is not accepted yet: reimport, clip playback, and
+public RealityKit runtime gates remain. See
 [the skeletal checkpoint](RCP_IMPORT_SKELETAL_CHECKPOINT.md) before resuming.
 
 ## Decision

@@ -1521,7 +1521,8 @@ __uuid: "{ids("skeleton.hierarchy")}"
 name: "{skinning.skeleton_path}"
 joints: [
 {joints_text}
-]'''
+]
+__asset_uuid: "{ids("skeleton.hierarchy.asset")}"'''
 
 
 def _skeleton_definition_record(ids: _Ids) -> str:

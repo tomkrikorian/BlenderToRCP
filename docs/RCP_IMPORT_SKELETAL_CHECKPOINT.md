@@ -1,6 +1,6 @@
 # RCP skeletal `.import` checkpoint
 
-Checkpoint date: 2026-07-24
+Checkpoint date: 2026-07-25
 
 Branch: `experiment/rcp-import-export`, based on `origin/dev`
 
@@ -9,12 +9,14 @@ RCP under test:
 - Reality Composer Pro 3.0
 - `CFBundleVersion` `80.0.1.500.1`
 - Xcode build `27A5218g`
-- observed on macOS 27.0
+- observed on macOS 27.0 build `26A5388g`
 
 This document is the restart point for the full `.import` generator
 experiment. No compatibility claim is made for the skeletal lane. Static mesh
-and sampled translation have their own accepted, build-pinned subsets; the
-skeletal output presently renders in RCP but fails the clean-console gate.
+and sampled translation have their own accepted, build-pinned subsets. The
+skeletal output now passes the three previously failing build-80 Truth loader
+paths, renders in RCP, and survives save/reopen. Reimport, Sequence Editor,
+playback, and public RealityKit runtime acceptance remain open.
 
 ## Where work stopped
 
@@ -56,16 +58,52 @@ The decoded build-80 scene-tree layouts are:
   hash, joint index, the first three columns of each inverse-bind matrix row,
   and a zero flag.
 
-The generated artifact opens and displays the correctly skinned character.
-Nevertheless, a clean open reproducibly reports:
+The original generated artifact opened and displayed the correctly skinned
+character but reproducibly reported:
 
 1. `Unexpected nil item`
 2. `Trying to lookup property of NULL truth object`
 3. `Trying to add NULL object to subobject set`
 
-That is the stopping blocker. Sequence Editor visibility, clip playback,
-save/reopen, reimport survival, and public RealityKit runtime exposure are not
-accepted while these errors remain.
+LLDB on the pinned RCP loader identified the first error at
+`CoreRealityTools` `resolve_or_create_placeholder + 292`. Its caller,
+`private__create_asset_data_from_path`, was processing
+`skeletons/root.tm_skeleton_hierarchy`. The caller looked up the
+MurmurHash64A key `0x28598ea17608bf3d`, which decodes to `__asset_uuid`, and
+passed an all-zero UUID because the generated hierarchy record omitted that
+field.
+
+The writer now emits a deterministic `__asset_uuid` for the hierarchy. The
+structural contract also requires `__asset_uuid` on every known
+non-directory record and fails closed if it is absent. A newly generated
+candidate then:
+
+- loaded without reaching `resolve_or_create_placeholder + 292`;
+- loaded without reaching `add_to_subobject_set + 368`, the observed
+  `Trying to add NULL object to subobject set` path;
+- loaded without reaching any of the 66 build-80 call sites for
+  `Trying to lookup property of NULL truth object`;
+- rendered the correctly skinned robot in the RCP viewport with `Ready` and
+  `Tasks: None`.
+
+The three Truth errors were therefore one causal chain, not three independent
+format defects. This clears the clean-loader gate for the controlled candidate;
+it does not yet clear the remaining editor and runtime gates.
+
+Build-pinned evidence for this run is recorded in
+`tests/fixtures/rcp_import/evidence/rcp3-80.0.1.500.1/generated-skeletal-v2.json`.
+
+The corrected candidate was also saved normally in the disposable project,
+closed, and reopened without repair. RCP's save canonicalized only
+`geometry/char1.tm_geometry`: two geometry buffer UUID prefixes/references,
+numeric formatting, and `validity_hash` changed. All 24 records, 19 opaque
+buffers, opaque payload bytes, and four timeline records remained present.
+The post-save and post-reopen packages were byte-identical with tree SHA-256
+`1e5c1440ea0deee79bd2d4f882c94f1f28cf6269331442d3f733baa5d444fa6d`
+and canonical contract SHA-256
+`30916d7bc699bc8aa19ca9204d991ca77f9e8719563d60b1dadefe63c89552ee`.
+This clears save/reopen persistence only. The stored project-relative source
+was absent at capture time, so this result is not reimport evidence.
 
 ## Clean-control evidence
 
@@ -88,9 +126,17 @@ The last four-clip generated candidate was:
 
 `/private/tmp/blendertorcp-skeletal-transform-timeline.y0mRgD/MeshyRiggedCharacter.import`
 
-These are temporary paths, not durable fixtures. Before resuming, verify their
-existence and copy required evidence into a new disposable experiment
-directory. Never put the approximately 100 MiB opaque corpus in Git.
+Those paths were temporary. Required read-only copies now live outside Git
+under:
+
+`~/.codex/rcp-import-experiment/build-80.0.1.500.1`
+
+This contains the RCP-authored baseline, controlled USDA source, generated
+candidates, disposable project clones, and immutable removed-package
+snapshots. Never put the approximately 100 MiB opaque corpus in Git. The
+stored `shell/Package.realitycomposerpro` is not a genuinely blank shell: its
+project metadata retains paths from the disposable source project. Treat it as
+a copied project template and assert the exact import contents on every run.
 
 The baseline package alone in a clone of the blank shell opens with no console
 errors. The generated package alone in the same kind of clean shell reports the
@@ -140,32 +186,46 @@ Known residual differences include:
 - the simplified generated material graph, although replacing the entire
   material graph did not clear the errors.
 
+## Differential harness
+
+`scripts/hybridize_rcp_import.py` now creates disposable record-group hybrids
+from the RCP-authored baseline and a generated candidate. It:
+
+- partitions directories, settings, entities, geometry, skeleton, animations,
+  and materials;
+- maps generated record identities to structurally corresponding baseline
+  `__uuid` and `__asset_uuid` values;
+- maps content-identical buffers by parent path, byte count, and SHA-256;
+- rewrites mapped references and buffer prefixes;
+- rejects unknown paths, symlinks, overwrite attempts, ambiguous mappings, and
+  newly introduced dangling UUID references;
+- writes its manifest beside, never inside, the `.import` directory.
+
+On the controlled corpus it found 516 identity mappings and 15
+content-identical buffers. An animations-only substitution correctly failed
+closed on a new dangling reference; settings and animations form a coupled
+group for that candidate. This harness remains a reverse-engineering tool, not
+an exporter.
+
 ## Exact next steps
 
-1. Recreate a clean disposable shell and enforce the single-import invariant.
-   Copy the baseline and candidate outside the package before each run.
-2. Extend the comparison harness to replace and retarget one complete
-   **record group** at a time, not individual guessed fields. Use this order:
-   settings; source/optimized entities; geometry/mesh/resources; skeleton
-   hierarchy/definition; animations; material.
-3. Run a binary search over those groups. For every candidate, retain the
-   inspector report, the exact RCP build, a console screenshot/log, and the
-   package hash. The first hybrid with zero errors identifies the group
-   containing the missing invariant.
-4. Subdivide only that group until the smallest responsible record or
-   relationship is known. Derive a general rule from at least two independently
-   generated inputs; do not copy fixture UUIDs or opaque buffers into the
-   writer.
-5. Correct float32-before-omission behavior for hierarchy transforms and add
-   unit tests for scene-tree row packing, parent indices, inverse-bind rows,
-   deterministic IDs, and unsupported UsdSkel shapes.
-6. When—and only when—the candidate opens with zero console errors, run
-   save/reopen and two genuine **Editor > Reimport** cycles.
-7. Then verify all four names and ranges in Sequence Editor, visual playback,
-   persistence after reopen/reimport, and the public RealityKit
-   `AnimationLibrary`/bounds runtime probe.
-8. Repeat on a second, structurally different skeletal fixture. Only after both
-   pass may the supported subset be described as a staging writer.
+1. Create a fresh single-import disposable project with the corrected package
+   and controlled source both present at the recorded project-relative path.
+2. Run two genuine **Editor > Reimport** cycles from that controlled source.
+   Capture the `.import` after each and compare both against the generated
+   pre-reimport package and the known RCP-authored clean/reimport contracts.
+3. Verify `Agree_Gesture`, `Running`, `Walking`, and `walking_2` names and
+   source-derived ranges in Sequence Editor, then capture playback evidence for
+   each clip.
+4. Run the public RealityKit runtime probe against the saved output. Require
+   valid bounds, skinning components, and the expected animation exposure; do
+   not infer runtime success from viewport rendering.
+5. Correct float32-before-omission behavior for hierarchy transforms and keep
+   unit coverage for scene-tree rows, parent indices, inverse-bind rows,
+   deterministic identities, and rejected UsdSkel shapes.
+6. Repeat the full loader/editor/runtime matrix on a second, structurally
+   different skeletal fixture. Only after both pass may the skeletal subset be
+   described as a staging writer.
 
 ## Restart and product boundary
 

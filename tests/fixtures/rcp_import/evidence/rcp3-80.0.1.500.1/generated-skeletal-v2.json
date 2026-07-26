@@ -1,0 +1,76 @@
+{
+  "schema_version": 1,
+  "captured_at": "2026-07-25",
+  "rcp": {
+    "version": "3.0",
+    "build": "80.0.1.500.1",
+    "xcode_build": "27A5218g"
+  },
+  "host": {
+    "macos_version": "27.0.0",
+    "macos_build": "26A5388g"
+  },
+  "source": {
+    "name": "MeshyRiggedCharacter.usda",
+    "sha256": "8156506935c9bdefceb9bf2bf7503a46053c03b1587583bdb94958499942b87f"
+  },
+  "artifact": {
+    "profile": "skeletal",
+    "tree_sha256": "715949489362b7afbb3d81447b920c183afb79c37347d0f85d66f796f09b54cb",
+    "canonical_contract_sha256": "ecf9ef9c0786671d8ef1009d084ea3daaaa891208ddb0d252c022cd083b3b6c5",
+    "records": 24,
+    "opaque_buffers": 19,
+    "opaque_buffer_bytes": 100830500,
+    "uuid_definitions": 506,
+    "uuid_occurrences": 719,
+    "hierarchy_record_sha256": "d50feb1fb8a356d934b4d60db383f8bbebded6abed20488d0fa7a3a13d5ef34e"
+  },
+  "root_cause": {
+    "record": "skeletons/root.tm_skeleton_hierarchy",
+    "missing_field": "__asset_uuid",
+    "field_murmur64a": "28598ea17608bf3d",
+    "observed_failure": "CoreRealityTools resolve_or_create_placeholder received a nil UUID"
+  },
+  "loader_probe": {
+    "exact_project_copy": "debug-generated-v2.realitycomposerpro",
+    "result": "pass",
+    "viewport_rendered": true,
+    "world_state": "Ready",
+    "tasks_state": "None",
+    "breakpoints_not_reached": {
+      "unexpected_nil_item": [
+        "CoreRealityTools+0x000a40e0"
+      ],
+      "null_subobject_add": [
+        "CoreRealityTools+0x0009a780"
+      ],
+      "null_property_lookup_callsite_count": 66
+    }
+  },
+  "save_reopen_probe": {
+    "result": "pass",
+    "saved_world_state": "Ready",
+    "saved_tasks_state": "None",
+    "post_save_tree_sha256": "1e5c1440ea0deee79bd2d4f882c94f1f28cf6269331442d3f733baa5d444fa6d",
+    "post_save_canonical_contract_sha256": "30916d7bc699bc8aa19ca9204d991ca77f9e8719563d60b1dadefe63c89552ee",
+    "post_reopen_tree_sha256": "1e5c1440ea0deee79bd2d4f882c94f1f28cf6269331442d3f733baa5d444fa6d",
+    "post_reopen_canonical_contract_sha256": "30916d7bc699bc8aa19ca9204d991ca77f9e8719563d60b1dadefe63c89552ee",
+    "post_save_and_reopen_byte_identical": true,
+    "record_count_preserved": true,
+    "opaque_payloads_preserved": true,
+    "source_present_for_reimport": false,
+    "observed_save_canonicalization": [
+      "geometry/char1.tm_geometry numeric formatting",
+      "geometry/char1.tm_geometry validity_hash",
+      "two geometry buffer UUID prefixes and references"
+    ]
+  },
+  "remaining_gates": [
+    "two_editor_reimports",
+    "sequence_editor_clip_names_and_ranges",
+    "clip_playback",
+    "public_realitykit_runtime_and_bounds",
+    "second_structurally_distinct_skeletal_fixture"
+  ],
+  "compatibility_claim": false
+}

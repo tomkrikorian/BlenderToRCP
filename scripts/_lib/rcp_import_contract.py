@@ -135,6 +135,18 @@ TOP_LEVEL_FIELDS: dict[str, frozenset[str]] = {
     ),
 }
 
+# RCP resolves this identity before creating internal asset data. On the pinned
+# build, omitting it sends a nil item into CoreRealityTools and rejects the
+# record rather than treating it as optional metadata.
+REQUIRED_TOP_LEVEL_FIELDS: dict[str, frozenset[str]] = {
+    record_type: frozenset({"__type", "__uuid", "__asset_uuid"})
+    for record_type in TOP_LEVEL_FIELDS
+    if record_type != "tm_asset_directory"
+}
+REQUIRED_TOP_LEVEL_FIELDS["tm_asset_directory"] = frozenset(
+    {"__type", "__uuid", "name"}
+)
+
 PROFILE_REQUIREMENTS: dict[str, dict[str, int]] = {
     "static": {
         "tm_usd_asset": 1,
@@ -305,6 +317,13 @@ def _inspect_record(path: Path, relative_path: str, inspection: Inspection) -> N
     if unknown_fields:
         inspection.errors.append(
             f"{relative_path}: unsupported top-level fields {unknown_fields}"
+        )
+    missing_fields = sorted(
+        REQUIRED_TOP_LEVEL_FIELDS[record_type] - set(top_level_fields)
+    )
+    if missing_fields:
+        inspection.errors.append(
+            f"{relative_path}: missing required top-level fields {missing_fields}"
         )
 
     definitions = re.findall(rf'(?m)^\s*__uuid:\s*"({UUID_PATTERN})"\s*$', text)
