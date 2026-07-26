@@ -13,6 +13,7 @@ from scripts._lib.rcp_import_contract import (
     compare_reports,
     inspect_import,
 )
+from scripts.inspect_rcp_import import _unwrap_report
 
 UUIDS = iter(f"00000000-0000-0000-0000-{number:012d}" for number in range(1, 1000))
 
@@ -249,6 +250,17 @@ def test_comparison_separates_opaque_payload_churn_from_layout(tmp_path: Path) -
 
     assert comparison["normalized_structure_equal"]
     assert not comparison["opaque_payloads_equal"]
+
+
+def test_comparison_input_unwraps_prior_comparison_envelope(tmp_path: Path) -> None:
+    report = build_report(inspect_import(_fixture(tmp_path, "static")))
+
+    assert _unwrap_report(report) is report
+    assert _unwrap_report({"report": report, "comparison": {}}) is report
+    with pytest.raises(ContractError, match="must contain a JSON object"):
+        _unwrap_report([])
+    with pytest.raises(ContractError, match="report must contain a JSON object"):
+        _unwrap_report({"report": []})
 
 
 def test_real_rcp_corpus_when_available() -> None:

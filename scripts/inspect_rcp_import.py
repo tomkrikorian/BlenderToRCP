@@ -20,6 +20,19 @@ from scripts._lib.rcp_import_contract import (
 )
 
 
+def _unwrap_report(payload: object) -> dict:
+    """Accept either a direct report or this command's comparison envelope."""
+
+    if not isinstance(payload, dict):
+        raise ContractError("comparison input must contain a JSON object")
+    nested = payload.get("report")
+    if nested is None:
+        return payload
+    if not isinstance(nested, dict):
+        raise ContractError("comparison input report must contain a JSON object")
+    return nested
+
+
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description=(
@@ -56,7 +69,9 @@ def main(argv: list[str] | None = None) -> int:
         )
         payload: dict = report
         if args.compare:
-            baseline = json.loads(args.compare.read_text(encoding="utf-8"))
+            baseline = _unwrap_report(
+                json.loads(args.compare.read_text(encoding="utf-8"))
+            )
             payload = {
                 "report": report,
                 "comparison": compare_reports(baseline, report),

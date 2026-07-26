@@ -167,6 +167,12 @@ def _f(value: float) -> str:
     return repr(float(value))
 
 
+def _f32(value: float) -> float:
+    """Round one scalar exactly as build-80 hierarchy buffers do."""
+
+    return struct.unpack("<f", struct.pack("<f", float(value)))[0]
+
+
 def _vector_fields(
     values: Sequence[float], names: Sequence[str], *, indent: str
 ) -> str:
@@ -1479,20 +1485,26 @@ def _skeleton_hierarchy_record(mesh: StaticMesh, ids: _Ids) -> str:
             else ""
         )
         position = _vector_fields(
-            joint.rest_position, ("x", "y", "z"), indent="\t\t\t\t"
+            tuple(_f32(value) for value in joint.rest_position),
+            ("x", "y", "z"),
+            indent="\t\t\t\t",
         )
         rotation = _vector_fields(
-            joint.rest_rotation, ("x", "y", "z", "w"), indent="\t\t\t\t"
+            tuple(_f32(value) for value in joint.rest_rotation),
+            ("x", "y", "z", "w"),
+            indent="\t\t\t\t",
         )
         scale = "".join(
-            f"\t\t\t\t{axis}: {_f(value)}\n"
+            f"\t\t\t\t{axis}: {_f(value32)}\n"
             for axis, value in zip(("x", "y", "z"), joint.rest_scale)
-            if value != 1.0
+            if (value32 := _f32(value)) != 1.0
         )
         matrix = "".join(
-            f"\t\t\t{name}: {_f(joint.inverse_bind_matrix[row][column])}\n"
+            f"\t\t\t{name}: {_f(value32)}\n"
             for name, row, column in matrix_names
-            if joint.inverse_bind_matrix[row][column] != 0.0
+            if (
+                value32 := _f32(joint.inverse_bind_matrix[row][column])
+            ) != 0.0
         )
         rendered_joints.append(
             f'''\t{{

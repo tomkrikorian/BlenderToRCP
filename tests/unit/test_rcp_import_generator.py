@@ -7,6 +7,13 @@ import pytest
 
 from Plugin.export.rcp_import_generator import (
     ImportGenerationError,
+    SkeletalAnimation,
+    SkeletonJoint,
+    SkinningData,
+    StaticMesh,
+    TransformClip,
+    _Ids,
+    _skeleton_hierarchy_record,
     generate_static_import,
 )
 from scripts._lib.rcp_import_contract import build_report, inspect_import
@@ -231,3 +238,73 @@ def test_generate_static_import_refuses_overwrite(tmp_path: Path) -> None:
 
     with pytest.raises(ImportGenerationError, match="overwrite"):
         generate_static_import(source, destination)
+
+
+def test_skeleton_hierarchy_quantizes_before_omitting_identity_fields() -> None:
+    joint = SkeletonJoint(
+        name="root",
+        parent_index=0,
+        rest_position=(1e-50, 0.0, 0.0),
+        rest_rotation=(0.0, 0.0, 0.0, 1.0),
+        rest_scale=(1.0 + 1e-8, 1.0000001, 1.0),
+        inverse_bind_matrix=(
+            (1.0, 1e-50, 0.0, 0.0),
+            (0.0, 1.0, 0.0, 0.0),
+            (0.0, 0.0, 1.0, 0.0),
+            (0.0, 0.0, 0.0, 1.0),
+        ),
+    )
+    animation = SkeletalAnimation(
+        name="Rig",
+        frames_per_second=24.0,
+        frames=(0.0,),
+        translations=(((0.0, 0.0, 0.0),),),
+        rotations=(((0.0, 0.0, 0.0, 1.0),),),
+        clips=(TransformClip(name="Rest", start=0.0, end=0.0),),
+    )
+    skinning = SkinningData(
+        armature_name="Armature",
+        skeleton_name="root",
+        skeleton_path="/root",
+        armature_translation=(0.0, 0.0, 0.0),
+        armature_rotation=(0.0, 0.0, 0.0, 1.0),
+        armature_scale=(1.0, 1.0, 1.0),
+        joint_indices=((0, 0, 0, 0),),
+        joint_weights=((1.0, 0.0, 0.0, 0.0),),
+        geom_bind_transform=(
+            (1.0, 0.0, 0.0, 0.0),
+            (0.0, 1.0, 0.0, 0.0),
+            (0.0, 0.0, 1.0, 0.0),
+            (0.0, 0.0, 0.0, 1.0),
+        ),
+        joints=(joint,),
+        animation=animation,
+    )
+    mesh = StaticMesh(
+        asset_name="Rig",
+        root_name="root",
+        mesh_name="Mesh",
+        material_name="Material",
+        points=((0.0, 0.0, 0.0),),
+        face_counts=(),
+        face_indices=(),
+        face_uvs=(),
+        face_normals=(),
+        base_color=(1.0, 1.0, 1.0),
+        metallic=0.0,
+        roughness=1.0,
+        opacity=1.0,
+        root_translation=(0.0, 0.0, 0.0),
+        root_rotation=(0.0, 0.0, 0.0, 1.0),
+        root_scale=(1.0, 1.0, 1.0),
+        mesh_translation=(0.0, 0.0, 0.0),
+        mesh_rotation=(0.0, 0.0, 0.0, 1.0),
+        mesh_scale=(1.0, 1.0, 1.0),
+        skinning=skinning,
+    )
+
+    record = _skeleton_hierarchy_record(mesh, _Ids("near-identity"))
+
+    assert "\t\t\t\tx:" not in record
+    assert "\t\t\t\ty: 1.0000001192092896" in record
+    assert "\t\t\txy:" not in record

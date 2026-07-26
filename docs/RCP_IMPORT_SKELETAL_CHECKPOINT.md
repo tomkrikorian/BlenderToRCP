@@ -1,6 +1,6 @@
 # RCP skeletal `.import` checkpoint
 
-Checkpoint date: 2026-07-25
+Checkpoint date: 2026-07-26
 
 Branch: `experiment/rcp-import-export`, based on `origin/dev`
 
@@ -14,9 +14,13 @@ RCP under test:
 This document is the restart point for the full `.import` generator
 experiment. No compatibility claim is made for the skeletal lane. Static mesh
 and sampled translation have their own accepted, build-pinned subsets. The
-skeletal output now passes the three previously failing build-80 Truth loader
-paths, renders in RCP, and survives save/reopen. Reimport, Sequence Editor,
-playback, and public RealityKit runtime acceptance remain open.
+skeletal v2 output passes the three previously failing build-80 Truth loader
+paths, renders in RCP, survives save/reopen and two source reimports, and loads
+through the public RealityKit runtime with finite bounds and all four named
+clips. The current float32-normalized v3 output separately passes clean RCP
+load and the same public runtime checks; its two reimports remain to be
+repeated. Sequence Editor playback and a second structurally distinct skeletal
+fixture also remain open.
 
 ## Where work stopped
 
@@ -105,6 +109,63 @@ and canonical contract SHA-256
 This clears save/reopen persistence only. The stored project-relative source
 was absent at capture time, so this result is not reimport evidence.
 
+## Reimport and public runtime acceptance
+
+A fresh, single-import disposable project was created at:
+
+`~/.codex/rcp-import-experiment/build-80.0.1.500.1/runs/accept-generated-v2-reimport.realitycomposerpro`
+
+`Editor > Reimport From...` bound the controlled source without changing any
+byte in the generated package. The source is not self-contained without its
+two referenced PNG sidecars: omitting them produced two explicit image-import
+errors; restoring the exact payloads cleared the console and rendered the
+textured robot with `Ready` and `Tasks: None`.
+
+Two subsequent ordinary `Editor > Reimport` cycles completed without errors.
+The pre-reimport package and both results were byte-identical:
+
+- tree SHA-256
+  `1e5c1440ea0deee79bd2d4f882c94f1f28cf6269331442d3f733baa5d444fa6d`;
+- canonical contract SHA-256
+  `30916d7bc699bc8aa19ca9204d991ca77f9e8719563d60b1dadefe63c89552ee`;
+- 24 records, 19 opaque buffers, and 100,830,500 opaque bytes;
+- 5 `tm_timeline` records (aggregate plus four named clips);
+- unchanged normalized structure, record fingerprints, UUID identity, buffer
+  layout, and opaque payload hashes.
+
+The saved disposable project compiled with Apple's `realitytool` into a
+16 MiB `.reality` artifact with SHA-256
+`ffbe893a20d2be2af75e3a5ca59d842ad7e5a755dc22152a4bc9a895a1b5fc83`.
+The public RealityKit smoke probe passed on Apple M5 Max:
+
+- five entities and one model entity;
+- `AnimationLibraryComponent`, `MeshDeformerComponent`,
+  `SkeletalPosesComponent`, and `ModelComponent`;
+- `Agree_Gesture`, `Running`, `Walking`, and `walking_2` animation keys;
+- finite nonempty bounds with extents
+  `[1.2410427, 1.6999997, 0.56545544]`.
+
+This corrects the earlier 4.3 KiB runtime artifact failure. That failure was
+caused by compiling an incomplete project staging, not by the generated
+skeletal package.
+
+The subsequent float32-normalized v3 candidate changes only
+`skeletons/root.tm_skeleton_hierarchy`, whose SHA-256 is
+`400de6f1d71977d28294c1f268242d014c0def7f4f7022561a6b6161fe047879`.
+It opens as `Ready` in a fresh disposable RCP project and compiles to a
+16 MiB `.reality` artifact with SHA-256
+`7733a0c5a40b3813ac90cc1ab55f6f0a0b40496f9901dff42e2be5a568c86bd7`.
+The public runtime again reports five entities, one model, all four named
+clips, the required skeletal components, and identical finite bounds. This is
+clean-load and runtime evidence for the current code; the two source reimports
+above were captured from v2 and must not be attributed to v3 until repeated.
+
+RCP also created a disposable Sequence, but the imported asset is read-only
+and the Sequence's Root Entity remained `(none)`. The custom hierarchy control
+could not bind an imported root without first authoring a project-owned
+Prototype/root entity. Therefore the four timeline records and public runtime
+keys are proven, but Sequence Editor range display and visual playback are not.
+
 ## Clean-control evidence
 
 Acceptance probes used only disposable projects under `/private/tmp`; the
@@ -178,9 +239,6 @@ Known residual differences include:
 
 - generated UUID identity and reference assignment;
 - the generated bootstrap geometry validity hash;
-- near-one rest-scale serialization: RCP appears to decide omission after
-  float32 conversion while the generator currently decides from source
-  doubles;
 - record ordering/format details and possible private identity invariants not
   represented by the structural inspector;
 - the simplified generated material graph, although replacing the entire
@@ -209,23 +267,23 @@ an exporter.
 
 ## Exact next steps
 
-1. Create a fresh single-import disposable project with the corrected package
-   and controlled source both present at the recorded project-relative path.
-2. Run two genuine **Editor > Reimport** cycles from that controlled source.
-   Capture the `.import` after each and compare both against the generated
-   pre-reimport package and the known RCP-authored clean/reimport contracts.
-3. Verify `Agree_Gesture`, `Running`, `Walking`, and `walking_2` names and
-   source-derived ranges in Sequence Editor, then capture playback evidence for
-   each clip.
-4. Run the public RealityKit runtime probe against the saved output. Require
-   valid bounds, skinning components, and the expected animation exposure; do
-   not infer runtime success from viewport rendering.
-5. Correct float32-before-omission behavior for hierarchy transforms and keep
-   unit coverage for scene-tree rows, parent indices, inverse-bind rows,
-   deterministic identities, and rejected UsdSkel shapes.
-6. Repeat the full loader/editor/runtime matrix on a second, structurally
-   different skeletal fixture. Only after both pass may the skeletal subset be
-   described as a staging writer.
+1. Complete two `Editor > Reimport` cycles on the float32-normalized v3
+   candidate and require the same structural, opaque-payload, UUID, and
+   runtime invariants recorded for v2.
+2. In a disposable project, create a project-owned Prototype/root entity from
+   the generated asset, bind it as the Sequence Root Entity, then capture the
+   displayed ranges and playback evidence for `Agree_Gesture`, `Running`,
+   `Walking`, and `walking_2`.
+3. Add a second controlled skeletal fixture with materially different joint
+   hierarchy, topology, animation length, and clip partitioning while retaining
+   the explicit build-80 profile. The local `Robot` and `RobotUnlit` candidates
+   each contain 12 meshes and correctly fail closed because the current profile
+   requires exactly one.
+4. Repeat clean load, save/reopen, two reimports, Sequence Editor, `realitytool`,
+   and public RealityKit bounds/component/animation checks for that fixture.
+5. Only after both fixtures pass may the skeletal subset be described as a
+   staging writer. Multi-mesh support requires a separately measured RCP
+   contract; it must not be inferred from the single-mesh corpus.
 
 ## Restart and product boundary
 
@@ -234,6 +292,11 @@ must remain a set of explicit, build-pinned profiles. The current skeletal
 profile must fail closed unless all measured preconditions hold: exact build,
 joint ordering, four vertex influences, supported interpolation, identity
 geometry bind, integer sample range, and known animation layout.
+
+Hierarchy rest transforms and inverse-bind matrices are now quantized to
+float32 before deciding whether identity fields may be omitted. A targeted
+unit fixture proves that near-zero and near-one source doubles follow the same
+serialization decision as the build-80 records.
 
 Do not enable skeletal generation as a compatibility default, claim RCP
 support, fabricate an unknown binary payload, push, merge, or touch the
