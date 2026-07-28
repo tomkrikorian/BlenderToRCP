@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import struct
 from pathlib import Path
 
@@ -56,6 +57,49 @@ def _source(tmp_path: Path) -> Path:
     return source
 
 
+def _material_source(tmp_path: Path, *, color_space: str) -> Path:
+    source = tmp_path / "ColoredCube.usda"
+    source.write_text(
+        f"""#usda 1.0
+(
+    defaultPrim = "root"
+    metersPerUnit = 1
+    upAxis = "Y"
+)
+def Xform "root"
+{{
+    def Mesh "Cube" (
+        prepend apiSchemas = ["MaterialBindingAPI"]
+    )
+    {{
+        int[] faceVertexCounts = [3]
+        int[] faceVertexIndices = [0, 1, 2]
+        point3f[] points = [(0, 0, 0), (1, 0, 0), (0, 1, 0)]
+        rel material:binding = </root/_materials/Material>
+    }}
+    def Scope "_materials"
+    {{
+        def Material "Material" (
+            prepend apiSchemas = ["ColorSpaceAPI"]
+        )
+        {{
+            uniform token colorSpace:name = "{color_space}"
+            token outputs:surface.connect = </root/_materials/Material/Preview.outputs:surface>
+            def Shader "Preview"
+            {{
+                uniform token info:id = "UsdPreviewSurface"
+                color3f inputs:diffuseColor = (0.80000746, 0, 0.0030770362)
+                token outputs:surface
+            }}
+        }}
+    }}
+}}
+""",
+        encoding="utf-8",
+    )
+    return source
+
+
 def test_generate_static_import_passes_structural_contract(tmp_path: Path) -> None:
     source = _source(tmp_path)
     destination = tmp_path / "Cube.import"
@@ -72,6 +116,39 @@ def test_generate_static_import_passes_structural_contract(tmp_path: Path) -> No
     assert not (destination / "settings.tm_buffers").exists()
     geometry = (destination / "geometry" / "Cube.tm_geometry").read_text()
     assert 'validity_hash: "2cfcf0b4ccf2dcd8"' in geometry
+
+
+def test_generate_static_import_converts_rec709_material_to_aces2065(
+    tmp_path: Path,
+) -> None:
+    source = _material_source(tmp_path, color_space="lin_rec709_scene")
+
+    destination = generate_static_import(source, tmp_path / "ColoredCube.import")
+
+    material = (destination / "materials" / "Material.tm_material").read_text()
+    color = re.search(
+        r'__type: "tm_color_aces2065_rgb".*?'
+        r"\n\s+r: ([^\n]+)\n\s+g: ([^\n]+)\n\s+b: ([^\n]+)",
+        material,
+        flags=re.DOTALL,
+    )
+    assert color is not None
+    assert tuple(float(component) for component in color.groups()) == pytest.approx(
+        (0.3522519171, 0.0721185282, 0.0167149641),
+        abs=1e-4,
+    )
+
+
+def test_generate_static_import_rejects_unmeasured_material_color_space(
+    tmp_path: Path,
+) -> None:
+    source = _material_source(tmp_path, color_space="srgb_rec709_scene")
+
+    with pytest.raises(
+        ImportGenerationError,
+        match="requires an authored, measured color space",
+    ):
+        generate_static_import(source, tmp_path / "ColoredCube.import")
 
 
 def test_generate_static_import_is_deterministic(tmp_path: Path) -> None:

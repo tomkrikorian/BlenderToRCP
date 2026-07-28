@@ -27,6 +27,12 @@ _U64_MASK = (1 << 64) - 1
 _SAFE_NAME = re.compile(r"[^A-Za-z0-9_.-]+")
 _BOOTSTRAP_GEOMETRY_VALIDITY_HASH = "2cfcf0b4ccf2dcd8"
 _SKINNED_VERTEX_ID_BASE = 396600484
+_SUPPORTED_MATERIAL_COLOR_SPACES = frozenset(
+    {
+        "lin_ap0_scene",
+        "lin_rec709_scene",
+    }
+)
 
 
 class ImportGenerationError(RuntimeError):
@@ -854,7 +860,7 @@ def load_static_mesh(source: str | Path, *, asset_name: str | None = None) -> St
     """Load the fail-closed static subset from one USD stage."""
 
     try:
-        from pxr import Usd, UsdGeom, UsdShade, UsdSkel
+        from pxr import Gf, Usd, UsdGeom, UsdShade, UsdSkel
     except ImportError as error:  # pragma: no cover - Blender/macOS provides USD
         raise ImportGenerationError("Pixar USD Python bindings are required") from error
 
@@ -903,7 +909,15 @@ def load_static_mesh(source: str | Path, *, asset_name: str | None = None) -> St
 
     material = UsdShade.MaterialBindingAPI(mesh_prim).ComputeBoundMaterial()[0]
     material_name = _safe_name(material.GetPrim().GetName(), "Material") if material else "Material"
-    base_color = (0.8, 0.8, 0.8)
+    linear_rec709 = Gf.ColorSpace(Gf.ColorSpaceNames.LinearRec709)
+    linear_ap0 = Gf.ColorSpace(Gf.ColorSpaceNames.LinearAP0)
+    base_color = tuple(
+        float(component)
+        for component in linear_ap0.Convert(
+            linear_rec709,
+            Gf.Vec3f(0.8, 0.8, 0.8),
+        ).GetRGB()
+    )
     metallic, roughness, opacity = 0.0, 0.5, 1.0
     if material:
         surface = material.ComputeSurfaceSource("mtlx")[0] or material.ComputeSurfaceSource()[0]
@@ -917,7 +931,31 @@ def load_static_mesh(source: str | Path, *, asset_name: str | None = None) -> St
                 if shader_input:
                     value = shader_input.Get()
                     if value is not None:
-                        base_color = tuple(float(component) for component in value[:3])
+                        color_space_name = str(
+                            Usd.ColorSpaceAPI.ComputeColorSpaceName(
+                                shader_input.GetAttr(),
+                                None,
+                            )
+                        )
+                        if color_space_name not in _SUPPORTED_MATERIAL_COLOR_SPACES:
+                            displayed_name = color_space_name or "<unauthored>"
+                            raise ImportGenerationError(
+                                "build-80 material color requires an authored, "
+                                "measured color space; found "
+                                f"{displayed_name!r} on "
+                                f"{shader_input.GetAttr().GetPath()}"
+                            )
+                        source_color_space = Usd.ColorSpaceAPI.ComputeColorSpace(
+                            shader_input.GetAttr(),
+                            None,
+                        )
+                        base_color = tuple(
+                            float(component)
+                            for component in linear_ap0.Convert(
+                                source_color_space,
+                                Gf.Vec3f(*value[:3]),
+                            ).GetRGB()
+                        )
                         break
             for input_name, fallback in (
                 ("metallic", metallic),
