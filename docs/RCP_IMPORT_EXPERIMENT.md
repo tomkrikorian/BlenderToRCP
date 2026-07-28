@@ -177,6 +177,26 @@ bounded with deterministic hashes before creating filesystem records. Explicit
 unsupported filename roles still fail closed even when the shader graph is
 otherwise ambiguous.
 
+The same animated 12-object Robot bake was exported through the supported
+USDA, USDC, and USDZ lanes. Every stage reopened with 12 meshes, 12 material
+bindings, 12 skinned meshes, one skeleton, one animation over frames 1–149 at
+24 fps, the `Animation` clip contract, and 24 resolved shader texture inputs
+deduplicated to nine content-addressed AVIF files. Superseded pre-staging bake
+images are now removed only from the bake worker's owned temporary directory;
+the resulting USDZ contains the root USDC plus exactly those nine referenced
+textures instead of carrying 12 additional orphan images.
+
+All three formats passed Apple USD Tools 0.25.11 `usdchecker --arkit --strict`
+and Xcode 27 `realitytool` compilation. Public RealityKit 27 loaded source
+USDC, source USDZ, compiled USDC, and compiled USDZ with one recursive model,
+12 `ShaderGraphMaterial` instances, `Animation`, `MeshDeformerComponent`,
+`SkeletalPosesComponent`, and matching finite nonempty bounds with extents
+`[0.14261799, 0.2738792, 0.16812176]`. Realitytool 27 initially exposed a
+false-positive when a USDZ was nested unchanged inside temporary `.rkassets`:
+the compiler exited zero but RealityKit rejected the result with error 20.
+The validator now safely expands the already-validated USDZ members before
+compilation, and the resulting `.reality` passes the same runtime probe.
+
 These are Blender, generator, and structural results only. Clean RCP
 load/save/reopen, two reimports, Sequence Editor playback, and RealityKit
 runtime/bounds acceptance for the multi-mesh skeletal output are still

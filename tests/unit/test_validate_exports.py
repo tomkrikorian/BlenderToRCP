@@ -7,6 +7,8 @@ import zipfile
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from scripts import validate_exports
@@ -157,6 +159,62 @@ def test_compile_staging_preserves_binary_extension_and_dependencies(tmp_path, m
         "metadata": b"metadata",
         "texture": b"texture",
     }
+
+
+def test_compile_staging_expands_usdz_instead_of_nesting_package(
+    tmp_path,
+    monkeypatch,
+):
+    package = tmp_path / "Robot.usdz"
+    with zipfile.ZipFile(
+        package,
+        mode="w",
+        compression=zipfile.ZIP_STORED,
+    ) as archive:
+        archive.writestr("Robot.usdc", b"binary-usdc")
+        archive.writestr("textures/albedo.png", b"texture")
+    inspected = {}
+
+    def fake_compile(bundle, args, **kwargs):
+        inspected["scene"] = (bundle / "Robot.usdc").read_bytes()
+        inspected["texture"] = (
+            bundle / "textures" / "albedo.png"
+        ).read_bytes()
+        inspected["nested_package"] = (bundle / "scene.usdz").exists()
+        return {"ok": True, "exit_code": 0}
+
+    monkeypatch.setattr(validate_exports, "_compile_rkassets", fake_compile)
+
+    result = validate_exports._compile_from_usd(package, SimpleNamespace())
+
+    assert result["ok"] is True
+    assert inspected == {
+        "scene": b"binary-usdc",
+        "texture": b"texture",
+        "nested_package": False,
+    }
+
+
+def test_compile_staging_rejects_unsafe_usdz_member(tmp_path, monkeypatch):
+    package = tmp_path / "Unsafe.usdz"
+    with zipfile.ZipFile(
+        package,
+        mode="w",
+        compression=zipfile.ZIP_STORED,
+    ) as archive:
+        archive.writestr("Robot.usdc", b"binary-usdc")
+        archive.writestr("../escape.png", b"escape")
+    monkeypatch.setattr(
+        validate_exports,
+        "_compile_rkassets",
+        lambda *_args, **_kwargs: pytest.fail("unsafe package was compiled"),
+    )
+
+    result = validate_exports._compile_from_usd(package, SimpleNamespace())
+
+    assert result["ok"] is False
+    assert "Unsafe USDZ compile member path" in result["stderr"]
+    assert not (tmp_path / "escape.png").exists()
 
 
 def test_realitytool_success_without_output_is_failure(tmp_path, monkeypatch):

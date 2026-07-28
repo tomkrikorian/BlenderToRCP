@@ -335,6 +335,7 @@ def _handle(args: dict, settings) -> dict:
         blender_usd_export,
         postprocess_usd,
         pack_usdz,
+        usd_textures,
         diagnostics,
     )
     from ...export.support_bundle import collect_environment, collect_scene_snapshot
@@ -597,6 +598,17 @@ def _handle(args: dict, settings) -> dict:
         diag.begin_phase("postprocess_usd", {"usd_path": temp_usd_path})
         postprocess_usd.process_usd_stage(
             temp_usd_path, settings, bpy.context, diag,
+        )
+        usd_textures.remove_unreferenced_bake_outputs(
+            temp_usd_path,
+            staging_dir,
+            (
+                bpy.path.abspath(
+                    str(getattr(image, "filepath_raw", "") or "")
+                )
+                for image in bake_result.baked_images
+            ),
+            diag,
         )
         diag.end_phase("postprocess_usd")
 

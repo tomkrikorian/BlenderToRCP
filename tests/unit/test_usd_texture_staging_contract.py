@@ -15,6 +15,41 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from Plugin.export import usd_assets, usd_textures
 
 
+def test_bake_cleanup_removes_only_unreferenced_owned_source_textures(
+    tmp_path,
+    monkeypatch,
+):
+    from pxr import Sdf, Usd
+
+    monkeypatch.setattr(usd_textures, "Sdf", Sdf)
+    textures = tmp_path / "textures"
+    staged = textures / "scene.usda" / ("a" * 32) / "staged.png"
+    staged.parent.mkdir(parents=True)
+    staged.write_bytes(b"staged")
+    superseded = textures / "Baked_baseColor.png"
+    superseded.write_bytes(b"source")
+    external = tmp_path.parent / "external-bake-source.png"
+    external.write_bytes(b"external")
+    usd_path = tmp_path / "scene.usda"
+    stage = Usd.Stage.CreateNew(str(usd_path))
+    shader = stage.DefinePrim("/Texture", "Shader")
+    shader.CreateAttribute("inputs:file", Sdf.ValueTypeNames.Asset).Set(
+        Sdf.AssetPath(staged.relative_to(tmp_path).as_posix())
+    )
+    stage.GetRootLayer().Save()
+
+    removed = usd_textures.remove_unreferenced_bake_outputs(
+        usd_path,
+        tmp_path,
+        (superseded, staged, external),
+    )
+
+    assert removed == (superseded.resolve(),)
+    assert not superseded.exists()
+    assert staged.read_bytes() == b"staged"
+    assert external.read_bytes() == b"external"
+
+
 def _texture_generation_dir(usd_path: Path) -> Path:
     return usd_path.parent / "textures" / usd_textures.output_sidecar_namespace(usd_path)
 

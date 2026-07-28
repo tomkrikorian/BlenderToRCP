@@ -276,7 +276,7 @@ Notes:
 - `scripts/build_materialx_manifest.py` rebuilds `Plugin/manifest/rk_nodes_manifest.json` from `References/MaterialX-definitions`.
 - `scripts/build_nodegroups.py` regenerates `Plugin/assets/nodegroups.blend`; `scripts/check_nodegroup_parity.py` independently rebuilds the library with Blender 5.2 and fails if its semantic signature differs from the shipped binary.
 - `scripts/validate_nodes.py` writes generated bundles and reports under `tests/node_validation` by default and can compile each fixture with `realitytool`.
-- `scripts/validate_exports.py` validates exported USD, USDZ, or `.rkassets` inputs with strict `usdchecker`, nodedef/path lint, and optional `realitytool` compilation. `--compiled-output-dir` retains collision-safe, deterministic `.reality` outputs for the runtime gate instead of compiling throwaway artifacts.
+- `scripts/validate_exports.py` validates exported USD, USDZ, or `.rkassets` inputs with strict `usdchecker`, nodedef/path lint, and optional `realitytool` compilation. USDZ inputs are safely expanded into the temporary `.rkassets` compile staging because nesting a USDZ file can make `realitytool` 27 exit successfully while emitting a runtime-unloadable artifact. `--compiled-output-dir` retains collision-safe, deterministic `.reality` outputs for the runtime gate instead of compiling throwaway artifacts.
 - `scripts/run_realitykit_runtime_smoke.sh` builds the public-API RealityKit probe with Xcode 27 and recursively verifies model, ShaderGraph material, animation-library/clip, and required component-type expectations while loading source and compiled assets on macOS 27.
 
 ## Add-on preferences and persisted state

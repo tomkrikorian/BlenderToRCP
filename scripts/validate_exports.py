@@ -19,13 +19,15 @@ import os
 import re
 import signal
 import shutil
+import stat
 import subprocess
 import sys
 import tempfile
 import time
 import unicodedata
+import zipfile
 from functools import lru_cache
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Dict, List, Optional
 
 
@@ -511,8 +513,10 @@ def _compile_from_usd(
         bundle = Path(temp_dir) / f"{path.stem}.rkassets"
         bundle.mkdir(parents=True, exist_ok=True)
         try:
-            shutil.copy2(path, bundle / f"scene{path.suffix.lower()}")
-            if path.suffix.lower() != ".usdz":
+            if path.suffix.lower() == ".usdz":
+                _extract_usdz_compile_input(path, bundle)
+            else:
+                shutil.copy2(path, bundle / f"scene{path.suffix.lower()}")
                 _copy_compile_dependencies(path, bundle)
         except ExternalToolTimeout as exc:
             return {
@@ -536,6 +540,65 @@ def _compile_from_usd(
             args,
             output_stem=output_stem or path.stem,
         )
+
+
+def _extract_usdz_compile_input(package: Path, bundle: Path) -> None:
+    """Expand a validated USDZ into rkassets for a usable realitytool result.
+
+    Realitytool 27 may exit successfully when a USDZ is nested as one file in
+    an rkassets directory, yet emit a `.reality` that RealityKit cannot load.
+    Compiling the package's root layer and dependencies directly avoids that
+    false-positive path.
+    """
+
+    seen_names = set()
+    root_scene = None
+    try:
+        with zipfile.ZipFile(package, "r") as archive:
+            for index, member in enumerate(archive.infolist()):
+                if member.is_dir():
+                    continue
+                name = member.filename
+                pure = PurePosixPath(name)
+                if (
+                    not name
+                    or "\\" in name
+                    or pure.is_absolute()
+                    or ".." in pure.parts
+                ):
+                    raise RuntimeError(
+                        f"Unsafe USDZ compile member path: {name!r}"
+                    )
+                name_key = unicodedata.normalize("NFC", name).casefold()
+                if name_key in seen_names:
+                    raise RuntimeError(
+                        f"Colliding USDZ compile member path: {name!r}"
+                    )
+                seen_names.add(name_key)
+                mode = member.external_attr >> 16
+                if stat.S_ISLNK(mode):
+                    raise RuntimeError(
+                        f"Symlinked USDZ compile member is unsupported: {name!r}"
+                    )
+                if index == 0:
+                    if (
+                        len(pure.parts) != 1
+                        or pure.suffix.lower() not in {".usd", ".usda", ".usdc"}
+                    ):
+                        raise RuntimeError(
+                            "USDZ compile input must begin with a root USD layer"
+                        )
+                    root_scene = pure
+                destination = bundle.joinpath(*pure.parts)
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                with archive.open(member, "r") as source, destination.open(
+                    "xb"
+                ) as output:
+                    shutil.copyfileobj(source, output, length=1024 * 1024)
+    except (zipfile.BadZipFile, zipfile.LargeZipFile) as exc:
+        raise RuntimeError(f"Invalid USDZ compile input: {exc}") from exc
+    if root_scene is None:
+        raise RuntimeError("USDZ compile input contains no root USD layer")
 
 
 def _copy_compile_dependencies(root: Path, bundle: Path) -> None:

@@ -259,6 +259,71 @@ def finish_texture_staging(
         )
 
 
+def remove_unreferenced_bake_outputs(
+    usd_path: str | Path,
+    staging_root: str | Path,
+    baked_paths,
+    diagnostics=None,
+) -> tuple[Path, ...]:
+    """Remove only bake-source files superseded by final staged references.
+
+    A bake job owns its unique staging directory, but the generic texture
+    staging API may also operate beside user-authored source images. Keep this
+    cleanup explicit to the bake worker and require every deletion candidate
+    to stay below that worker's ``textures`` directory.
+    """
+
+    if Sdf is None:
+        return ()
+    try:
+        from pxr import Usd
+    except ImportError:
+        return ()
+
+    usd_path = Path(usd_path).resolve()
+    staging_root = Path(staging_root).resolve()
+    if usd_path.parent != staging_root:
+        raise _TextureStagingError(
+            "bake texture cleanup requires the USD layer inside its owned "
+            "staging directory"
+        )
+    textures_root = staging_root / "textures"
+    if textures_root.is_symlink():
+        raise _TextureStagingError(
+            f"refusing symlinked bake texture directory: {textures_root}"
+        )
+
+    stage = Usd.Stage.Open(str(usd_path))
+    if stage is None:
+        raise _TextureStagingError(
+            f"cannot reopen USD stage for bake texture cleanup: {usd_path}"
+        )
+    referenced_paths = _referenced_texture_paths(stage, staging_root)
+    removed = []
+    for raw_path in sorted({str(value or "") for value in baked_paths}):
+        if not raw_path or raw_path.startswith("//"):
+            continue
+        candidate = Path(raw_path).resolve()
+        try:
+            candidate.relative_to(textures_root.resolve())
+        except ValueError:
+            continue
+        if (
+            candidate in referenced_paths
+            or candidate.is_symlink()
+            or not candidate.is_file()
+        ):
+            continue
+        candidate.unlink()
+        removed.append(candidate)
+        if diagnostics:
+            diagnostics.add_generated_file(
+                "removed_superseded_bake_texture",
+                str(candidate),
+            )
+    return tuple(removed)
+
+
 def _stage_texture_source(
     source_path: Path,
     *,
