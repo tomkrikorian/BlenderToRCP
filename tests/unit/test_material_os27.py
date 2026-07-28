@@ -1626,3 +1626,65 @@ def test_stale_preview_network_is_pruned_without_removing_mtlx_network():
     assert not stage.GetPrimAtPath("/Material/StaleTexture").IsValid()
     assert stage.GetPrimAtPath("/Material/CurrentMtlx").IsValid()
     assert material.GetSurfaceOutput().GetAttr().GetConnections() == []
+
+
+def test_unlit_surface_never_receives_pbr_only_graph_inputs():
+    """build_unlit_material used to pass input_graphs through unfiltered.
+
+    input_graphs is keyed for the PBR surface. ND_realitykit_unlit_surfaceshader
+    declares only color/opacity/opacityThreshold/applyPostProcessToneMap/
+    hasPremultipliedAlpha, so authoring roughness, metallic or the private
+    _emissionColor produced a shader prim carrying inputs its nodedef does not
+    define. author.py records an error for each but does not raise, so the
+    rewrite never rolled back and the export failed later with an opaque
+    diagnostics-gate message instead of at the cause.
+    """
+    manifest = _manifest()
+    unlit_def = manifest["nodes"]["ND_realitykit_unlit_surfaceshader"]
+    declared = {entry["name"] for entry in unlit_def["inputs"]}
+
+    data = {
+        "base_color": [1.0, 1.0, 1.0],
+        "is_transparent": True,
+        "input_graphs": {
+            "baseColor": {"kind": "constant", "type": "color3", "value": [0.5, 0.2, 0.1]},
+            "opacity": {"kind": "constant", "type": "float", "value": 0.7},
+            "roughness": {"kind": "constant", "type": "float", "value": 0.42},
+            "metallic": {"kind": "constant", "type": "float", "value": 1.0},
+            "_emissionColor": {"kind": "constant", "type": "color3", "value": [1, 0, 0]},
+        },
+    }
+
+    graph = MaterialXGraphBuilder(manifest).build_unlit_material(data)
+    authored = set(graph["nodes"][0]["inputs"])
+
+    unknown = authored - declared
+    assert not unknown, (
+        f"unlit surface authored inputs its nodedef does not declare: {sorted(unknown)}"
+    )
+    # baseColor is the one name that differs between the two surfaces.
+    assert "color" in authored
+    assert "opacity" in authored
+
+
+def test_unlit_omitted_graph_inputs_are_reported():
+    class _Diagnostics:
+        def __init__(self):
+            self.warnings = []
+
+        def add_warning(self, message):
+            self.warnings.append(message)
+
+    diagnostics = _Diagnostics()
+    data = {
+        "base_color": [1.0, 1.0, 1.0],
+        "input_graphs": {
+            "roughness": {"kind": "constant", "type": "float", "value": 0.42},
+        },
+    }
+
+    MaterialXGraphBuilder(_manifest(), diagnostics=diagnostics).build_unlit_material(data)
+
+    assert any("roughness" in message for message in diagnostics.warnings), (
+        "dropping a linked input silently is how the PBR2 profile bugs hid"
+    )

@@ -163,7 +163,19 @@ class MaterialXGraphBuilder:
             inputs=self._map_unlit_inputs(material_data),
         )
         graph['nodes'].append(unlit_node)
-        self._apply_graph_inputs(graph, unlit_node['name'], material_data.get('input_graphs', {}))
+        # Filter, don't pass through. input_graphs is keyed for the PBR surface
+        # (roughness, metallic, _emissionColor, ...); the unlit surface exposes
+        # none of those. Authoring them anyway produced a shader prim carrying
+        # inputs the nodedef does not declare - author.py records an error for
+        # each but does not raise, so the rewrite never rolled back and the
+        # export died later with an opaque diagnostics-gate message.
+        self._apply_graph_inputs(
+            graph,
+            unlit_node['name'],
+            self._unlit_input_graphs(
+                material_data.get('input_graphs', {}), unlit_node_def
+            ),
+        )
         graph['output'] = unlit_node['name']
         graph['surface_profile'] = "realitykit_unlit"
         graph['materialx_version'] = "1.38"
@@ -859,6 +871,43 @@ class MaterialXGraphBuilder:
                 for name, value in (result.get('inputs') or {}).items()
             }
         return result
+
+    def _unlit_input_graphs(
+        self,
+        input_graphs: Dict[str, Any],
+        unlit_node_def: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        """Keep only graph inputs the unlit surface actually declares.
+
+        The supported set is read from the nodedef rather than hard-coded so it
+        cannot drift from the manifest. ``baseColor`` is the one name that
+        differs between the PBR and unlit surfaces.
+        """
+        if not input_graphs:
+            return {}
+
+        supported = {
+            entry.get('name')
+            for entry in (unlit_node_def.get('inputs') or [])
+            if entry.get('name')
+        }
+        rename = {'baseColor': 'color'}
+
+        kept: Dict[str, Any] = {}
+        omitted = []
+        for name, expression in input_graphs.items():
+            target = rename.get(name, name)
+            if target in supported:
+                kept[target] = expression
+            else:
+                omitted.append(name)
+
+        if omitted and self.diagnostics:
+            self.diagnostics.add_warning(
+                "Unlit material profile omitted inputs the unlit surface does "
+                "not expose: " + ", ".join(sorted(omitted))
+            )
+        return kept
 
     def _map_unlit_inputs(self, material_data: Dict[str, Any]) -> Dict[str, Any]:
         """Map Blender material inputs to RealityKit Unlit inputs."""
