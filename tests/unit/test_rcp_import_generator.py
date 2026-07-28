@@ -16,6 +16,7 @@ from Plugin.export.rcp_import_generator import (
     _Ids,
     _skeleton_hierarchy_record,
     generate_static_import,
+    load_static_asset,
 )
 from scripts._lib.rcp_import_contract import build_report, inspect_import
 
@@ -174,6 +175,157 @@ def Xform "root"
     return source, texture_bytes
 
 
+def _multi_mesh_source(tmp_path: Path, *, shared_material: bool = False) -> Path:
+    right_binding = "Red" if shared_material else "Blue"
+    source = tmp_path / "TwoMeshes.usda"
+    source.write_text(
+        f"""#usda 1.0
+(
+    defaultPrim = "root"
+    metersPerUnit = 1
+    upAxis = "Y"
+)
+def Xform "root"
+{{
+    def Xform "Left"
+    {{
+        double3 xformOp:translate = (-1, 0, 0)
+        uniform token[] xformOpOrder = ["xformOp:translate"]
+        def Mesh "LeftMesh" (
+            prepend apiSchemas = ["MaterialBindingAPI"]
+        )
+        {{
+            int[] faceVertexCounts = [3]
+            int[] faceVertexIndices = [0, 1, 2]
+            point3f[] points = [(0, 0, 0), (1, 0, 0), (0, 1, 0)]
+            rel material:binding = </root/Materials/Red>
+        }}
+    }}
+    def Xform "Right"
+    {{
+        double3 xformOp:translate = (1, 0, 0)
+        uniform token[] xformOpOrder = ["xformOp:translate"]
+        def Mesh "RightMesh" (
+            prepend apiSchemas = ["MaterialBindingAPI"]
+        )
+        {{
+            int[] faceVertexCounts = [3]
+            int[] faceVertexIndices = [0, 1, 2]
+            point3f[] points = [(0, 0, 0), (1, 0, 0), (0, 1, 0)]
+            rel material:binding = </root/Materials/{right_binding}>
+        }}
+    }}
+    def Scope "Materials"
+    {{
+        def Material "Red" (
+            prepend apiSchemas = ["ColorSpaceAPI"]
+        )
+        {{
+            uniform token colorSpace:name = "lin_rec709_scene"
+            token outputs:surface.connect = </root/Materials/Red/Preview.outputs:surface>
+            def Shader "Preview"
+            {{
+                uniform token info:id = "UsdPreviewSurface"
+                color3f inputs:diffuseColor = (1, 0, 0)
+                token outputs:surface
+            }}
+        }}
+        def Material "Blue" (
+            prepend apiSchemas = ["ColorSpaceAPI"]
+        )
+        {{
+            uniform token colorSpace:name = "lin_rec709_scene"
+            token outputs:surface.connect = </root/Materials/Blue/Preview.outputs:surface>
+            def Shader "Preview"
+            {{
+                uniform token info:id = "UsdPreviewSurface"
+                color3f inputs:diffuseColor = (0, 0, 1)
+                token outputs:surface
+            }}
+        }}
+    }}
+}}
+""",
+        encoding="utf-8",
+    )
+    return source
+
+
+def _multi_material_source(tmp_path: Path, *, overlap: bool = False) -> Path:
+    blue_indices = "[0, 1]" if overlap else "[1]"
+    source = tmp_path / "TwoMaterials.usda"
+    source.write_text(
+        f"""#usda 1.0
+(
+    defaultPrim = "root"
+    metersPerUnit = 1
+    upAxis = "Y"
+)
+def Xform "root"
+{{
+    def Xform "Panel"
+    {{
+        def Mesh "PanelMesh"
+        {{
+            int[] faceVertexCounts = [3, 3]
+            int[] faceVertexIndices = [0, 1, 2, 1, 3, 2]
+            point3f[] points = [(0, 0, 0), (1, 0, 0), (0, 1, 0), (1, 1, 0)]
+            def GeomSubset "RedFaces" (
+                prepend apiSchemas = ["MaterialBindingAPI"]
+            )
+            {{
+                uniform token elementType = "face"
+                uniform token familyName = "materialBind"
+                int[] indices = [0]
+                rel material:binding = </root/Materials/Red>
+            }}
+            def GeomSubset "BlueFaces" (
+                prepend apiSchemas = ["MaterialBindingAPI"]
+            )
+            {{
+                uniform token elementType = "face"
+                uniform token familyName = "materialBind"
+                int[] indices = {blue_indices}
+                rel material:binding = </root/Materials/Blue>
+            }}
+        }}
+    }}
+    def Scope "Materials"
+    {{
+        def Material "Red" (
+            prepend apiSchemas = ["ColorSpaceAPI"]
+        )
+        {{
+            uniform token colorSpace:name = "lin_rec709_scene"
+            token outputs:surface.connect = </root/Materials/Red/Preview.outputs:surface>
+            def Shader "Preview"
+            {{
+                uniform token info:id = "UsdPreviewSurface"
+                color3f inputs:diffuseColor = (1, 0, 0)
+                token outputs:surface
+            }}
+        }}
+        def Material "Blue" (
+            prepend apiSchemas = ["ColorSpaceAPI"]
+        )
+        {{
+            uniform token colorSpace:name = "lin_rec709_scene"
+            token outputs:surface.connect = </root/Materials/Blue/Preview.outputs:surface>
+            def Shader "Preview"
+            {{
+                uniform token info:id = "UsdPreviewSurface"
+                color3f inputs:diffuseColor = (0, 0, 1)
+                token outputs:surface
+            }}
+        }}
+    }}
+}}
+""",
+        encoding="utf-8",
+    )
+    return source
+
+
 def test_generate_static_import_passes_structural_contract(tmp_path: Path) -> None:
     source = _source(tmp_path)
     destination = tmp_path / "Cube.import"
@@ -190,6 +342,143 @@ def test_generate_static_import_passes_structural_contract(tmp_path: Path) -> No
     assert not (destination / "settings.tm_buffers").exists()
     geometry = (destination / "geometry" / "Cube.tm_geometry").read_text()
     assert 'validity_hash: "2cfcf0b4ccf2dcd8"' in geometry
+
+
+def test_generate_multi_mesh_import_authors_each_resource_and_material(
+    tmp_path: Path,
+) -> None:
+    source = _multi_mesh_source(tmp_path)
+
+    destination = generate_static_import(source, tmp_path / "TwoMeshes.import")
+
+    report = build_report(
+        inspect_import(destination),
+        rcp_build="80.0.1.500.1",
+    )
+    assert report["record_types"]["tm_geometry"] == 2
+    assert report["record_types"]["tm_mesh_descriptor"] == 2
+    assert report["record_types"]["tm_mesh_resource"] == 2
+    assert report["record_types"]["tm_material"] == 2
+    assert report["counts"]["derived_or_unknown_hashed_buffers"] == 0
+    source_entity = (destination / "__TwoMeshes.tm_entity").read_text()
+    optimized_entity = (
+        destination / "__TwoMeshes_optimized.tm_entity"
+    ).read_text()
+    assert source_entity.count('__type: "tm_model_component"') == 2
+    assert optimized_entity.count('__type: "tm_model_component"') == 2
+    assert sorted(path.name for path in (destination / "meshes").glob("*.tm_mesh_resource")) == [
+        "Left.tm_mesh_resource",
+        "Right.tm_mesh_resource",
+    ]
+    assert sorted(path.name for path in (destination / "materials").glob("*.tm_material")) == [
+        "Blue.tm_material",
+        "Red.tm_material",
+    ]
+
+
+def test_generate_multi_mesh_import_reuses_shared_material(tmp_path: Path) -> None:
+    source = _multi_mesh_source(tmp_path, shared_material=True)
+
+    destination = generate_static_import(source, tmp_path / "Shared.import")
+
+    assert len(list((destination / "meshes").glob("*.tm_mesh_resource"))) == 2
+    assert [path.name for path in (destination / "materials").glob("*.tm_material")] == [
+        "Red.tm_material"
+    ]
+    material_uuid = re.search(
+        r'^__uuid: "([^"]+)"',
+        (destination / "materials" / "Red.tm_material").read_text(),
+        flags=re.MULTILINE,
+    )
+    assert material_uuid is not None
+    assert (
+        destination / "__TwoMeshes.tm_entity"
+    ).read_text().count(f'material: "{material_uuid.group(1)}"') == 2
+
+
+def test_generate_multi_mesh_import_is_deterministic(tmp_path: Path) -> None:
+    source = _multi_mesh_source(tmp_path)
+
+    first = generate_static_import(
+        source,
+        tmp_path / "First.import",
+        asset_name="TwoMeshes",
+    )
+    second = generate_static_import(
+        source,
+        tmp_path / "Second.import",
+        asset_name="TwoMeshes",
+    )
+
+    first_files = {
+        path.relative_to(first): path.read_bytes()
+        for path in first.rglob("*")
+        if path.is_file()
+    }
+    second_files = {
+        path.relative_to(second): path.read_bytes()
+        for path in second.rglob("*")
+        if path.is_file()
+    }
+    assert first_files == second_files
+
+
+def test_generate_multi_material_mesh_splits_faces_without_loss(
+    tmp_path: Path,
+) -> None:
+    source = _multi_material_source(tmp_path)
+
+    asset = load_static_asset(source)
+    assert len(asset.meshes) == 2
+    assert {mesh.material_name for mesh in asset.meshes} == {"Red", "Blue"}
+    assert all(mesh.face_counts == (3,) for mesh in asset.meshes)
+    assert sum(len(mesh.face_indices) for mesh in asset.meshes) == 6
+
+    destination = generate_static_import(source, tmp_path / "TwoMaterials.import")
+    assert sorted(path.name for path in (destination / "meshes").glob("*.tm_mesh_resource")) == [
+        "Panel_Blue.tm_mesh_resource",
+        "Panel_Red.tm_mesh_resource",
+    ]
+    entity = (destination / "__TwoMaterials.tm_entity").read_text()
+    assert entity.count('__type: "tm_model_component"') == 2
+
+
+def test_generate_multi_material_mesh_rejects_overlapping_subsets(
+    tmp_path: Path,
+) -> None:
+    source = _multi_material_source(tmp_path, overlap=True)
+    destination = tmp_path / "Overlap.import"
+
+    with pytest.raises(ImportGenerationError, match="overlapping material subsets"):
+        generate_static_import(source, destination)
+
+    assert not destination.exists()
+
+
+def test_generate_multi_mesh_import_rejects_unmeasured_animation(
+    tmp_path: Path,
+) -> None:
+    source = _multi_mesh_source(tmp_path)
+    source.write_text(
+        source.read_text().replace(
+            'def Xform "root"\n{',
+            '''def Xform "root"
+{
+    double3 xformOp:translate.timeSamples = {
+        1: (0, 0, 0),
+        2: (1, 0, 0),
+    }
+    uniform token[] xformOpOrder = ["xformOp:translate"]''',
+            1,
+        ),
+        encoding="utf-8",
+    )
+    destination = tmp_path / "AnimatedMulti.import"
+
+    with pytest.raises(ImportGenerationError, match="does not yet support animation"):
+        generate_static_import(source, destination)
+
+    assert not destination.exists()
 
 
 def test_generate_static_import_converts_rec709_material_to_aces2065(

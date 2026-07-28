@@ -634,11 +634,15 @@ blendertorcp --timeout 900 bake-export scene.blend -o /output/scene.usdz \
 
 For `RCP_IMPORT`, the output path is a directory and the command also publishes
 the post-processed `.usda` source beside it. This lane is pinned to RCP 3.0
-build `80.0.1.500.1`, currently requires the generator's one-mesh subset, and
-fails closed on unmeasured material texture roles. Baked RGBA base color
-(including merged opacity) is supported for all three bake modes; the
-`LIT_ALBEDO` path also supports its baked roughness map. Normal, metallic,
-occlusion, and independent opacity texture records remain unsupported.
+build `80.0.1.500.1`. Static scenes may contain multiple mesh objects, shared
+materials, and multiple face materials per USD mesh. Face-material subsets are
+split into separate RCP mesh resources so every generated model retains one
+measured material binding. Baked RGBA base color (including merged opacity) is
+supported per material for all three bake modes; the `LIT_ALBEDO` path also
+supports each material's baked roughness map. Normal, metallic, occlusion, and
+independent opacity texture records remain unsupported. Multi-mesh animation
+and multi-mesh skinning still fail closed pending their own build-80 acceptance
+fixtures.
 
 ```json
 {

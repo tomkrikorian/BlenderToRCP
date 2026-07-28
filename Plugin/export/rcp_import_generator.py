@@ -15,7 +15,7 @@ import re
 import struct
 import uuid
 from collections.abc import Iterable, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 RCP_VERSION = "3.0"
@@ -49,6 +49,19 @@ class MaterialTexture:
 
 
 @dataclass(frozen=True)
+class MaterialData:
+    key: str
+    name: str
+    base_color: tuple[float, float, float]
+    metallic: float
+    roughness: float
+    opacity: float
+    profile: str = "realitykit_pbr"
+    base_color_texture: MaterialTexture | None = None
+    roughness_texture: MaterialTexture | None = None
+
+
+@dataclass(frozen=True)
 class StaticMesh:
     asset_name: str
     root_name: str
@@ -73,6 +86,15 @@ class StaticMesh:
     base_color_texture: MaterialTexture | None = None
     roughness_texture: MaterialTexture | None = None
     skinning: SkinningData | None = None
+    material_key: str = ""
+    source_prim_path: str = ""
+
+
+@dataclass(frozen=True)
+class StaticAsset:
+    asset_name: str
+    root_name: str
+    meshes: tuple[StaticMesh, ...]
 
 
 @dataclass(frozen=True)
@@ -868,59 +890,22 @@ def _load_skinning(stage, mesh_prim, *, asset_name: str) -> SkinningData:
     )
 
 
-def load_static_mesh(source: str | Path, *, asset_name: str | None = None) -> StaticMesh:
-    """Load the fail-closed static subset from one USD stage."""
+def _load_material_data(
+    material,
+    *,
+    source_path: Path,
+    default_key: str = "__default__",
+) -> MaterialData:
+    """Read one measured material contract without mutating the USD stage."""
 
-    try:
-        from pxr import Gf, Usd, UsdGeom, UsdShade, UsdSkel
-    except ImportError as error:  # pragma: no cover - Blender/macOS provides USD
-        raise ImportGenerationError("Pixar USD Python bindings are required") from error
+    from pxr import Gf, Usd, UsdShade
 
-    source_path = Path(source).resolve()
-    stage = Usd.Stage.Open(str(source_path))
-    if stage is None:
-        raise ImportGenerationError(f"cannot open USD stage: {source_path}")
-    mesh_prims = [prim for prim in stage.Traverse() if prim.IsA(UsdGeom.Mesh)]
-    if len(mesh_prims) != 1:
-        raise ImportGenerationError(
-            f"build-80 static subset requires exactly one mesh, found {len(mesh_prims)}"
-        )
-    mesh_prim = mesh_prims[0]
-    resolved_asset_name = _safe_name(asset_name or source_path.stem, "Asset")
-    skinning = (
-        _load_skinning(stage, mesh_prim, asset_name=resolved_asset_name)
-        if mesh_prim.HasAPI(UsdSkel.BindingAPI)
-        else None
+    material_name = (
+        _safe_name(material.GetPrim().GetName(), "Material")
+        if material
+        else "Material"
     )
-    mesh_schema = UsdGeom.Mesh(mesh_prim)
-    points = tuple(tuple(float(c) for c in value) for value in mesh_schema.GetPointsAttr().Get())
-    face_counts = tuple(int(value) for value in mesh_schema.GetFaceVertexCountsAttr().Get())
-    face_indices = tuple(int(value) for value in mesh_schema.GetFaceVertexIndicesAttr().Get())
-    if not points or sum(face_counts) != len(face_indices):
-        raise ImportGenerationError("invalid or empty mesh topology")
-
-    normals_raw = mesh_schema.GetNormalsAttr().Get() or ()
-    if normals_raw:
-        normals = _face_varying_values(
-            normals_raw,
-            str(mesh_schema.GetNormalsInterpolation()),
-            face_counts,
-            face_indices,
-        )
-    else:
-        normals = _computed_face_normals(points, face_counts, face_indices)
-
-    st = UsdGeom.PrimvarsAPI(mesh_prim).GetPrimvar("st")
-    if st and st.HasValue():
-        uv_raw = st.ComputeFlattened() or ()
-        uvs = _face_varying_values(
-            uv_raw, str(st.GetInterpolation()), face_counts, face_indices
-        )
-    else:
-        uvs = tuple((0.0, 0.0) for _ in face_indices)
-
-    material = UsdShade.MaterialBindingAPI(mesh_prim).ComputeBoundMaterial()[0]
-    material_name = _safe_name(material.GetPrim().GetName(), "Material") if material else "Material"
+    material_key = str(material.GetPath()) if material else default_key
     linear_rec709 = Gf.ColorSpace(Gf.ColorSpaceNames.LinearRec709)
     linear_ap0 = Gf.ColorSpace(Gf.ColorSpaceNames.LinearAP0)
     base_color = tuple(
@@ -1025,13 +1010,13 @@ def load_static_mesh(source: str | Path, *, asset_name: str | None = None) -> St
                 f"{material_profile!r} for RCP {RCP_BUILD}"
             )
 
-        surface = material.ComputeSurfaceSource("mtlx")[0] or material.ComputeSurfaceSource()[0]
+        surface = (
+            material.ComputeSurfaceSource("mtlx")[0]
+            or material.ComputeSurfaceSource()[0]
+        )
         if surface:
             shader = UsdShade.Shader(surface)
-            for input_name, fallback in (
-                ("baseColor", base_color),
-                ("diffuseColor", base_color),
-            ):
+            for input_name in ("baseColor", "diffuseColor"):
                 shader_input = shader.GetInput(input_name)
                 if shader_input:
                     value = shader_input.Get()
@@ -1062,11 +1047,7 @@ def load_static_mesh(source: str | Path, *, asset_name: str | None = None) -> St
                             ).GetRGB()
                         )
                         break
-            for input_name, fallback in (
-                ("metallic", metallic),
-                ("roughness", roughness),
-                ("opacity", opacity),
-            ):
+            for input_name in ("metallic", "roughness", "opacity"):
                 shader_input = shader.GetInput(input_name)
                 value = shader_input.Get() if shader_input else None
                 if value is not None:
@@ -1076,6 +1057,73 @@ def load_static_mesh(source: str | Path, *, asset_name: str | None = None) -> St
                         roughness = float(value)
                     else:
                         opacity = float(value)
+
+    return MaterialData(
+        key=material_key,
+        name=material_name,
+        base_color=base_color,
+        metallic=metallic,
+        roughness=roughness,
+        opacity=opacity,
+        profile=material_profile,
+        base_color_texture=base_color_texture,
+        roughness_texture=roughness_texture,
+    )
+
+
+def load_static_mesh(source: str | Path, *, asset_name: str | None = None) -> StaticMesh:
+    """Load the legacy one-mesh contract from one USD stage."""
+
+    try:
+        from pxr import Usd, UsdGeom, UsdShade, UsdSkel
+    except ImportError as error:  # pragma: no cover - Blender/macOS provides USD
+        raise ImportGenerationError("Pixar USD Python bindings are required") from error
+
+    source_path = Path(source).resolve()
+    stage = Usd.Stage.Open(str(source_path))
+    if stage is None:
+        raise ImportGenerationError(f"cannot open USD stage: {source_path}")
+    mesh_prims = [prim for prim in stage.Traverse() if prim.IsA(UsdGeom.Mesh)]
+    if len(mesh_prims) != 1:
+        raise ImportGenerationError(
+            f"build-80 static subset requires exactly one mesh, found {len(mesh_prims)}"
+        )
+    mesh_prim = mesh_prims[0]
+    resolved_asset_name = _safe_name(asset_name or source_path.stem, "Asset")
+    skinning = (
+        _load_skinning(stage, mesh_prim, asset_name=resolved_asset_name)
+        if mesh_prim.HasAPI(UsdSkel.BindingAPI)
+        else None
+    )
+    mesh_schema = UsdGeom.Mesh(mesh_prim)
+    points = tuple(tuple(float(c) for c in value) for value in mesh_schema.GetPointsAttr().Get())
+    face_counts = tuple(int(value) for value in mesh_schema.GetFaceVertexCountsAttr().Get())
+    face_indices = tuple(int(value) for value in mesh_schema.GetFaceVertexIndicesAttr().Get())
+    if not points or sum(face_counts) != len(face_indices):
+        raise ImportGenerationError("invalid or empty mesh topology")
+
+    normals_raw = mesh_schema.GetNormalsAttr().Get() or ()
+    if normals_raw:
+        normals = _face_varying_values(
+            normals_raw,
+            str(mesh_schema.GetNormalsInterpolation()),
+            face_counts,
+            face_indices,
+        )
+    else:
+        normals = _computed_face_normals(points, face_counts, face_indices)
+
+    st = UsdGeom.PrimvarsAPI(mesh_prim).GetPrimvar("st")
+    if st and st.HasValue():
+        uv_raw = st.ComputeFlattened() or ()
+        uvs = _face_varying_values(
+            uv_raw, str(st.GetInterpolation()), face_counts, face_indices
+        )
+    else:
+        uvs = tuple((0.0, 0.0) for _ in face_indices)
+
+    material = UsdShade.MaterialBindingAPI(mesh_prim).ComputeBoundMaterial()[0]
+    material_data = _load_material_data(material, source_path=source_path)
 
     root_prim = stage.GetDefaultPrim()
     parent = mesh_prim.GetParent()
@@ -1104,26 +1152,344 @@ def load_static_mesh(source: str | Path, *, asset_name: str | None = None) -> St
         asset_name=resolved_asset_name,
         root_name=_safe_name(root_prim.GetName(), "root"),
         mesh_name=_safe_name(model_prim.GetName(), "Mesh"),
-        material_name=material_name,
+        material_name=material_data.name,
         points=points,
         face_counts=face_counts,
         face_indices=face_indices,
         face_uvs=tuple(tuple(value) for value in uvs),
         face_normals=tuple(tuple(value) for value in normals),
-        base_color=base_color,
-        metallic=metallic,
-        roughness=roughness,
-        opacity=opacity,
+        base_color=material_data.base_color,
+        metallic=material_data.metallic,
+        roughness=material_data.roughness,
+        opacity=material_data.opacity,
         root_translation=root_translation,
         root_rotation=root_rotation,
         root_scale=root_scale,
         mesh_translation=mesh_translation,
         mesh_rotation=mesh_rotation,
         mesh_scale=mesh_scale,
-        material_profile=material_profile,
-        base_color_texture=base_color_texture,
-        roughness_texture=roughness_texture,
+        material_profile=material_data.profile,
+        base_color_texture=material_data.base_color_texture,
+        roughness_texture=material_data.roughness_texture,
         skinning=skinning,
+        material_key=material_data.key,
+        source_prim_path=str(mesh_prim.GetPath()),
+    )
+
+
+def _unique_record_name(
+    candidate: str,
+    *,
+    used: set[str],
+    fallback: str,
+) -> str:
+    base = _safe_name(candidate, fallback)
+    name = base
+    suffix = 2
+    while name in used:
+        name = f"{base}_{suffix}"
+        suffix += 1
+    used.add(name)
+    return name
+
+
+def _face_corner_slices(
+    face_counts: Sequence[int],
+) -> tuple[tuple[int, int], ...]:
+    slices = []
+    start = 0
+    for count in face_counts:
+        end = start + int(count)
+        slices.append((start, end))
+        start = end
+    return tuple(slices)
+
+
+def load_static_asset(
+    source: str | Path,
+    *,
+    asset_name: str | None = None,
+) -> StaticAsset:
+    """Load a measured static asset with many meshes and material subsets.
+
+    Each USD material subset is emitted as its own RCP mesh resource. This uses
+    the RCP-authored multi-model entity contract while avoiding an invented
+    private material-index buffer layout.
+    """
+
+    try:
+        from pxr import Usd, UsdGeom, UsdShade, UsdSkel
+    except ImportError as error:  # pragma: no cover - Blender/macOS provides USD
+        raise ImportGenerationError("Pixar USD Python bindings are required") from error
+
+    source_path = Path(source).resolve()
+    stage = Usd.Stage.Open(str(source_path))
+    if stage is None:
+        raise ImportGenerationError(f"cannot open USD stage: {source_path}")
+    root_prim = stage.GetDefaultPrim()
+    if not root_prim:
+        raise ImportGenerationError("USD stage requires a defaultPrim")
+    mesh_prims = [prim for prim in stage.Traverse() if prim.IsA(UsdGeom.Mesh)]
+    if not mesh_prims:
+        raise ImportGenerationError("build-80 static subset requires at least one mesh")
+
+    has_material_subsets = any(
+        child.GetTypeName() == "GeomSubset"
+        and (
+            str(UsdGeom.Subset(child).GetFamilyNameAttr().Get() or "")
+            == "materialBind"
+            or bool(
+                UsdShade.MaterialBindingAPI(child).ComputeBoundMaterial()[0]
+            )
+        )
+        for mesh_prim in mesh_prims
+        for child in mesh_prim.GetChildren()
+    )
+    if len(mesh_prims) == 1 and not has_material_subsets:
+        mesh = load_static_mesh(source_path, asset_name=asset_name)
+        return StaticAsset(
+            asset_name=mesh.asset_name,
+            root_name=mesh.root_name,
+            meshes=(mesh,),
+        )
+
+    resolved_asset_name = _safe_name(asset_name or source_path.stem, "Asset")
+    for op in UsdGeom.Xformable(root_prim).GetOrderedXformOps():
+        if op.GetAttr().GetNumTimeSamples():
+            raise ImportGenerationError(
+                "build-80 multi-mesh subset does not yet support animation"
+            )
+    root_translation, root_rotation, root_scale = _local_transform(root_prim)
+    used_mesh_names: set[str] = set()
+    used_material_names: set[str] = set()
+    materials_by_key: dict[str, MaterialData] = {}
+    meshes: list[StaticMesh] = []
+
+    def material_data(material) -> MaterialData:
+        key = str(material.GetPath()) if material else "__default__"
+        existing = materials_by_key.get(key)
+        if existing is not None:
+            return existing
+        loaded = _load_material_data(
+            material,
+            source_path=source_path,
+            default_key=key,
+        )
+        loaded = replace(
+            loaded,
+            name=_unique_record_name(
+                loaded.name,
+                used=used_material_names,
+                fallback="Material",
+            ),
+        )
+        loaded = replace(
+            loaded,
+            base_color_texture=(
+                replace(
+                    loaded.base_color_texture,
+                    name=f"{loaded.name}_{loaded.base_color_texture.name}",
+                )
+                if loaded.base_color_texture is not None
+                else None
+            ),
+            roughness_texture=(
+                replace(
+                    loaded.roughness_texture,
+                    name=f"{loaded.name}_{loaded.roughness_texture.name}",
+                )
+                if loaded.roughness_texture is not None
+                else None
+            ),
+        )
+        materials_by_key[key] = loaded
+        return loaded
+
+    for mesh_prim in mesh_prims:
+        if mesh_prim.HasAPI(UsdSkel.BindingAPI):
+            raise ImportGenerationError(
+                "build-80 multi-mesh subset does not yet support skinning"
+            )
+        mesh_schema = UsdGeom.Mesh(mesh_prim)
+        if mesh_schema.GetPointsAttr().GetNumTimeSamples():
+            raise ImportGenerationError(
+                "build-80 multi-mesh subset does not support deforming points"
+            )
+        for op in UsdGeom.Xformable(mesh_prim).GetOrderedXformOps():
+            if op.GetAttr().GetNumTimeSamples():
+                raise ImportGenerationError(
+                    "build-80 multi-mesh subset does not yet support animation"
+                )
+
+        points = tuple(
+            tuple(float(component) for component in value)
+            for value in (mesh_schema.GetPointsAttr().Get() or ())
+        )
+        face_counts = tuple(
+            int(value) for value in (mesh_schema.GetFaceVertexCountsAttr().Get() or ())
+        )
+        face_indices = tuple(
+            int(value) for value in (mesh_schema.GetFaceVertexIndicesAttr().Get() or ())
+        )
+        if not points or sum(face_counts) != len(face_indices):
+            raise ImportGenerationError(
+                f"invalid or empty mesh topology on {mesh_prim.GetPath()}"
+            )
+        normals_raw = mesh_schema.GetNormalsAttr().Get() or ()
+        if normals_raw:
+            normals = _face_varying_values(
+                normals_raw,
+                str(mesh_schema.GetNormalsInterpolation()),
+                face_counts,
+                face_indices,
+            )
+        else:
+            normals = _computed_face_normals(points, face_counts, face_indices)
+        st = UsdGeom.PrimvarsAPI(mesh_prim).GetPrimvar("st")
+        if st and st.HasValue():
+            uvs = _face_varying_values(
+                st.ComputeFlattened() or (),
+                str(st.GetInterpolation()),
+                face_counts,
+                face_indices,
+            )
+        else:
+            uvs = tuple((0.0, 0.0) for _ in face_indices)
+
+        parent = mesh_prim.GetParent()
+        if parent == root_prim:
+            model_prim = mesh_prim
+        elif (
+            parent.GetParent() == root_prim
+            and parent.IsA(UsdGeom.Xform)
+            and len(tuple(parent.GetChildren())) == 1
+        ):
+            model_prim = parent
+        else:
+            raise ImportGenerationError(
+                "build-80 multi-mesh subset requires each mesh directly below "
+                "defaultPrim or inside a single-mesh object Xform"
+            )
+        for op in UsdGeom.Xformable(model_prim).GetOrderedXformOps():
+            if op.GetAttr().GetNumTimeSamples():
+                raise ImportGenerationError(
+                    "build-80 multi-mesh subset does not yet support animation"
+                )
+        mesh_translation, mesh_rotation, mesh_scale = _local_transform(model_prim)
+
+        direct_material = UsdShade.MaterialBindingAPI(
+            mesh_prim
+        ).ComputeBoundMaterial()[0]
+        direct_data = material_data(direct_material) if direct_material else None
+        face_materials: list[MaterialData | None] = [direct_data] * len(face_counts)
+        assigned_faces: set[int] = set()
+        for child in mesh_prim.GetChildren():
+            if child.GetTypeName() != "GeomSubset":
+                continue
+            subset = UsdGeom.Subset(child)
+            family_name = str(subset.GetFamilyNameAttr().Get() or "")
+            subset_material = UsdShade.MaterialBindingAPI(
+                child
+            ).ComputeBoundMaterial()[0]
+            if family_name != "materialBind" and not subset_material:
+                continue
+            if str(subset.GetElementTypeAttr().Get() or "") != "face":
+                raise ImportGenerationError(
+                    f"material subset {child.GetPath()} must target faces"
+                )
+            if not subset_material:
+                raise ImportGenerationError(
+                    f"material subset {child.GetPath()} has no bound material"
+                )
+            subset_data = material_data(subset_material)
+            for value in subset.GetIndicesAttr().Get() or ():
+                face_index = int(value)
+                if face_index < 0 or face_index >= len(face_counts):
+                    raise ImportGenerationError(
+                        f"material subset {child.GetPath()} has invalid face "
+                        f"index {face_index}"
+                    )
+                if face_index in assigned_faces:
+                    raise ImportGenerationError(
+                        f"overlapping material subsets on face {face_index} of "
+                        f"{mesh_prim.GetPath()}"
+                    )
+                assigned_faces.add(face_index)
+                face_materials[face_index] = subset_data
+
+        grouped_faces: dict[str, tuple[MaterialData, list[int]]] = {}
+        for face_index, assigned_material in enumerate(face_materials):
+            if assigned_material is None:
+                assigned_material = material_data(None)
+            group = grouped_faces.setdefault(
+                assigned_material.key,
+                (assigned_material, []),
+            )
+            group[1].append(face_index)
+
+        corner_slices = _face_corner_slices(face_counts)
+        model_base_name = _safe_name(model_prim.GetName(), "Mesh")
+        split_materials = len(grouped_faces) > 1
+        for assigned_material, selected_faces in grouped_faces.values():
+            selected_counts = tuple(face_counts[index] for index in selected_faces)
+            selected_indices = tuple(
+                face_indices[corner]
+                for face_index in selected_faces
+                for corner in range(*corner_slices[face_index])
+            )
+            selected_uvs = tuple(
+                tuple(uvs[corner])
+                for face_index in selected_faces
+                for corner in range(*corner_slices[face_index])
+            )
+            selected_normals = tuple(
+                tuple(normals[corner])
+                for face_index in selected_faces
+                for corner in range(*corner_slices[face_index])
+            )
+            candidate_name = (
+                f"{model_base_name}_{assigned_material.name}"
+                if split_materials
+                else model_base_name
+            )
+            mesh_name = _unique_record_name(
+                candidate_name,
+                used=used_mesh_names,
+                fallback="Mesh",
+            )
+            meshes.append(
+                StaticMesh(
+                    asset_name=resolved_asset_name,
+                    root_name=_safe_name(root_prim.GetName(), "root"),
+                    mesh_name=mesh_name,
+                    material_name=assigned_material.name,
+                    points=points,
+                    face_counts=selected_counts,
+                    face_indices=selected_indices,
+                    face_uvs=selected_uvs,
+                    face_normals=selected_normals,
+                    base_color=assigned_material.base_color,
+                    metallic=assigned_material.metallic,
+                    roughness=assigned_material.roughness,
+                    opacity=assigned_material.opacity,
+                    root_translation=root_translation,
+                    root_rotation=root_rotation,
+                    root_scale=root_scale,
+                    mesh_translation=mesh_translation,
+                    mesh_rotation=mesh_rotation,
+                    mesh_scale=mesh_scale,
+                    material_profile=assigned_material.profile,
+                    base_color_texture=assigned_material.base_color_texture,
+                    roughness_texture=assigned_material.roughness_texture,
+                    material_key=assigned_material.key,
+                    source_prim_path=str(mesh_prim.GetPath()),
+                )
+            )
+
+    return StaticAsset(
+        asset_name=resolved_asset_name,
+        root_name=_safe_name(root_prim.GetName(), "root"),
+        meshes=tuple(meshes),
     )
 
 
@@ -2452,6 +2818,97 @@ __asset_labels: [
 ]'''
 
 
+def _multi_entity_record(
+    asset: StaticAsset,
+    ids: _Ids,
+    mesh_ids: dict[str, _Ids],
+    material_ids: dict[str, _Ids],
+    *,
+    optimized: bool,
+) -> str:
+    """Render the measured many-model entity shape without optimizer merging."""
+
+    prefix = "optimized" if optimized else "source"
+    first_mesh = asset.meshes[0]
+    root_transform = _transform_component(
+        ids,
+        f"{prefix}.root_transform",
+        first_mesh,
+        True,
+    )
+    children = []
+    for index, mesh in enumerate(asset.meshes):
+        mesh_scope = mesh_ids[mesh.mesh_name]
+        material_scope = material_ids[mesh.material_key]
+        label = f"{prefix}.mesh.{index}"
+        mesh_transform = _transform_component(
+            ids,
+            f"{label}.transform",
+            mesh,
+            False,
+        )
+        children.append(
+            f'''\t\t\t{{
+\t\t\t\t__uuid: "{ids(f"{label}.entity")}"
+\t\t\t\tname: "{mesh.mesh_name}"
+\t\t\t\tcomponents: [
+\t\t\t\t\t{mesh_transform}
+\t\t\t\t\t{{
+\t\t\t\t\t\t__type: "tm_model_component"
+\t\t\t\t\t\t__uuid: "{ids(f"{label}.model_component")}"
+\t\t\t\t\t\tmesh_resource: {{
+\t\t\t\t\t\t\t__type: "tm_mesh_resource_reference"
+\t\t\t\t\t\t\t__uuid: "{ids(f"{label}.mesh_reference")}"
+\t\t\t\t\t\t\tmesh_resource: "{mesh_scope("mesh_resource")}"
+\t\t\t\t\t\t}}
+\t\t\t\t\t\tmaterials: [
+\t\t\t\t\t\t\t{{
+\t\t\t\t\t\t\t\t__uuid: "{ids(f"{label}.material_binding")}"
+\t\t\t\t\t\t\t\tname: "{mesh.mesh_name}"
+\t\t\t\t\t\t\t\tmaterial: "{material_scope("material")}"
+\t\t\t\t\t\t\t}}
+\t\t\t\t\t\t]
+\t\t\t\t\t}}
+\t\t\t\t]
+\t\t\t}}'''
+        )
+    children_text = "\n".join(children)
+    return f'''__type: "tm_entity"
+__uuid: "{ids(f"{prefix}.entity")}"
+name: "/"
+components: [
+\t{{
+\t\t__type: "tm_transform_component"
+\t\t__uuid: "{ids(f"{prefix}.scene_transform.component")}"
+\t\tlocal_position_double: {{
+\t\t\t__uuid: "{ids(f"{prefix}.scene_transform.position")}"
+\t\t}}
+\t\tlocal_rotation: {{
+\t\t\t__uuid: "{ids(f"{prefix}.scene_transform.rotation")}"
+\t\t}}
+\t\tlocal_scale: {{
+\t\t\t__uuid: "{ids(f"{prefix}.scene_transform.scale")}"
+\t\t}}
+\t}}
+]
+children: [
+\t{{
+\t\t__uuid: "{ids(f"{prefix}.root")}"
+\t\tname: "{asset.root_name}"
+\t\tcomponents: [
+\t\t\t{root_transform}
+\t\t]
+\t\tchildren: [
+{children_text}
+\t\t]
+\t}}
+]
+__asset_uuid: "{ids(f"{prefix}.asset")}"
+__asset_labels: [
+\t"2cbc16a459dc040f"
+]'''
+
+
 def _skeletal_source_entity_record(mesh: StaticMesh, ids: _Ids) -> str:
     skinning = mesh.skinning
     if skinning is None:
@@ -3148,6 +3605,171 @@ properties: {{
 __asset_uuid: "{ids("skeletal.armature_transform.clip.asset")}"'''
 
 
+def _generate_multi_static_import(
+    source_path: Path,
+    destination_path: Path,
+    asset: StaticAsset,
+) -> Path:
+    """Generate the measured many-model static package."""
+
+    identity = hashlib.sha256(source_path.read_bytes()).hexdigest()
+    ids = _Ids(f"{RCP_BUILD}|{identity}|{asset.asset_name}")
+    mesh_ids = {
+        mesh.mesh_name: _Ids(
+            f"{RCP_BUILD}|{identity}|{asset.asset_name}|mesh|"
+            f"{mesh.source_prim_path}|{mesh.mesh_name}"
+        )
+        for mesh in asset.meshes
+    }
+    material_meshes: dict[str, StaticMesh] = {}
+    for mesh in asset.meshes:
+        material_meshes.setdefault(mesh.material_key, mesh)
+    material_ids = {
+        key: _Ids(
+            f"{RCP_BUILD}|{identity}|{asset.asset_name}|material|{key}"
+        )
+        for key in material_meshes
+    }
+
+    destination_path.mkdir(parents=True)
+    try:
+        mesh_buffers = {
+            mesh.mesh_name: _write_mesh_buffers(
+                destination_path,
+                mesh,
+                mesh_ids[mesh.mesh_name],
+            )
+            for mesh in asset.meshes
+        }
+        for key, mesh in material_meshes.items():
+            material_scope = material_ids[key]
+            for texture in (
+                mesh.base_color_texture,
+                mesh.roughness_texture,
+            ):
+                if texture is not None:
+                    _write_texture_buffer(
+                        destination_path,
+                        texture,
+                        material_scope,
+                    )
+
+        root_dir_id = ids("directory.root")
+        first_mesh = asset.meshes[0]
+        records = {
+            f"{asset.asset_name}.tm_entity": _proxy_record(first_mesh, ids),
+            f"__{asset.asset_name}.tm_entity": _multi_entity_record(
+                asset,
+                ids,
+                mesh_ids,
+                material_ids,
+                optimized=False,
+            ),
+            f"__{asset.asset_name}_optimized.tm_entity": _multi_entity_record(
+                asset,
+                ids,
+                mesh_ids,
+                material_ids,
+                optimized=True,
+            ),
+            "__tm_directory.tm_dir": _directory_record(
+                ids,
+                "directory.root",
+                f"{asset.asset_name}.import",
+                None,
+            ),
+            "settings.tm_usd": _settings_record(
+                first_mesh,
+                ids,
+                os.path.relpath(source_path, destination_path.parent).replace(
+                    os.sep,
+                    "/",
+                ),
+                animation=None,
+                animation_buffers=None,
+                skeletal_buffers=None,
+            ),
+            "geometry/__tm_directory.tm_dir": _directory_record(
+                ids,
+                "directory.geometry",
+                "geometry",
+                root_dir_id,
+            ),
+            "materials/__tm_directory.tm_dir": _directory_record(
+                ids,
+                "directory.materials",
+                "materials",
+                root_dir_id,
+            ),
+            "mesh_descriptors/__tm_directory.tm_dir": _directory_record(
+                ids,
+                "directory.mesh_descriptors",
+                "mesh_descriptors",
+                root_dir_id,
+            ),
+            "meshes/__tm_directory.tm_dir": _directory_record(
+                ids,
+                "directory.meshes",
+                "meshes",
+                root_dir_id,
+            ),
+        }
+        for mesh in asset.meshes:
+            mesh_scope = mesh_ids[mesh.mesh_name]
+            buffers = mesh_buffers[mesh.mesh_name]
+            records.update(
+                {
+                    f"geometry/{mesh.mesh_name}.tm_geometry": _geometry_record(
+                        mesh,
+                        mesh_scope,
+                        buffers,
+                    ),
+                    (
+                        f"mesh_descriptors/{mesh.mesh_name}.tm_mesh_descriptor"
+                    ): _mesh_descriptor_record(mesh, mesh_scope, buffers),
+                    f"meshes/{mesh.mesh_name}.tm_mesh_resource": (
+                        _mesh_resource_record(mesh, mesh_scope)
+                    ),
+                }
+            )
+        has_textures = False
+        for key, mesh in material_meshes.items():
+            material_scope = material_ids[key]
+            records[f"materials/{mesh.material_name}.tm_material"] = (
+                _material_record(mesh, material_scope)
+            )
+            for texture in (
+                mesh.base_color_texture,
+                mesh.roughness_texture,
+            ):
+                if texture is None:
+                    continue
+                has_textures = True
+                records[f"textures/{texture.name}.tm_texture"] = _texture_record(
+                    texture,
+                    material_scope,
+                    source_path=source_path,
+                )
+        if has_textures:
+            records["textures/__tm_directory.tm_dir"] = _directory_record(
+                ids,
+                "directory.textures",
+                "textures",
+                root_dir_id,
+            )
+
+        for relative_path, text in records.items():
+            output = destination_path / relative_path
+            output.parent.mkdir(parents=True, exist_ok=True)
+            output.write_text(text, encoding="utf-8")
+    except Exception:
+        import shutil
+
+        shutil.rmtree(destination_path, ignore_errors=True)
+        raise
+    return destination_path
+
+
 def generate_static_import(
     source: str | Path,
     destination: str | Path,
@@ -3165,7 +3787,10 @@ def generate_static_import(
     if destination_path.exists():
         raise ImportGenerationError(f"refusing to overwrite {destination_path}")
 
-    mesh = load_static_mesh(source_path, asset_name=asset_name)
+    asset = load_static_asset(source_path, asset_name=asset_name)
+    if len(asset.meshes) > 1:
+        return _generate_multi_static_import(source_path, destination_path, asset)
+    mesh = asset.meshes[0]
     animation = (
         None if mesh.skinning is not None else load_transform_animation(source_path, mesh)
     )

@@ -11,7 +11,7 @@ Blender add-on to export USD/USDZ and rewrite Blender materials into Reality Com
 - Portable exports: textures and auxiliary assets are staged next to the USD and rewritten to relative paths.
 - Animation compatibility: actions can be concatenated for export; Reality Composer Pro clip-library metadata is opt-in for editor workflows.
 - Profile-driven texture baking: the single Blender Export button runs baking in a second process when the selected material type requires it, writes status/log files, and keeps the UI responsive.
-- Experimental, build-pinned Reality Composer Pro 3 `.import` generation for the validated one-mesh static, transform-animation, and skeletal subsets. Baked base-color/opacity and roughness texture payloads are supported within that same strict one-mesh boundary.
+- Experimental, build-pinned Reality Composer Pro 3 `.import` generation for static multi-mesh and multi-material assets, plus the existing single-mesh transform-animation and skeletal subsets. Baked base-color/opacity and roughness texture payloads are supported per material. Multi-material USD meshes are split into measured one-material RCP mesh resources without losing faces; multi-mesh animation and skinning remain fail-closed pending separate RCP acceptance.
 - Shader authoring helpers: insert RealityKit PBR or Unlit node groups, browse a generated RealityKit node menu, and validate active materials in the Shader Editor.
 
 ## Important note

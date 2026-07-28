@@ -313,15 +313,26 @@ class _BakeProgressReporter:
 
 def _apply_settings(scene_settings, data: dict) -> None:
     prop_defs = {prop.identifier for prop in scene_settings.bl_rna.properties}
-    for key, value in data.items():
-        if key in _APPLY_SETTINGS_SKIP_KEYS:
-            continue
-        if key not in prop_defs:
-            continue
-        try:
-            setattr(scene_settings, key, value)
-        except Exception:
-            continue
+    previous_suspension = bool(
+        getattr(scene_settings, "persist_suspended", False)
+    )
+    try:
+        # A fresh worker scene may not yet carry the versioned settings stamp.
+        # Running RNA update callbacks while replaying the payload can therefore
+        # make the first assignment reset itself to the default. It also has no
+        # business persisting a disposable worker job into user preferences.
+        scene_settings.persist_suspended = True
+        for key, value in data.items():
+            if key in _APPLY_SETTINGS_SKIP_KEYS:
+                continue
+            if key not in prop_defs:
+                continue
+            try:
+                setattr(scene_settings, key, value)
+            except Exception:
+                continue
+    finally:
+        scene_settings.persist_suspended = previous_suspension
 
 
 def _select_objects(names):
@@ -411,6 +422,12 @@ def main() -> int:
         return 1
 
     scene_settings = bpy.context.scene.blender_to_rcp_export_settings
+    # Stamp a pristine worker scene before replaying values. Otherwise the
+    # first later RNA update (for example filepath) sees unstamped saved keys
+    # and the strict profile migration correctly—but undesirably for a fresh
+    # worker—resets the entire payload to defaults.
+    settings_prefs = _import_package_module("prefs")
+    settings_prefs.ensure_current_export_settings_scene_profile(scene_settings)
     _apply_settings(scene_settings, payload.get("export_settings", {}))
     if "success_diagnostics_enabled" not in payload:
         success_diagnostics_enabled = bool(

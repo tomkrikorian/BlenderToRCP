@@ -71,3 +71,46 @@ def test_snapshot_load_mismatch_fails_closed_and_preserves_snapshot(tmp_path, mo
         raise AssertionError("snapshot mismatch did not fail closed")
 
     assert snapshot.is_file()
+
+
+def test_worker_replays_settings_with_persistence_suspended(tmp_path, monkeypatch):
+    runner = _load_runner(monkeypatch, tmp_path / "scene.blend")
+
+    class Settings:
+        def __init__(self):
+            object.__setattr__(
+                self,
+                "bl_rna",
+                SimpleNamespace(
+                    properties=[
+                        SimpleNamespace(identifier="persist_suspended"),
+                        SimpleNamespace(identifier="export_format"),
+                        SimpleNamespace(identifier="bake_mode"),
+                    ]
+                ),
+            )
+            object.__setattr__(self, "persist_suspended", False)
+            object.__setattr__(self, "export_format", "USDA")
+            object.__setattr__(self, "bake_mode", "LIT_IBL")
+            object.__setattr__(self, "assignment_suspension", [])
+
+        def __setattr__(self, key, value):
+            if key in {"export_format", "bake_mode"}:
+                self.assignment_suspension.append(self.persist_suspended)
+            object.__setattr__(self, key, value)
+
+    settings = Settings()
+    runner._apply_settings(
+        settings,
+        {
+            "export_format": "RCP_IMPORT",
+            "bake_mode": "UNLIT_ALBEDO",
+            "unknown": "ignored",
+        },
+    )
+
+    assert settings.export_format == "RCP_IMPORT"
+    assert settings.bake_mode == "UNLIT_ALBEDO"
+    assert settings.assignment_suspension == [True, True]
+    assert settings.persist_suspended is False
+    assert not hasattr(settings, "unknown")

@@ -141,10 +141,12 @@ Missing, unpacked external images fail before baking with `MISSING_EXTERNAL_TEXT
 
 `RCP_IMPORT` publishes the post-processed USDA beside the generated `.import`
 directory. The writer is pinned to RCP 3.0 build `80.0.1.500.1`, currently
-requires one mesh, supports the baked RGBA base-color/opacity payload used by
-all three bake modes and the `LIT_ALBEDO` roughness map, and fails closed on
-unmeasured texture roles such as normal, metallic, occlusion, or a separate
-opacity image.
+supports static multi-mesh scenes, shared materials, and multiple face
+materials. Material subsets are split into measured one-material mesh
+resources. It supports each material's baked RGBA base-color/opacity payload
+in all three bake modes and the `LIT_ALBEDO` roughness map, and fails closed on
+multi-mesh animation/skinning or unmeasured texture roles such as normal,
+metallic, occlusion, or a separate opacity image.
 
 Any export setting key can also be passed as a positional override (same as `export`), e.g. `export-animation=true`.
 

@@ -126,10 +126,15 @@ python -m Plugin.cli \
   -o /path/to/RedCube.import
 ```
 
-The generator currently accepts exactly one unskinned mesh directly below the
-USD default prim or inside Blender 5.2's single-mesh object Xform wrapper.
-Unsupported topology, interpolation, hierarchy, or skinning fails closed and
-removes the incomplete destination.
+The static generator accepts one or more unskinned meshes directly below the
+USD default prim or inside Blender 5.2's per-object, single-mesh Xform wrappers.
+It deduplicates shared material records. A USD mesh with `materialBind`
+`GeomSubset` face assignments is split into one generated mesh resource per
+material, preserving the selected faces, UVs, normals, object transform, and
+material binding without inventing a private material-index buffer.
+Overlapping/out-of-range subsets, unsupported topology/interpolation/hierarchy,
+and multi-mesh animation or skinning fail closed and remove the incomplete
+destination.
 
 ### Baked material extension
 
@@ -147,11 +152,32 @@ as the build-80 contract:
 - `LIT_ALBEDO` uses the measured RealityKit PBR base-color graph and may add its
   baked roughness texture.
 
-The bounded writer currently accepts one baked RGBA base-color image (its alpha
-contains the bake pipeline's merged opacity) and, for Lit PBR, one roughness
-image. Normal, metallic, occlusion, independent opacity images, unknown filename
-roles, multiple base-color images, and unmeasured surface profiles fail closed.
-The existing one-mesh geometry limit still applies.
+The bounded writer accepts one baked RGBA base-color image per material (its
+alpha contains the bake pipeline's merged opacity) and, for Lit PBR, one
+roughness image per material. Different mesh/material pairs may therefore
+produce independent texture records, while meshes that genuinely share the
+same USD material reuse one material record. Normal, metallic, occlusion,
+independent opacity images, unknown filename roles, multiple base-color images
+within one material, and unmeasured surface profiles fail closed.
+
+Disposable Blender/CLI multi-asset runs use a three-object corpus containing
+two shared procedural materials and one object with two face materials:
+
+- `UNLIT_ALBEDO` generated four split mesh resources, four materials, four
+  textures, 30 records, and 32 content-hashed buffers;
+- `LIT_ALBEDO` generated four split mesh resources, four materials, eight
+  textures, 34 records, and 36 content-hashed buffers;
+- direct `RCP_IMPORT` export of the equivalent compatible flat-material scene
+  generated four mesh resources and two deduplicated material records;
+- the Blender UI background-worker path reached terminal `done`, consumed its
+  disposable scene snapshot, published the adjacent USDA, and produced the same
+  30-record/32-buffer unlit package shape;
+- USDA, USDC, and USDZ bake exports retained three USD meshes, four baked
+  material records, and both material subsets.
+
+Every structural inspection reported zero derived or unknown hashed buffers.
+RCP open/save/reopen and visual/runtime acceptance of the generated multi-model
+packages is still required before this extension can be called RCP-compatible.
 
 Disposable Blender/CLI runs cover all three bake modes: textured
 `UNLIT_ALBEDO` generated 15 records/8 buffers, textured `LIT_ALBEDO` generated
