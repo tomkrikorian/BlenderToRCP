@@ -141,14 +141,29 @@ Missing, unpacked external images fail before baking with `MISSING_EXTERNAL_TEXT
 
 `RCP_IMPORT` publishes the post-processed USDA beside the generated `.import`
 directory. The writer is pinned to RCP 3.0 build `80.0.1.500.1`, currently
-supports static multi-mesh scenes, shared materials, and multiple face
-materials. Material subsets are split into measured one-material mesh
-resources. It supports each material's baked RGBA base-color/opacity payload
-in all three bake modes and the `LIT_ALBEDO` roughness map, and fails closed on
-multi-mesh animation/skinning or unmeasured texture roles such as normal,
-metallic, occlusion, or a separate opacity image.
+supports static multi-mesh scenes and shared materials, and structurally
+generates single- or multi-mesh skeletal inputs that share the measured rig,
+skeleton, and animation contract. Multi-mesh skeletal RCP reimport and Sequence
+Editor acceptance remain pending.
+
+Meshes with multiple face materials currently use one generated mesh resource
+per material. The split representation preserves geometry, skin weights, and
+appearance and passes source-runtime checks, but it is not RCP-compatible: a
+second genuine reimport duplicates resources and RCP authors a different
+combined descriptor with nested `subsets`. Do not claim multi-material
+compatibility until the measured one-descriptor subset writer passes two
+non-growing reimports. Baked RGBA base-color/opacity works per material in all
+three bake modes, and `LIT_ALBEDO` supports roughness maps. Multi-mesh transform
+animation, mixed rig/skeleton contracts, and unmeasured texture roles such as
+normal, metallic, occlusion, or a separate opacity image fail closed.
 
 Any export setting key can also be passed as a positional override (same as `export`), e.g. `export-animation=true`.
+
+`author-animation-library=true` is experimental editor metadata. RCP 3 build
+`80.0.1.500.1` recognizes the schema but flattens authored named clip
+definitions to the aggregate animation during supported USD import. Leave it
+off for ordinary RealityKit runtime exports and do not promise that it
+preserves Blender Action names in RCP.
 
 ### Settings
 
@@ -261,7 +276,7 @@ fi
 
 ## Common setting keys
 
-**Export:** `export_format` (USDA/USDC/USDZ), `root_prim_name`, `export_animation`, `selected_objects_only`
+**Export:** `export_format` (USDA/USDC/USDZ/RCP_IMPORT), `root_prim_name`, `export_animation`, `selected_objects_only`
 
 **Texture:** `export_texture_settings_enabled`, `bake_resolution` (ORIGINAL/512/1024/2048/4096/CUSTOM), `bake_image_format` (ORIGINAL/AVIF/PNG), `bake_margin`
 

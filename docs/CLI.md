@@ -447,7 +447,7 @@ This command does not require a `.blend` file. It prints the schema for all expo
 
 ### `export`
 
-Export the scene to USD or USDZ.
+Export the scene to USD, USDZ, or the experimental RCP 3 `.import` directory.
 
 ```bash
 blendertorcp export <file.blend> [setting=value ...] -o <output_path> [options]
@@ -464,7 +464,7 @@ blendertorcp export <file.blend> [setting=value ...] -o <output_path> [options]
 
 | Flag | Description |
 |------|-------------|
-| `--format <FORMAT>` | Override export format: `USDA`, `USDC`, `USDZ` |
+| `--format <FORMAT>` | Override export format: `USDA`, `USDC`, `USDZ`, or experimental `RCP_IMPORT` |
 | `--selected-only` | Export selected objects only |
 | `--diagnostics` | Keep `<output>.diagnostics.json` after a successful export |
 | `--no-diagnostics` | Do not keep success diagnostics, even if enabled by settings. Failures still write diagnostics |
@@ -495,6 +495,11 @@ blendertorcp export scene.blend \
   export-animation=true \
   -o /output/scene.usda \
   --selected-only
+
+# Experimental RCP3 private package plus its adjacent USDA source
+blendertorcp export scene.blend \
+  -o /output/scene.import \
+  --format RCP_IMPORT
 ```
 
 Every export uses the non-configurable Apple spatial contract: Blender's
@@ -634,15 +639,27 @@ blendertorcp --timeout 900 bake-export scene.blend -o /output/scene.usdz \
 
 For `RCP_IMPORT`, the output path is a directory and the command also publishes
 the post-processed `.usda` source beside it. This lane is pinned to RCP 3.0
-build `80.0.1.500.1`. Static scenes may contain multiple mesh objects, shared
-materials, and multiple face materials per USD mesh. Face-material subsets are
-split into separate RCP mesh resources so every generated model retains one
-measured material binding. Baked RGBA base color (including merged opacity) is
-supported per material for all three bake modes; the `LIT_ALBEDO` path also
-supports each material's baked roughness map. Normal, metallic, occlusion, and
-independent opacity texture records remain unsupported. Multi-mesh animation
-and multi-mesh skinning still fail closed pending their own build-80 acceptance
-fixtures.
+build `80.0.1.500.1`. Static scenes may contain multiple mesh objects and
+shared materials. Single- or multi-mesh skeletal inputs are structurally
+generated only when every mesh shares the measured rig, skeleton, and
+animation contract; the multi-mesh skeletal lane still needs its own RCP
+reimport and Sequence Editor acceptance.
+
+A USD mesh with multiple face materials is currently split into one generated
+RCP mesh resource per material. That representation preserves faces, UVs,
+normals, skin weights, and material appearance, opens and renders in RCP, and
+passes public RealityKit source-runtime checks. It is not RCP-compatible yet:
+the second genuine reimport duplicates resources and RCP authors a different
+combined descriptor with nested `subsets`. The next writer must use the
+measured one-descriptor subset representation documented in
+[`RCP_IMPORT_MULTI_MATERIAL_MESH.md`](RCP_IMPORT_MULTI_MATERIAL_MESH.md), then
+pass two non-growing reimports.
+
+Baked RGBA base color (including merged opacity) is supported per material for
+all three bake modes; `LIT_ALBEDO` also supports each material's baked
+roughness map. Normal, metallic, occlusion, and independent opacity texture
+records remain unsupported. Multi-mesh transform animation and mixed rig or
+skeleton contracts fail closed.
 
 ```json
 {
@@ -769,7 +786,7 @@ Complete list of every export setting that can be read with `settings get`, writ
 | Key | Type | Values | Default |
 |-----|------|--------|---------|
 | `filepath` | string | file path | `""` |
-| `export_format` | enum | `USDA`, `USDC`, `USDZ` | `USDA` |
+| `export_format` | enum | `USDA`, `USDC`, `USDZ`, `RCP_IMPORT` | `USDA` |
 | `root_prim_name` | string | USD prim path | `/root` |
 
 ### General
@@ -783,6 +800,13 @@ Complete list of every export setting that can be read with `settings get`, writ
 | `custom_properties_namespace` | string | any | `userProperties` |
 | `author_blender_name` | bool | `true`, `false` | `true` |
 | `allow_unicode` | bool | `true`, `false` | `true` |
+
+`author_animation_library` is experimental editor metadata. On the pinned RCP
+3 build `80.0.1.500.1`, supported USD import recognizes the
+`RealityKit.AnimationLibrary` schema but flattens authored named clip
+definitions to the aggregate animation. Leave it disabled for ordinary
+RealityKit runtime exports and do not rely on it to preserve Blender Action
+names in RCP.
 
 ### Transform
 

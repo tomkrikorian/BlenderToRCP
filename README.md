@@ -9,9 +9,9 @@ Blender add-on to export USD/USDZ and rewrite Blender materials into Reality Com
 - Strict material validation: unsupported nodes fail export with copy/pasteable errors instead of silently degrading.
 - RealityKit material rewrite: supported Blender shader graphs are rewritten into MaterialX graphs that Reality Composer Pro can edit.
 - Portable exports: textures and auxiliary assets are staged next to the USD and rewritten to relative paths.
-- Animation compatibility: actions can be concatenated for export; Reality Composer Pro clip-library metadata is opt-in for editor workflows.
+- Animation compatibility: actions can be concatenated for export. Reality Composer Pro clip-library metadata is experimental and opt-in; RCP 3 build `80.0.1.500.1` flattens authored named clip definitions to the aggregate animation during supported USD import.
 - Profile-driven texture baking: the single Blender Export button runs baking in a second process when the selected material type requires it, writes status/log files, and keeps the UI responsive.
-- Experimental, build-pinned Reality Composer Pro 3 `.import` generation for static multi-mesh and multi-material assets, single-mesh transform animation, and single- or multi-mesh skeletal assets that share one skeleton and animation contract. Baked base-color/opacity and roughness texture payloads are supported per material. Static and skinned USD meshes with face-material subsets are split into measured one-material RCP mesh resources without losing faces or skin weights. The new multi-mesh skeletal lane is structurally validated but remains fail-closed and is not an RCP compatibility claim until its clean import, save/reopen, reimport, playback, and RealityKit runtime gates pass.
+- Experimental, build-pinned Reality Composer Pro 3 `.import` generation for static multi-mesh assets, single-mesh transform animation, and single- or multi-mesh skeletal assets that share one skeleton and animation contract. Baked base-color/opacity and roughness payloads are supported per material. Multiple face materials are generated with a temporary split-resource representation that opens and renders, but it fails the second-reimport idempotence gate; canonical subset writing and the remaining skeletal/editor gates are not compatibility claims.
 - Shader authoring helpers: insert RealityKit PBR or Unlit node groups, browse a generated RealityKit node menu, and validate active materials in the Shader Editor.
 
 ## Important note
@@ -26,7 +26,9 @@ corpus used to measure the private `.import` format. `.import` generation is
 experimental and pinned to RCP 3.0 build `80.0.1.500.1`; it is not an Apple
 published interchange format. See
 [`docs/RCP_IMPORT_EXPERIMENT.md`](docs/RCP_IMPORT_EXPERIMENT.md) for its exact
-acceptance status and fail-closed boundaries.
+acceptance status and fail-closed boundaries. The measured requirements for
+one mesh with multiple materials are documented separately in
+[`docs/RCP_IMPORT_MULTI_MATERIAL_MESH.md`](docs/RCP_IMPORT_MULTI_MATERIAL_MESH.md).
 
 The shipping material profile is `realitykit_portable`, which authors the established RealityKit PBR v1 surface and is the mandatory CI path. `realitykit_pbr2` and `openpbr_1_1` are explicit experimental profiles for OS 27 investigation; they are not production compatibility claims or release gates.
 
@@ -283,7 +285,6 @@ Notes:
 The add-on preferences expose:
 - `USDZ Packager Path`: optional path to `usdzip`. If empty, the add-on uses the built-in Python packager.
 - `MaterialX Library Path`: optional override for MaterialX definitions. If empty, the add-on uses the bundled references.
-- `Default Export Format`
 
 The add-on also persists the last-used export settings and remembers export paths per `.blend` file. That state lives in Blender preferences, not in the repository.
 
@@ -292,7 +293,7 @@ The Blender panel has one Export button. Choose `RealityKit PBR` or `RealityKit 
 - Root prim naming, selection-only export, animation export, and custom property authoring.
 - Name, Unicode, and transform-op controls.
 - Geometry and rigging controls such as triangulation, subdivision, armatures, deform bones, and shape keys.
-- `USD Export: Texture` can be enabled to resize textures or transcode them to AVIF/PNG during `Export Scene`; when disabled, the exporter keeps Apple-compatible AVIF, PNG, JPEG, and OpenEXR inputs in their source encoding and transcodes other LDR image formats to PNG. OpenEXR is always preserved byte-for-byte and ignores resize/format overrides to protect float/HDR data. Radiance HDR (`.hdr`) fails with guidance to convert it to OpenEXR.
+- `Optimization > Optimize Source Textures` can be enabled to resize textures or transcode them to AVIF/PNG during direct PBR export; when disabled, the exporter keeps Apple-compatible AVIF, PNG, JPEG, and OpenEXR inputs in their source encoding and transcodes other LDR image formats to PNG. OpenEXR is always preserved byte-for-byte and ignores resize/format overrides to protect float/HDR data. Radiance HDR (`.hdr`) fails with guidance to convert it to OpenEXR.
 - Material validation fails closed by default. `Normalize Unsupported Values` is an explicit export-only exception for one safe case: an unlinked, constant, achromatic Principled `Specular Tint` above `1` is clamped to white. Colored or linked values still stop export. The source material and `.blend` are never modified; diagnostics record the source and exported values.
 - Failed exports always write `<output>.diagnostics.json`. `Keep Success Diagnostics` retains the same report after successful exports.
 
@@ -324,10 +325,10 @@ Operational details:
 
 Bake modes:
 - `Material Color Only - Unlit` (`UNLIT_ALBEDO`): bakes light-independent material color and rewrites the exported materials as RealityKit Unlit materials, shown as-is and ignoring scene lighting. Blender shadows are not baked.
-- `Material Color Only - Lit PBR` (`LIT_ALBEDO`): bakes the same light-independent material color but authors Lit PBR materials so Reality Composer Pro or RealityKit lights the baked color. Blender shadows are not baked. The `Roughness` option under `Advanced Bake Options` chooses between a baked per-texel roughness map and a single averaged roughness value.
+- `Material Color Only - Lit PBR` (`LIT_ALBEDO`): bakes the same light-independent material color but authors Lit PBR materials so Reality Composer Pro or RealityKit lights the baked color. Blender shadows are not baked. When `RealityKit PBR > Bake Materials` is selected, the `Roughness` option in `Material Settings` chooses between a baked per-texel roughness map and a single averaged roughness value.
 - `Lighting & Shadows` (`LIT_IBL`, default): bakes the appearance under the selected lighting source, then still exports the final materials as RealityKit Unlit materials with lighting and shadows encoded into textures. Use this when the USDZ should match the Blender preview.
 - `Isolate Meshes for Shadows`: hides non-target meshes during lighting-and-shadows bakes to avoid cross-mesh shadow contribution.
-- `USD Export: Texture`: opt in to applying the shared texture resolution, image format, and bake margin settings. For `Export Scene`, `Original` keeps Apple-compatible AVIF, PNG, JPEG, and OpenEXR encodings and `Keep Original` leaves source dimensions untouched; unsupported LDR inputs are normalized to PNG. OpenEXR always bypasses overrides, while Radiance HDR must be converted to OpenEXR first. AVIF textures are written natively by Blender.
+- `Optimization`: sets bake resolution, image format, and margin for baked routes. For direct PBR export, `Optimize Source Textures` enables maximum-resolution and format overrides; `Original` keeps Apple-compatible AVIF, PNG, JPEG, and OpenEXR encodings and `Keep Original` leaves source dimensions untouched. Unsupported LDR inputs are normalized to PNG. OpenEXR always bypasses overrides, while Radiance HDR must be converted to OpenEXR first. AVIF textures are written natively by Blender.
 
 ## Material authoring and diagnostics
 BlenderToRCP is not export-only. The Shader Editor integration also supports:
