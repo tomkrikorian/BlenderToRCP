@@ -6,8 +6,11 @@ implemented behind the experimental `RCP_IMPORT` Blender/CLI format. The
 skeletal generator now produces an artifact that renders and passes the three
 previously failing build-80 Truth loader paths after adding the required
 skeleton-hierarchy `__asset_uuid`. RCP save/reopen persistence now passes for
-the controlled candidate. It is not accepted yet: reimport, clip playback, and
-public RealityKit runtime gates remain. See
+the controlled candidate. The 12-mesh/13-material Robot candidate also opens,
+saves, and reopens, but its second genuine reimport is not idempotent: RCP
+duplicates the generated resources and authors a different multi-material mesh
+shape. It is not accepted yet: canonical face subsets, clip playback, and a
+public RealityKit handoff from RCP-authored output remain. See
 [the skeletal checkpoint](RCP_IMPORT_SKELETAL_CHECKPOINT.md) before resuming.
 
 ## Decision
@@ -186,6 +189,42 @@ compilation. Public RealityKit 27 loaded the compiled artifact with 13
 `ShaderGraphMaterial` instances, the `Animation` library key,
 `MeshDeformerComponent`, `SkeletalPosesComponent`, and the same finite,
 nonempty Robot bounds as the one-material-per-source-mesh baseline.
+
+RCP 3 build `80.0.1.500.1` then established the current multi-material
+compatibility boundary in a disposable project:
+
+- clean open, save, close, and reopen completed with `world Ready` and
+  `Tasks: None`;
+- the first RCP save retained 83 records and all 140 opaque payloads, while
+  canonicalizing record bytes and buffer filenames;
+- the first genuine **Editor > Reimport** produced 83 records and 139 buffers,
+  added RCP's external `matched_skeleton_hierarchies` result, and removed one
+  12-byte settings buffer;
+- a second genuine reimport was not idempotent. The package grew to 147
+  records and 306 buffers, including 25 geometry records, 25 mesh
+  descriptors, 26 mesh resources, and 26 materials. RCP retained the
+  writer's per-material partitions, added `(1)` duplicates for the source
+  meshes, and authored one combined body descriptor with two `subsets`
+  entries and face-index buffers.
+
+The two reimport phases therefore do **not** validate the current strategy of
+representing one USD mesh with multiple face materials as independent RCP mesh
+resources. RCP's canonical form keeps one mesh descriptor and records material
+partitions in its nested `subsets` field. The inspector recognizes
+`matched_skeleton_hierarchies` and `subsets` only as measured RCP-authored
+fields; the writer must not synthesize either until their UUID and opaque
+buffer contracts have been independently reproduced.
+
+Each reimport of the unmodified Blender-authored source emitted 13
+`Unknown color space <private> encountered` warnings, one per baked texture.
+Two controlled source-only A/B runs removed the shader ColorSpaceAPI or mapped
+`srgb_rec709_display` to `srgb_texture`. Both suppressed the warnings, but
+both converged to the exact same 83-record/139-buffer first-reimport package as
+the unmodified source. Color-space metadata is therefore a separate cleanup
+item, not the cause of the resource-duplication failure. RCP's import preview
+also changed between magenta matching visualization and the textured
+black/white model across phases, so preview color alone is not accepted as a
+material-runtime proof.
 
 The Robot run also established three Blender-specific compatibility rules:
 time-sampled UV index primvars are evaluated at the stage start time; individual
@@ -514,11 +553,13 @@ python scripts/validate_rcp_import_acceptance.py \
    replaces on save.
 3. Translation animation buffers and clip records are implemented. The
    controlled skeletal source's joint transforms, skinning, scene-tree tables,
-   and named clips are implemented, but the resulting package still triggers
-   three RCP internal errors. General rotation, scale, multiple animated nodes,
-   and arbitrary skeletons remain outside the validated subset.
-4. UUID lifetime rules now show a stable clean phase and a stable reimport
-   phase, but the opaque skeletal canonicalization between them is unexplained.
+   and named clips open and render in RCP. General rotation, scale, multiple
+   animated nodes, and arbitrary skeletons remain outside the validated subset.
+4. UUID lifetime rules show stable clean and first-reimport phases for the
+   single-mesh corpus. The multi-material Robot candidate instead duplicates
+   resources on its second reimport because the writer partitions one source
+   mesh into multiple descriptors rather than authoring RCP's canonical nested
+   `subsets` representation.
 5. RCP may enforce hidden version/build migrations or invariants beyond the text
    records.
 6. RCP 3 demonstrably flattens the named
@@ -538,19 +579,22 @@ python scripts/validate_rcp_import_acceptance.py \
    open/save/reopen acceptance are complete for cube topology. A different
    triangle topology confirms that the accepted bootstrap validity value
    generalizes inside the strict static subset.
-3. **Baked texture writer (implemented, RCP acceptance pending):** all three
-   bake modes pass the Blender/CLI and structural gates for one mesh. Repeat
-   clean import, save/reopen, reimport, visual, and RealityKit runtime checks
-   before widening the texture-role subset.
+3. **Baked texture writer (implemented, single-material RCP acceptance
+   pending):** all three bake modes pass the Blender/CLI and structural gates
+   for one mesh. Multi-mesh/single-material source shapes pass supported USD
+   compilation and RealityKit runtime checks. A mesh with multiple face
+   materials remains experimental-only because the second RCP reimport
+   duplicates resources.
 4. **Transform generator (implemented, final acceptance in progress):** the
    aggregate sampled timeline, translation/time buffers, entity component, and
    four named clip records pass RCP open/save. Reopen, Sequence Editor, and
    playback evidence remain required.
 5. **Skeletal generator (rendering, not accepted):** the controlled hierarchy,
    definition, binding, sampled timeline, scene-tree buffers, and four named
-   clip records are generated. Resume with the record-group differential
-   procedure in `RCP_IMPORT_SKELETAL_CHECKPOINT.md`; do not widen the input
-   subset until the clean-shell console gate passes.
+   clip records are generated. Next, model one mesh with multiple materials as
+   a single descriptor with RCP-authored `subsets`, prove its face-index buffer
+   layout from controlled fixtures, and require two idempotent reimports before
+   enabling that input shape as compatible.
 6. **Acceptance automation:** retain reproducible RCP open/reimport captures;
    extend the RealityKit probe from bounds/resource discovery to controlled
    playback duration only for clips that RCP actually exposes.

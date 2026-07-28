@@ -1,6 +1,6 @@
 # RCP skeletal `.import` checkpoint
 
-Checkpoint date: 2026-07-26
+Checkpoint date: 2026-07-28
 
 Branch: `experiment/rcp-import-export`, based on `origin/dev`
 
@@ -21,6 +21,11 @@ clips. The current float32-normalized v3 output separately passes clean RCP
 load and the same public runtime checks; its two reimports remain to be
 repeated. Sequence Editor playback and a second structurally distinct skeletal
 fixture also remain open.
+
+The later 12-mesh/13-material Robot bake is a separate profile. It passes
+clean open/save/reopen and the supported-source RealityKit checks, but fails
+the two-reimport idempotence gate described below. Do not transfer the
+single-mesh v2 acceptance claim to that profile.
 
 ## Where work stopped
 
@@ -166,6 +171,38 @@ could not bind an imported root without first authoring a project-owned
 Prototype/root entity. Therefore the four timeline records and public runtime
 keys are proven, but Sequence Editor range display and visual playback are not.
 
+## Multi-material Robot reimport boundary
+
+The disposable Robot acceptance project is:
+
+`/private/tmp/blendertorcp-rcp-skinned-multimat.bEqumx/SkinnedMultiMaterialAcceptance.realitycomposerpro`
+
+Immutable phase captures are retained under its sibling `snapshots`
+directory. The generated phase had 83 records and 140 known buffers. RCP's
+first reimport canonicalized it to 83 records and 139 buffers and added
+`matched_skeleton_hierarchies`. The second reimport grew it to 147 records and
+306 buffers:
+
+- 25 geometry records;
+- 25 mesh descriptors;
+- 26 mesh resources;
+- 26 material records;
+- 23 texture records;
+- two skeleton hierarchy records and three timelines.
+
+RCP retained the generated per-material body descriptors, added `(1)`
+duplicates for source meshes, and authored a combined body descriptor with
+two `subsets` entries. This is a failed idempotence gate, not volatile UUID
+churn. The captured subset records contain material paths, face counts, and
+references to new opaque face-index buffers. Those buffers and their resource
+links must be decoded from controlled RCP-authored fixtures before the writer
+uses this representation.
+
+The 13 source color-space warnings are not the cause. Removing the per-texture
+ColorSpaceAPI or mapping its token to `srgb_texture` suppressed the warnings,
+but both A/B runs produced the exact same first-reimport package as the
+unmodified source.
+
 ## Clean-control evidence
 
 Acceptance probes used only disposable projects under `/private/tmp`; the
@@ -267,23 +304,31 @@ an exporter.
 
 ## Exact next steps
 
-1. Complete two `Editor > Reimport` cycles on the float32-normalized v3
+1. Decode the RCP-authored `subsets` contract from the preserved Robot
+   second-reimport capture: face-index buffer element type/order, material
+   index/default rules, descriptor/resource UUID references, and cleanup
+   behavior.
+2. Replace per-material mesh partitioning with one descriptor per source mesh
+   plus measured subsets. Generate into a fresh disposable project and require
+   two exact, non-growing reimports before describing multi-material support as
+   compatible.
+3. Complete two `Editor > Reimport` cycles on the float32-normalized v3
    candidate and require the same structural, opaque-payload, UUID, and
    runtime invariants recorded for v2.
-2. In a disposable project, create a project-owned Prototype/root entity from
+4. In a disposable project, create a project-owned Prototype/root entity from
    the generated asset, bind it as the Sequence Root Entity, then capture the
    displayed ranges and playback evidence for `Agree_Gesture`, `Running`,
    `Walking`, and `walking_2`.
-3. Add a second controlled skeletal fixture with materially different joint
+5. Add a second controlled skeletal fixture with materially different joint
    hierarchy, topology, animation length, and clip partitioning while retaining
    the explicit build-80 profile. The generator now has a deterministic
    multi-mesh scaffold measured from the local 12-mesh `Robot`/`RobotUnlit`
    records. The real `Robot.blend` background bake/CLI path now generates a
    structurally valid 12-mesh/12-material/12-texture package, but that scaffold
    still needs its own committed acceptance manifest and RCP acceptance.
-4. Repeat clean load, save/reopen, two reimports, Sequence Editor, `realitytool`,
+6. Repeat clean load, save/reopen, two reimports, Sequence Editor, `realitytool`,
    and public RealityKit bounds/component/animation checks for that fixture.
-5. Only after both fixtures pass may the skeletal subset be described as a
+7. Only after both fixtures pass may the skeletal subset be described as a
    staging writer. The multi-mesh contract must remain tied to the separately
    measured Robot optimizer/source records rather than inferred from the
    single-mesh corpus.

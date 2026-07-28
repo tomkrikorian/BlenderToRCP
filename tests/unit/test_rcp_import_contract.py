@@ -175,6 +175,49 @@ def test_observed_texture_record_is_accepted(tmp_path: Path) -> None:
     assert report["record_types"]["tm_texture"] == 1
 
 
+def test_rcp_authored_skeleton_match_result_is_accepted(tmp_path: Path) -> None:
+    root = _fixture(tmp_path, "skeletal")
+    definition = root / "skeletons" / "root.tm_skeleton_definition"
+    definition.write_text(
+        definition.read_text().replace(
+            "__asset_uuid:",
+            'matched_skeleton_hierarchies: [\n'
+            f'\t"{_uuid()}"\n'
+            "]\n"
+            "__asset_uuid:",
+        ),
+        encoding="utf-8",
+    )
+
+    report = build_report(inspect_import(root, expected_profile="skeletal"))
+
+    assert report["record_types"]["tm_skeleton_definition"] == 1
+
+
+def test_rcp_authored_mesh_subsets_are_accepted(tmp_path: Path) -> None:
+    root = _fixture(tmp_path, "skeletal")
+    descriptor = root / "mesh_descriptors" / "Mesh.tm_mesh_descriptor"
+    descriptor.write_text(
+        descriptor.read_text().replace(
+            "attributes:",
+            "subsets: [\n"
+            "\t{\n"
+            f'\t\t__uuid: "{_uuid()}"\n'
+            '\t\tname: "/root/Mesh/Material"\n'
+            f'\t\tface_indices: "{_uuid()}"\n'
+            "\t\tface_count: 1\n"
+            "\t}\n"
+            "]\n"
+            "attributes:",
+        ),
+        encoding="utf-8",
+    )
+
+    report = build_report(inspect_import(root, expected_profile="skeletal"))
+
+    assert report["record_types"]["tm_mesh_descriptor"] == 1
+
+
 def test_static_profile_rejects_timeline(tmp_path: Path) -> None:
     root = _fixture(tmp_path, "transform")
 

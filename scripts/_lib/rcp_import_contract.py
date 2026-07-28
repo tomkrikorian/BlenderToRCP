@@ -82,6 +82,10 @@ TOP_LEVEL_FIELDS: dict[str, frozenset[str]] = {
             "face_vertex_counts",
             "indices",
             "attributes",
+            # RCP 3 build 80 authors face-material partitions here during
+            # reimport.  The writer does not synthesize this field until its
+            # nested buffer/UUID contract is independently understood.
+            "subsets",
             "skinning_data",
             "__asset_uuid",
         }
@@ -131,7 +135,17 @@ TOP_LEVEL_FIELDS: dict[str, frozenset[str]] = {
         {"__type", "__uuid", "name", "joints", "__asset_uuid"}
     ),
     "tm_skeleton_definition": frozenset(
-        {"__type", "__uuid", "skeleton hierarchy", "__asset_uuid"}
+        {
+            "__type",
+            "__uuid",
+            "skeleton hierarchy",
+            # RCP 3 build 80 adds this external matching result on skeletal
+            # reimport.  The referenced UUID is not defined by the .import
+            # record graph, so it remains inspector-only and must never be
+            # synthesized by the writer.
+            "matched_skeleton_hierarchies",
+            "__asset_uuid",
+        }
     ),
 }
 
