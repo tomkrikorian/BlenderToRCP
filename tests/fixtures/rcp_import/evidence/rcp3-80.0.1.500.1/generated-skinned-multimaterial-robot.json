@@ -77,9 +77,70 @@
     "map_shader_token_to_srgb_texture": "warnings_removed_same_reimport_1_package",
     "conclusion": "not_the_resource_duplication_cause"
   },
+  "measured_subset_contract": {
+    "capture_phase": "reimport_2",
+    "descriptor": {
+      "name": "robot_mesh_mesh_export_body_PLY",
+      "uuid": "8c6a3e73-8069-56c8-e1d8-5174490f930b",
+      "asset_uuid": "3b37ca8e-1335-d446-6ca7-413ff72c983c",
+      "vertex_count": 6207,
+      "face_count": 10576,
+      "face_vertex_index_count": 31728,
+      "subset_count": 2
+    },
+    "resource_graph": {
+      "geometry_uuid": "f21f2875-b518-ac84-32fb-0b28e9f880ed",
+      "mesh_resource_uuid": "1486cf5f-23c5-6b53-986a-39139fa8c834",
+      "one_model_component": true,
+      "material_slot_order_matches_subsets": true
+    },
+    "encoding": {
+      "element": "little_endian_uint32_face_ordinal",
+      "filename_suffix": "build_80_buffer_content_hash",
+      "exact_source_geomsubset_match": true,
+      "subsets_disjoint": true,
+      "subsets_exhaust_all_faces": true
+    },
+    "subsets": [
+      {
+        "slot": 0,
+        "index_field": "omitted",
+        "name_suffix": "rig_skin_robot_mesh_mesh_export_pxrusdpreviewsurface5sg1_Baked",
+        "face_count": 5288,
+        "first_face_indices": [0, 2, 4, 6, 8, 10],
+        "last_face_indices": [10564, 10566, 10568, 10570, 10572, 10574],
+        "buffer_uuid": "f2d68fb8-8acc-66be-f7d3-874f241a1ee5",
+        "byte_count": 21152,
+        "content_hash": "4a8de932ee2a86de",
+        "sha256": "ced46dbe2402e54882bf5aa88c183498ca03344a500a472900470c47fe0bfe76"
+      },
+      {
+        "slot": 1,
+        "index_field": 1,
+        "name_suffix": "RobotBodyAccent_Baked",
+        "face_count": 5288,
+        "first_face_indices": [1, 3, 5, 7, 9, 11],
+        "last_face_indices": [10565, 10567, 10569, 10571, 10573, 10575],
+        "buffer_uuid": "b0ebc681-dfb7-988b-4fdc-cac2df64c71f",
+        "byte_count": 21152,
+        "content_hash": "4e7733cf5da2e75a",
+        "sha256": "933e6f863c1419a766d7fdb119403640944aebca12345305954f9fbe38ffebcd"
+      }
+    ],
+    "unmeasured": [
+      "unassigned_faces",
+      "non_exhaustive_or_overlapping_subsets",
+      "empty_subsets",
+      "three_or_more_material_slots",
+      "sparse_or_reordered_slots",
+      "shared_materials",
+      "large_face_index_width",
+      "different_rcp_builds"
+    ]
+  },
   "failure": {
     "gate": "two_reimports_are_idempotent",
     "reason": "RCP retained per-material mesh partitions, duplicated source resources, and authored a combined descriptor with nested material subsets.",
-    "next_safe_step": "Decode the RCP-authored subset face-index buffers and resource graph before changing the writer."
+    "next_safe_step": "Implement the measured two-slot subset representation behind the build-80 fail-closed experiment, then require two non-growing reimports."
   }
 }

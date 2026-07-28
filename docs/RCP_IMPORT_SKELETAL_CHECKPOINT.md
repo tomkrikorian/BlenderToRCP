@@ -304,14 +304,15 @@ an exporter.
 
 ## Exact next steps
 
-1. Decode the RCP-authored `subsets` contract from the preserved Robot
-   second-reimport capture: face-index buffer element type/order, material
-   index/default rules, descriptor/resource UUID references, and cleanup
-   behavior.
-2. Replace per-material mesh partitioning with one descriptor per source mesh
-   plus measured subsets. Generate into a fresh disposable project and require
-   two exact, non-growing reimports before describing multi-material support as
-   compatible.
+1. Implement the bounded two-slot contract captured in
+   [the multi-material mesh note](RCP_IMPORT_MULTI_MATERIAL_MESH.md): one full
+   descriptor per source mesh, one content-hashed little-endian 32-bit
+   face-index buffer per subset, and matching model-material slot order.
+2. Generate into a fresh disposable project and require two exact, non-growing
+   reimports before describing multi-material support as compatible. Keep
+   unassigned/overlapping faces, empty or sparse slots, three-plus materials,
+   shared materials, and different RCP builds fail-closed until separately
+   measured.
 3. Complete two `Editor > Reimport` cycles on the float32-normalized v3
    candidate and require the same structural, opaque-payload, UUID, and
    runtime invariants recorded for v2.

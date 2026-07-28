@@ -11,7 +11,9 @@ saves, and reopens, but its second genuine reimport is not idempotent: RCP
 duplicates the generated resources and authors a different multi-material mesh
 shape. It is not accepted yet: canonical face subsets, clip playback, and a
 public RealityKit handoff from RCP-authored output remain. See
-[the skeletal checkpoint](RCP_IMPORT_SKELETAL_CHECKPOINT.md) before resuming.
+[the skeletal checkpoint](RCP_IMPORT_SKELETAL_CHECKPOINT.md) and the
+[measured multi-material mesh contract](RCP_IMPORT_MULTI_MATERIAL_MESH.md)
+before resuming.
 
 ## Decision
 
@@ -214,6 +216,18 @@ partitions in its nested `subsets` field. The inspector recognizes
 `matched_skeleton_hierarchies` and `subsets` only as measured RCP-authored
 fields; the writer must not synthesize either until their UUID and opaque
 buffer contracts have been independently reproduced.
+
+The preserved second-reimport capture now establishes the bounded subset
+payload contract. Each of the two descriptor subsets points to a
+content-hashed buffer containing little-endian 32-bit face ordinals. The 5,288
+entries in each buffer exactly match the corresponding source USDA
+`GeomSubset.indices`; the two arrays are disjoint and exhaust all 10,576
+faces. The combined model component references one mesh resource and carries
+two materials in matching slot order. See
+[the multi-material mesh contract](RCP_IMPORT_MULTI_MATERIAL_MESH.md) for
+record identities, hashes, implementation requirements, unsupported cases,
+and the acceptance plan. This makes a bounded staging implementation possible,
+but does not change the failed compatibility status.
 
 Each reimport of the unmodified Blender-authored source emitted 13
 `Unknown color space <private> encountered` warnings, one per baked texture.
@@ -559,7 +573,8 @@ python scripts/validate_rcp_import_acceptance.py \
    single-mesh corpus. The multi-material Robot candidate instead duplicates
    resources on its second reimport because the writer partitions one source
    mesh into multiple descriptors rather than authoring RCP's canonical nested
-   `subsets` representation.
+   `subsets` representation. The controlled two-slot subset payload and
+   resource graph are now measured, but not implemented or reimport-accepted.
 5. RCP may enforce hidden version/build migrations or invariants beyond the text
    records.
 6. RCP 3 demonstrably flattens the named
@@ -591,10 +606,10 @@ python scripts/validate_rcp_import_acceptance.py \
    playback evidence remain required.
 5. **Skeletal generator (rendering, not accepted):** the controlled hierarchy,
    definition, binding, sampled timeline, scene-tree buffers, and four named
-   clip records are generated. Next, model one mesh with multiple materials as
-   a single descriptor with RCP-authored `subsets`, prove its face-index buffer
-   layout from controlled fixtures, and require two idempotent reimports before
-   enabling that input shape as compatible.
+   clip records are generated. Next, implement the measured representation of
+   one mesh with multiple materials as a single descriptor with `subsets` and
+   content-hashed 32-bit face-index buffers, then require two idempotent
+   reimports before enabling that input shape as compatible.
 6. **Acceptance automation:** retain reproducible RCP open/reimport captures;
    extend the RealityKit probe from bounds/resource discovery to controlled
    playback duration only for clips that RCP actually exposes.
