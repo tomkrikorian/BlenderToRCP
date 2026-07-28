@@ -20,3 +20,8 @@ dist/
 
 # Test output
 tests/tmp/
+.pytest_cache/
+
+# RCP .import research fixtures: opaque buffer payloads stay local.
+# See docs/RCP_IMPORT_EXPERIMENT.md — these are regenerated, never committed.
+*.import/
