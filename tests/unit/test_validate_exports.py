@@ -24,6 +24,37 @@ def test_collect_inputs_includes_usdz_and_treats_rkassets_as_one_unit(tmp_path):
     assert validate_exports._collect_inputs(tmp_path) == [bundle, package]
 
 
+def test_collect_inputs_ignores_directories_with_usd_file_suffixes(tmp_path):
+    scene = tmp_path / "Robot.usdc"
+    scene.write_bytes(b"binary")
+    texture_cache = tmp_path / "textures" / "Robot.usdc"
+    texture_cache.mkdir(parents=True)
+    (texture_cache / "albedo.png").write_bytes(b"texture")
+
+    assert validate_exports._collect_inputs(tmp_path) == [scene]
+
+
+def test_compile_output_stems_disambiguate_formats_with_same_stem(tmp_path):
+    usdc = tmp_path / "RedCube.usdc"
+    usdz = tmp_path / "RedCube.usdz"
+    usdc.write_bytes(b"binary")
+    usdz.write_bytes(b"package")
+
+    stems = validate_exports._compile_output_stems([usdc, usdz])
+
+    assert stems == {
+        usdc: "RedCube-usdc",
+        usdz: "RedCube-usdz",
+    }
+
+
+def test_compile_output_stems_preserve_unique_historical_name(tmp_path):
+    scene = tmp_path / "RedCube.usdc"
+    scene.write_bytes(b"binary")
+
+    assert validate_exports._compile_output_stems([scene]) == {scene: None}
+
+
 def test_nodedef_lint_detects_unknown_ids():
     lint = validate_exports._lint_usd_text(
         'token info:id = "ND_not_in_manifest"\noutputs:mtlx:surface.connect',

@@ -1,0 +1,33 @@
+__type: "tm_texture"
+__uuid: "3a5e33e3-3555-f0b4-1527-056bbc352c86"
+source_filename: "/Users/tkrmax/Documents/git/BlenderToRCP/References/RealityComposerProProject/Sources/RealityComposerProProject/RealityComposerProProject.rkassets/Export/MeshyRiggedCharacter/textures/texture_0_617726e3.png"
+source_texture: "e8a28428-0839-7788-fa89-aa5c8fa1fc8f"
+transform: "6b5fd8e4eec2cf5b"
+transform_settings: {
+	__uuid: "65a41cd2-8652-94de-76d1-7ec113ee817e"
+	__prototype_type: "tm_creation_graph"
+	__prototype_uuid: "565f9a46-b719-d76a-7eaa-36e7faaddc5f"
+	graph: {
+		__uuid: "991304ab-a63a-0d35-b612-0a6d8e7b791b"
+		__prototype_type: "tm_graph"
+		__prototype_uuid: "31ddc72a-62d2-0d6e-83b1-392db7f56278"
+		interface: {
+			__uuid: "063c6e44-9f19-6e7a-0d27-8c621645b90d"
+			__prototype_type: "tm_graph_interface"
+			__prototype_uuid: "fafb8c6f-264f-0609-fc29-68fbe0d040c1"
+		}
+	}
+}
+color_space: {
+	__uuid: "929f54a7-1b9b-9aee-172b-c66657ab3788"
+	color_primary: 1
+	transfer_function: 2
+	color_model: 1
+}
+__asset_uuid: "507622ac-2726-382f-975d-f46624177f84"
+__asset_labels: [
+	"e4bec38d8f73f423"
+]
+__asset_thumbnail: {
+	__uuid: "ebaa4096-2937-17f2-c60c-fa1773e77eb1"
+}

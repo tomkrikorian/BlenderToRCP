@@ -15,7 +15,7 @@ import signal
 from pathlib import Path
 
 import bpy
-from bpy.props import StringProperty
+from bpy.props import BoolProperty, StringProperty
 from bpy.types import Operator
 from bpy_extras.io_utils import ExportHelper
 
@@ -37,7 +37,51 @@ _SERIALIZED_SETTINGS_SKIP_KEYS = {
     "background_job_dir",
     "background_job_pid",
     "filepath",
+    "ui_material_type",
+    "ui_pbr_processing",
+    "ui_unlit_appearance",
 }
+
+
+def _write_prelaunch_failure_diagnostics(
+    context,
+    settings,
+    message: str,
+    *,
+    code: str,
+    details=None,
+) -> str | None:
+    """Best-effort diagnostics for failures before the worker can start."""
+    filepath = str(getattr(settings, "filepath", "") or "").strip()
+    if not filepath:
+        return None
+    diagnostics_path = Path(filepath).with_suffix(".diagnostics.json")
+    try:
+        from ..export.diagnostics import ExportDiagnostics
+        from ..export.support_bundle import collect_environment, collect_scene_snapshot
+
+        diag = ExportDiagnostics()
+        diag.set_export_context(
+            command="ui_background_bake_export",
+            resolved_output_path=filepath,
+            export_format=getattr(settings, "export_format", None),
+            selected_only=bool(getattr(settings, "selected_objects_only", False)),
+            blend_file=getattr(getattr(context, "blend_data", None), "filepath", None),
+        )
+        diag.set_environment(**collect_environment(context))
+        diag.data["scene"] = collect_scene_snapshot(context)
+        diag.data["prelaunch_failure"] = {
+            "code": code,
+            "message": str(message),
+            "details": details,
+        }
+        diag.add_error(str(message))
+        diag.set_artifact("diagnostics_path", str(diagnostics_path))
+        diag.save(diagnostics_path)
+        settings.last_diagnostics_path = str(diagnostics_path)
+        return str(diagnostics_path)
+    except Exception:
+        return None
 
 
 class BLENDERTORCP_OT_bake_export_background(Operator, ExportHelper):
@@ -52,6 +96,25 @@ class BLENDERTORCP_OT_bake_export_background(Operator, ExportHelper):
         default="*.usdz;*.usda;*.usdc",
         options={'HIDDEN'}
     )
+    apply_ui_profile: BoolProperty(
+        default=False,
+        options={'HIDDEN', 'SKIP_SAVE'},
+    )
+
+    def _apply_ui_profile(self, settings) -> bool:
+        if not self.apply_ui_profile:
+            return True
+        from ..export_profile import PIPELINE_BAKE, resolve_ui_export_route
+
+        route = resolve_ui_export_route(settings)
+        if route.pipeline != PIPELINE_BAKE or not route.bake_mode:
+            self.report(
+                {'ERROR'},
+                "The selected material type does not use texture baking.",
+            )
+            return False
+        settings.bake_mode = route.bake_mode
+        return True
 
     def invoke(self, context, event):
         settings = context.scene.blender_to_rcp_export_settings
@@ -67,6 +130,8 @@ class BLENDERTORCP_OT_bake_export_background(Operator, ExportHelper):
     def execute(self, context):
         settings = context.scene.blender_to_rcp_export_settings
         _apply_persisted_settings(context, settings)
+        if not self._apply_ui_profile(settings):
+            return {'CANCELLED'}
 
         export_format = BLENDERTORCP_OT_export._normalize_export_format(settings.export_format)
         settings.export_format = export_format
@@ -90,10 +155,18 @@ class BLENDERTORCP_OT_bake_export_background(Operator, ExportHelper):
         try:
             objects_to_export = _collect_export_objects(context, settings)
         except Exception as exc:
-            self.report({'ERROR'}, str(exc))
+            message = str(exc)
+            _write_prelaunch_failure_diagnostics(
+                context, settings, message, code="INVALID_EXPORT_SELECTION"
+            )
+            self.report({'ERROR'}, message)
             return {'CANCELLED'}
         if not objects_to_export:
-            self.report({'ERROR'}, "No exportable objects found")
+            message = "No exportable objects found"
+            _write_prelaunch_failure_diagnostics(
+                context, settings, message, code="NO_EXPORTABLE_OBJECTS"
+            )
+            self.report({'ERROR'}, message)
             return {'CANCELLED'}
         from ..export.animation_export import collect_processing_objects
 
@@ -104,9 +177,17 @@ class BLENDERTORCP_OT_bake_export_background(Operator, ExportHelper):
         # directory, so forwarding a raw Blender ``//`` path would otherwise
         # retarget it to that directory.
         try:
-            serialized_settings = _serialize_settings(settings, context=context)
+            serialized_settings = _serialize_settings(
+                settings,
+                context=context,
+                enable_texture_settings=self.apply_ui_profile,
+            )
         except Exception as exc:
-            self.report({'ERROR'}, f"Invalid background export settings: {exc}")
+            message = f"Invalid background export settings: {exc}"
+            _write_prelaunch_failure_diagnostics(
+                context, settings, message, code="INVALID_EXPORT_SETTINGS"
+            )
+            self.report({'ERROR'}, message)
             return {'CANCELLED'}
 
         # The native selection can depend on non-selected parents and collection
@@ -121,12 +202,24 @@ class BLENDERTORCP_OT_bake_export_background(Operator, ExportHelper):
                 bpy,
             )
         except Exception as exc:
-            self.report({'ERROR'}, f"Could not validate source image dependencies: {exc}")
+            message = f"Could not validate source image dependencies: {exc}"
+            _write_prelaunch_failure_diagnostics(
+                context, settings, message, code="ASSET_PREFLIGHT_FAILED"
+            )
+            self.report({'ERROR'}, message)
             return {'CANCELLED'}
         if missing_images:
+            message = asset_preflight.missing_images_status_message(missing_images)
+            _write_prelaunch_failure_diagnostics(
+                context,
+                settings,
+                message,
+                code=asset_preflight.missing_assets_error_code(missing_images),
+                details=missing_images,
+            )
             self.report(
                 {'ERROR'},
-                asset_preflight.missing_images_status_message(missing_images),
+                message,
             )
             return {'CANCELLED'}
 
@@ -142,13 +235,21 @@ class BLENDERTORCP_OT_bake_export_background(Operator, ExportHelper):
             )
         except Exception as exc:
             _cleanup_scene_snapshot(job_dir)
-            self.report({'ERROR'}, f"Could not snapshot the current scene: {exc}")
+            message = f"Could not snapshot the current scene: {exc}"
+            _write_prelaunch_failure_diagnostics(
+                context, settings, message, code="SCENE_SNAPSHOT_FAILED"
+            )
+            self.report({'ERROR'}, message)
             return {'CANCELLED'}
         status_path = job_dir / "status.json"
         log_path = job_dir / "log.txt"
-        diagnostics_enabled = bool(getattr(settings, "diagnostics_enabled", False))
-        diagnostics_path = str(Path(self.filepath).with_suffix(".diagnostics.json")) if diagnostics_enabled else None
-        if not diagnostics_enabled:
+        success_diagnostics_enabled = bool(
+            getattr(settings, "diagnostics_enabled", False)
+        )
+        # The worker always receives a failure-report destination. This
+        # preference controls only whether a successful job keeps a sidecar.
+        diagnostics_path = str(Path(self.filepath).with_suffix(".diagnostics.json"))
+        if not success_diagnostics_enabled:
             settings.last_diagnostics_path = ""
 
         selection_names = []
@@ -164,13 +265,18 @@ class BLENDERTORCP_OT_bake_export_background(Operator, ExportHelper):
             "selected_only": bool(getattr(settings, "selected_objects_only", False)),
             "selection": selection_names,
             "diagnostics_path": diagnostics_path,
+            "success_diagnostics_enabled": success_diagnostics_enabled,
         }
         settings_path = job_dir / "settings.json"
         try:
             settings_path.write_text(json.dumps(payload, indent=2))
         except Exception as exc:
             _cleanup_scene_snapshot(job_dir)
-            self.report({'ERROR'}, f"Could not write background job settings: {exc}")
+            message = f"Could not write background job settings: {exc}"
+            _write_prelaunch_failure_diagnostics(
+                context, settings, message, code="JOB_SETTINGS_WRITE_FAILED"
+            )
+            self.report({'ERROR'}, message)
             return {'CANCELLED'}
 
         _write_status(
@@ -187,7 +293,11 @@ class BLENDERTORCP_OT_bake_export_background(Operator, ExportHelper):
         runner_path = Path(__file__).resolve().parents[1] / "bake_export_runner.py"
         if not runner_path.exists():
             _cleanup_scene_snapshot(job_dir)
-            self.report({'ERROR'}, f"Missing runner script: {runner_path}")
+            message = f"Missing runner script: {runner_path}"
+            _write_prelaunch_failure_diagnostics(
+                context, settings, message, code="BACKGROUND_RUNNER_MISSING"
+            )
+            self.report({'ERROR'}, message)
             return {'CANCELLED'}
 
         try:
@@ -208,16 +318,20 @@ class BLENDERTORCP_OT_bake_export_background(Operator, ExportHelper):
                 )
         except Exception as exc:
             _cleanup_scene_snapshot(job_dir)
+            message = f"Failed to launch background Blender: {exc}"
+            _write_prelaunch_failure_diagnostics(
+                context, settings, message, code="BACKGROUND_LAUNCH_FAILED"
+            )
             _write_status(
                 status_path,
                 state="error",
                 progress=1.0,
-                message=f"Failed to launch background Blender: {exc}",
+                message=message,
                 log_path=str(log_path),
                 export_path=self.filepath,
                 diagnostics_path=diagnostics_path,
             )
-            self.report({'ERROR'}, f"Failed to launch background Blender: {exc}")
+            self.report({'ERROR'}, message)
             return {'CANCELLED'}
 
         _write_status(
@@ -597,7 +711,12 @@ def _set_selection(context, objects) -> None:
             pass
 
 
-def _serialize_settings(settings, *, context=None) -> dict:
+def _serialize_settings(
+    settings,
+    *,
+    context=None,
+    enable_texture_settings: bool = False,
+) -> dict:
     data = {}
     for prop in settings.bl_rna.properties:
         key = prop.identifier
@@ -607,6 +726,9 @@ def _serialize_settings(settings, *, context=None) -> dict:
             data[key] = getattr(settings, key)
         except Exception:
             continue
+
+    if enable_texture_settings:
+        data["export_texture_settings_enabled"] = True
 
     if (
         str(data.get("bake_mode") or "LIT_IBL") == "LIT_IBL"

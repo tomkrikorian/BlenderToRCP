@@ -18,10 +18,8 @@ _PROFILE_RCP3 = "realitykit_pbr2"
 _PROFILE_OPENPBR = "openpbr_1_1"
 
 PBR2_EXPERIMENTAL_RUNTIME_WARNING = (
-    "RealityKit PBR Surface 2 is an experimental USDC-to-RCP3-only profile. "
-    "Quick Look and USDKit are incompatible, and mandatory strict USD/USDZ "
-    "validation may reject its nodedef; BlenderToRCP keeps that validation "
-    "gate enabled."
+    "RealityKit PBR Surface 2 is experimental. Mandatory strict USD/USDZ "
+    "validation remains enabled for this profile."
 )
 
 _COLOR_TEXTURE_INPUTS = {
@@ -227,10 +225,9 @@ class MaterialXGraphBuilder:
     def _select_surface_profile(self):
         """Select an explicit, versioned surface contract.
 
-        The verified RealityKit PBR graph remains the shipping default while
-        OS 27 beta release notes list PBR Surface 2 Quick Look/USDKit failures
-        and incomplete MaterialX 1.39 support. PBR2 and OpenPBR are explicit,
-        capability-gated enrichments until those platform defects clear.
+        The verified RealityKit PBR graph remains the shipping default.
+        PBR2 and OpenPBR are explicit, capability-gated enrichments until
+        their complete export and runtime contracts are validated.
         """
         requested = (self.surface_profile or _PROFILE_PORTABLE).strip().lower()
         has_portable = bool(

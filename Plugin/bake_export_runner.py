@@ -366,6 +366,9 @@ def main() -> int:
     log_path = job_dir / "log.txt"
 
     diagnostics_path = payload.get("diagnostics_path")
+    success_diagnostics_enabled = bool(
+        payload.get("success_diagnostics_enabled", False)
+    )
 
     _arm_crash_guard(status_path)
     _update_status(
@@ -409,6 +412,10 @@ def main() -> int:
 
     scene_settings = bpy.context.scene.blender_to_rcp_export_settings
     _apply_settings(scene_settings, payload.get("export_settings", {}))
+    if "success_diagnostics_enabled" not in payload:
+        success_diagnostics_enabled = bool(
+            getattr(scene_settings, "diagnostics_enabled", False)
+        )
 
     export_path = payload.get("export_path")
     if export_path:
@@ -651,14 +658,6 @@ def main() -> int:
         _set_running_stage(0.48, "Finalizing baked materials")
         bake_finalize.apply_force_unlit(scene_settings)
 
-        ## Y-up geometry bake when requested (and safe). This runner's scene is a
-        ## throwaway background process, so the returned restore state is only
-        ## used to decide whether to author upAxis=Y below - never to restore.
-        _set_running_stage(0.49, "Applying Y-up geometry conversion")
-        yup_state = bake_finalize.maybe_apply_yup_geometry_bake(
-            bpy.context, scene_settings, objects_to_export, diag
-        )
-
         bake_export_command._unlink_processing_scope(
             animation_export,
             processing_link_state,
@@ -692,7 +691,6 @@ def main() -> int:
             scene_settings,
             bpy.context,
             diag,
-            force_up_axis_y=yup_state is not None,
         )
 
         if diag.data.get("errors"):
@@ -719,8 +717,9 @@ def main() -> int:
             if temp_usd_path != export_path:
                 blender_usd_export.publish_unpacked_export(temp_usd_path, export_path, diag)
 
-        _set_running_stage(0.95, "Writing diagnostics")
-        _save_diagnostics(diag, diagnostics_path)
+        if success_diagnostics_enabled:
+            _set_running_stage(0.95, "Writing diagnostics")
+            _save_diagnostics(diag, diagnostics_path)
         _defer_terminal_status("done", "Bake Textures & Export complete")
         return 0
 
@@ -819,7 +818,12 @@ def main() -> int:
             terminal_status["message"],
             str(log_path),
             export_path=payload.get("export_path"),
-            diagnostics_path=diagnostics_path,
+            diagnostics_path=(
+                diagnostics_path
+                if terminal_status["state"] == "error"
+                or success_diagnostics_enabled
+                else None
+            ),
         )
         if cleanup_errors:
             return 1

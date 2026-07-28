@@ -1,0 +1,19 @@
+__type: "tm_entity"
+__uuid: "cb5231fa-3d88-9a99-6224-e47bc8118aa5"
+name: ""
+components: [
+	{
+		__type: "tm_transform_component"
+		__uuid: "89372785-3ff6-bf95-8737-676375fdc5f8"
+		local_position_double: {
+			__uuid: "79b01cf7-8e1e-08dd-d15e-9166a3a32f58"
+		}
+		local_rotation: {
+			__uuid: "fd4f2d4e-d39e-a51d-f4e1-8ae681d98942"
+		}
+		local_scale: {
+			__uuid: "ec9b0467-391d-311e-1454-ac25cf8cafad"
+		}
+	}
+]
+__asset_uuid: "ffd9b349-2bd1-332d-5ddf-cc21b147aa05"

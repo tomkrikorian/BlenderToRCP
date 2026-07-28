@@ -5,6 +5,10 @@ Material rewrite orchestration for USD stages.
 from ..usd_utils import Usd, UsdShade, Sdf, UsdGeom
 from ..usd_hook import consume_captured_material_map
 from ..usd_textures import require_safe_texture_alpha_staging_policy
+from ...material_policies import (
+    normalize_extracted_specular_tint,
+    specular_tint_normalization_message,
+)
 from ...manifest.materialx_nodes import load_manifest
 from .graph import MaterialXGraphBuilder, material_profile_runtime_warnings
 from .extract import extract_blender_material_data, collect_material_warnings
@@ -30,6 +34,9 @@ def rewrite_materials(stage, settings, context, diagnostics=None) -> None:
         surface_profile=surface_profile,
     )
     force_unlit = bool(getattr(settings, "force_unlit_materials", False))
+    normalize_unsupported_values = bool(
+        getattr(settings, "normalize_unsupported_values", False)
+    )
 
     blender_materials = {
         material.name: material
@@ -100,6 +107,22 @@ def rewrite_materials(stage, settings, context, diagnostics=None) -> None:
                 for warning in warnings:
                     diagnostics.add_warning(warning)
             material_data = extract_blender_material_data(blender_material)
+            if normalize_unsupported_values:
+                normalization = normalize_extracted_specular_tint(material_data)
+                if normalization is not None and diagnostics:
+                    message = specular_tint_normalization_message(normalization)
+                    warning = f"{blender_name}: {message}"
+                    if warning not in diagnostics.data.get("warnings", []):
+                        diagnostics.add_warning(warning)
+                    diagnostics.add_material_issue(
+                        "normalizations",
+                        material=blender_name,
+                        input="Specular Tint",
+                        source_value=normalization["input"],
+                        exported_value=normalization["output"],
+                        source_blend_unchanged=True,
+                        message=message,
+                    )
         except Exception as exc:
             _record_material_failure(
                 diagnostics,

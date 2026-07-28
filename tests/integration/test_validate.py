@@ -38,12 +38,11 @@ class TestValidate:
         result = run_cli("validate", str(blend_file))
         assert result.ok, result.stderr
         assert result.json["materialx_surface_profile"] == "realitykit_portable"
+        assert result.json["normalize_unsupported_values"] is False
 
-    def test_strict_mode(self, run_cli, blend_file):
+    def test_removed_strict_flag_is_rejected(self, run_cli, blend_file):
         result = run_cli("validate", str(blend_file), "--strict")
-        assert result.json is not None
-        assert "ok" in result.json
-        assert isinstance(result.json["ok"], bool)
+        assert not result.ok
 
     def test_material_filter(self, run_cli, blend_file):
         # First get a material name

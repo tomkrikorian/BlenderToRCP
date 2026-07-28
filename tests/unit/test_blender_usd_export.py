@@ -95,8 +95,15 @@ def test_blender_52_external_texture_contract_keeps_preview_without_native_copy(
     assert kwargs["incremental_frames"] == 0
     assert kwargs["export_mesh_colors"] is True
     assert kwargs["convert_orientation"] is True
+    assert kwargs["export_global_forward_selection"] == "NEGATIVE_Z"
     assert kwargs["export_global_up_selection"] == "Y"
     assert kwargs["convert_scene_units"] == "METERS"
+    assert kwargs["meters_per_unit"] == 1.0
+    assert kwargs["relative_paths"] is True
+    assert kwargs["export_meshes"] is True
+    assert kwargs["export_uvmaps"] is True
+    assert kwargs["rename_uvmaps"] is True
+    assert kwargs["export_normals"] is True
     assert kwargs["export_hair"] is False
     assert kwargs["export_lights"] is False
     assert kwargs["convert_world_material"] is False
@@ -110,6 +117,36 @@ def test_blender_52_external_texture_contract_keeps_preview_without_native_copy(
         "default_prim_path",
         "default_usd_format",
     }.intersection(kwargs)
+
+
+def test_apple_spatial_contract_ignores_legacy_or_custom_setting_values():
+    kwargs = blender_usd_export._build_export_kwargs(
+        SimpleNamespace(
+            convert_orientation=False,
+            forward_axis="X",
+            up_axis="Z",
+            convert_scene_units="CENTIMETERS",
+            meters_per_unit=0.01,
+            relative_paths=False,
+            export_meshes=False,
+            export_uvmaps=False,
+            rename_uvmaps=False,
+            export_normals=False,
+        ),
+        output_path="/tmp/scene.usdc",
+        root_prim_path="/Scene",
+    )
+
+    assert kwargs["convert_orientation"] is True
+    assert kwargs["export_global_forward_selection"] == "NEGATIVE_Z"
+    assert kwargs["export_global_up_selection"] == "Y"
+    assert kwargs["convert_scene_units"] == "METERS"
+    assert kwargs["meters_per_unit"] == 1.0
+    assert kwargs["relative_paths"] is True
+    assert kwargs["export_meshes"] is True
+    assert kwargs["export_uvmaps"] is True
+    assert kwargs["rename_uvmaps"] is True
+    assert kwargs["export_normals"] is True
 
 
 @pytest.mark.parametrize("selected_only", [False, True])

@@ -1,0 +1,29 @@
+__type: "tm_entity"
+__uuid: "c2db75da-851b-8700-7730-31c7c48e2605"
+name: ""
+components: [
+	{
+		__type: "tm_transform_component"
+		__uuid: "5271915d-4b86-f83e-8af3-7c2b6f1559a7"
+		local_position_double: {
+			__uuid: "1471c5b6-08e9-e520-52a8-6d3b8e1447c8"
+		}
+		local_rotation: {
+			__uuid: "7c55af27-eb16-03ee-3882-edeedd00d8b1"
+		}
+		local_scale: {
+			__uuid: "a4d96f38-6f05-d288-1221-b8aa61853e72"
+		}
+	}
+	{
+		__type: "tm_re_image_based_light_component"
+		__uuid: "3cffafb4-b2f2-3f38-9e91-85cef4a51b8a"
+		data: {
+			__type: "tm_re_image_based_light_source_single_split"
+			__uuid: "90afdb11-f342-ec60-c81c-ffadaeaffcef"
+			diffuse: "d9cf28dc-826d-37d5-0c89-bda1083aca82"
+			specular: "747e9478-c991-edcd-37fc-3db6df638387"
+		}
+	}
+]
+__asset_uuid: "feeab2a9-a38b-c911-3957-10fc067f4f28"

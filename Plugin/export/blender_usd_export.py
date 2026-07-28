@@ -22,6 +22,12 @@ from pathlib import Path
 from typing import Optional
 
 from .. import require_supported_blender_version
+from ..apple_contract import (
+    REALITYKIT_METERS_PER_UNIT,
+    REALITYKIT_SCENE_UNITS,
+    REALITYKIT_UP_AXIS,
+    REALITYKIT_USD_EXPORT_FORWARD_AXIS,
+)
 from . import animation_export
 from . import usd_hook
 from .sidecar_manifest import (
@@ -37,21 +43,6 @@ from .sidecar_manifest import (
 )
 
 
-_AXIS_TO_USD_EXPORT_ENUM = {
-    "-X": "NEGATIVE_X",
-    "-Y": "NEGATIVE_Y",
-    "-Z": "NEGATIVE_Z",
-}
-
-_VALID_USD_EXPORT_AXES = {
-    "X",
-    "Y",
-    "Z",
-    "NEGATIVE_X",
-    "NEGATIVE_Y",
-    "NEGATIVE_Z",
-}
-
 _VALID_USD_EXPORT_NGON_METHODS = {"BEAUTY", "CLIP"}
 
 # Properties whose names/semantics define the Blender 5.2 USD boundary used by
@@ -66,28 +57,6 @@ _REQUIRED_USD_EXPORT_PROPERTIES = frozenset(
         "root_prim_path",
     }
 )
-
-
-def _axis_for_usd_export(value: str) -> str:
-    """Map UI axis values (e.g. '-Z') to Blender USD exporter enum values."""
-    if value is None:
-        return value
-    value = str(value).strip()
-    if not value:
-        return value
-    if value in _VALID_USD_EXPORT_AXES:
-        return value
-    mapped = _AXIS_TO_USD_EXPORT_ENUM.get(value)
-    if mapped:
-        return mapped
-    # Best-effort normalization for legacy/lowercase values.
-    upper = value.upper()
-    if upper in _VALID_USD_EXPORT_AXES:
-        return upper
-    mapped = _AXIS_TO_USD_EXPORT_ENUM.get(upper)
-    if mapped:
-        return mapped
-    return value
 
 
 def _ngon_method_for_usd_export(value: str) -> str:
@@ -328,7 +297,8 @@ def export_blender_scene(
             root_prim_path=root_prim_path,
         )
         
-        # Orientation handled via convert_orientation/forward_axis/up_axis settings.
+        # Orientation and units are fixed by the Apple spatial contract in
+        # ``_build_export_kwargs``; they are not scene settings.
         
         # If exporting animations, ensure all actions are serialized into a single NLA
         # track so downstream tools (Reality Composer Pro) can clip the timeline.
@@ -1292,10 +1262,10 @@ def _build_export_kwargs(settings, *, output_path: str, root_prim_path: str) -> 
         # hair schemas. These are policy constants, not user settings: keeping
         # them false prevents a doomed export before composed-stage preflight.
         'export_hair': False,
-        'export_uvmaps': bool(getattr(settings, "export_uvmaps", True)),
-        'rename_uvmaps': bool(getattr(settings, "rename_uvmaps", True)),
+        'export_uvmaps': True,
+        'rename_uvmaps': True,
         'export_mesh_colors': bool(getattr(settings, "export_mesh_colors", True)),
-        'export_normals': bool(getattr(settings, "export_normals", True)),
+        'export_normals': True,
         'export_materials': True,
         'export_subdivision': getattr(settings, "export_subdivision", 'BEST_MATCH'),
         'export_armatures': bool(getattr(settings, "export_armatures", True)),
@@ -1305,16 +1275,12 @@ def _build_export_kwargs(settings, *, output_path: str, root_prim_path: str) -> 
         'evaluation_mode': getattr(settings, "evaluation_mode", 'RENDER'),
         'generate_preview_surface': True,
         'generate_materialx_network': False,
-        'convert_orientation': bool(getattr(settings, "convert_orientation", True)),
-        'export_global_forward_selection': _axis_for_usd_export(
-            getattr(settings, "forward_axis", "-Z")
-        ),
-        'export_global_up_selection': _axis_for_usd_export(
-            getattr(settings, "up_axis", "Y")
-        ),
+        'convert_orientation': True,
+        'export_global_forward_selection': REALITYKIT_USD_EXPORT_FORWARD_AXIS,
+        'export_global_up_selection': REALITYKIT_UP_AXIS,
         'export_textures_mode': _native_texture_export_mode(),
         'overwrite_textures': False,
-        'relative_paths': bool(getattr(settings, "relative_paths", True)),
+        'relative_paths': True,
         'xform_op_mode': getattr(settings, "xform_op_mode", 'TRS'),
         'root_prim_path': root_prim_path,
         'export_custom_properties': export_custom_properties,
@@ -1328,7 +1294,7 @@ def _build_export_kwargs(settings, *, output_path: str, root_prim_path: str) -> 
         else False,
         'allow_unicode': bool(getattr(settings, "allow_unicode", True)),
         'convert_world_material': False,
-        'export_meshes': bool(getattr(settings, "export_meshes", True)),
+        'export_meshes': True,
         'export_lights': False,
         'export_cameras': False,
         'export_curves': False,
@@ -1338,8 +1304,8 @@ def _build_export_kwargs(settings, *, output_path: str, root_prim_path: str) -> 
         'quad_method': getattr(settings, "quad_method", 'SHORTEST_DIAGONAL'),
         'ngon_method': _ngon_method_for_usd_export(getattr(settings, "ngon_method", "BEAUTY")),
         'merge_parent_xform': bool(getattr(settings, "merge_parent_xform", False)),
-        'convert_scene_units': getattr(settings, "convert_scene_units", 'METERS'),
-        'meters_per_unit': float(getattr(settings, "meters_per_unit", 1.0)),
+        'convert_scene_units': REALITYKIT_SCENE_UNITS,
+        'meters_per_unit': REALITYKIT_METERS_PER_UNIT,
     }
 
 

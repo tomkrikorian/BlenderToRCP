@@ -201,6 +201,14 @@ def collect_validation_snapshot(context=None) -> dict:
 
         context = context or bpy.context
         surface_profile = _get_surface_profile(context)
+        settings = getattr(
+            getattr(context, "scene", None),
+            "blender_to_rcp_export_settings",
+            None,
+        )
+        normalize_unsupported_values = bool(
+            getattr(settings, "normalize_unsupported_values", False)
+        )
         materials = rk_validate.collect_scene_materials(context)
         entries = []
         total_errors = 0
@@ -210,6 +218,7 @@ def collect_validation_snapshot(context=None) -> dict:
                 material,
                 strict=True,
                 surface_profile=surface_profile,
+                normalize_unsupported_values=normalize_unsupported_values,
             )
             total_errors += len(result.get("errors", []))
             total_warnings += len(result.get("warnings", []))
@@ -224,6 +233,7 @@ def collect_validation_snapshot(context=None) -> dict:
             "error_count": total_errors,
             "warning_count": total_warnings,
             "materialx_surface_profile": surface_profile,
+            "normalize_unsupported_values": normalize_unsupported_values,
             "materials": entries,
         })
     except Exception as exc:
@@ -702,8 +712,12 @@ def _collect_export_profile(settings) -> dict:
     """Describe whether the active settings match the strict OS 27 profile."""
     try:
         from ..api.commands._settings_common import (
+            REALITYKIT_FORWARD_AXIS,
+            REALITYKIT_METERS_PER_UNIT,
             REALITYKIT_OS27_ADVANCED_CONTENT_KEYS,
             REALITYKIT_OS27_PROFILE_NAME,
+            REALITYKIT_SCENE_UNITS,
+            REALITYKIT_UP_AXIS,
             realitykit_os27_profile_deviations,
         )
 
@@ -715,6 +729,18 @@ def _collect_export_profile(settings) -> dict:
         )
         return {
             "name": REALITYKIT_OS27_PROFILE_NAME,
+            "spatial_contract": {
+                "convert_orientation": True,
+                "forward_axis": REALITYKIT_FORWARD_AXIS,
+                "up_axis": REALITYKIT_UP_AXIS,
+                "scene_units": REALITYKIT_SCENE_UNITS,
+                "meters_per_unit": REALITYKIT_METERS_PER_UNIT,
+                "relative_paths": True,
+                "export_meshes": True,
+                "export_uvmaps": True,
+                "rename_uvmaps": True,
+                "export_normals": True,
+            },
             "strict_defaults_active": not deviations,
             "advanced_content_enabled": advanced_enabled,
             "deviations": deviations,

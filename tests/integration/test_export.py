@@ -35,6 +35,7 @@ class TestExport:
 
         out = tmp_output / "factory-default-cube.usda"
         result = run_cli(
+            "--json",
             "export",
             str(blend_path),
             "-o",
@@ -93,6 +94,50 @@ class TestExport:
         out = tmp_output / "scene.usdz"
         result = run_cli("export", "/nonexistent.blend", "-o", str(out))
         assert not result.ok
+
+    def test_failed_export_always_writes_diagnostics(
+        self,
+        run_cli,
+        tmp_output,
+    ):
+        blender = os.environ.get("BLENDERTORCP_BLENDER", "blender")
+        blend_path = tmp_output / "nothing-selected.blend"
+        create = subprocess.run(
+            [
+                blender,
+                "--background",
+                "--factory-startup",
+                "--python-expr",
+                (
+                    "import bpy; "
+                    "bpy.ops.object.select_all(action='DESELECT'); "
+                    f"bpy.ops.wm.save_as_mainfile(filepath={str(blend_path)!r})"
+                ),
+            ],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        assert create.returncode == 0, create.stderr or create.stdout
+
+        out = tmp_output / "nothing-selected.usdc"
+        result = run_cli(
+            "--json",
+            "export",
+            str(blend_path),
+            "-o",
+            str(out),
+            "--format",
+            "USDC",
+            "--selected-only",
+        )
+
+        assert not result.ok
+        diagnostics_path = out.with_suffix(".diagnostics.json")
+        assert diagnostics_path.exists()
+        diagnostics = json.loads(diagnostics_path.read_text())
+        assert diagnostics["export_context"]["selected_only"] is True
+        assert result.json["artifacts"]["diagnostics_path"] == str(diagnostics_path)
 
     def test_no_diagnostics(self, run_cli, blend_file, tmp_output):
         out = tmp_output / "scene.usdz"

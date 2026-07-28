@@ -76,7 +76,6 @@ settings = scene.blender_to_rcp_export_settings
 settings.selected_objects_only = True
 settings.export_format = "USDC"
 settings.export_animation = False
-settings.apply_yup_geometry = False
 settings.diagnostics_enabled = False
 
 observed = {
@@ -127,7 +126,6 @@ asset_preflight.collect_missing_image_files_for_objects = fake_preflight
 bake_textures.bake_materials_for_objects = fake_bake
 bake_textures.restore_baked_materials = lambda *_args, **_kwargs: None
 bake_finalize.apply_force_unlit = lambda _settings: None
-bake_finalize.maybe_apply_yup_geometry_bake = lambda *_args, **_kwargs: None
 support_bundle.collect_environment = lambda _context: {}
 support_bundle.collect_scene_snapshot = lambda _context: {}
 blender_usd_export._reset_export_staging_dir = (

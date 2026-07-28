@@ -93,11 +93,12 @@ def test_pbr2_runtime_diagnostic_keeps_strict_usdz_gate_explicit():
     assert material_profile_runtime_warnings("REALITYKIT_PBR2") == (
         PBR2_EXPERIMENTAL_RUNTIME_WARNING,
     )
-    assert "USDC-to-RCP3-only" in PBR2_EXPERIMENTAL_RUNTIME_WARNING
-    assert "mandatory strict USD/USDZ validation may reject" in (
+    assert "experimental" in PBR2_EXPERIMENTAL_RUNTIME_WARNING
+    assert "strict USD/USDZ validation remains enabled" in (
         PBR2_EXPERIMENTAL_RUNTIME_WARNING
     )
-    assert "keeps that validation gate enabled" in PBR2_EXPERIMENTAL_RUNTIME_WARNING
+    assert "USDKit" not in PBR2_EXPERIMENTAL_RUNTIME_WARNING
+    assert "Quick Look" not in PBR2_EXPERIMENTAL_RUNTIME_WARNING
 
 
 def test_material_rewrite_records_pbr2_runtime_diagnostic_before_traversal():
@@ -623,7 +624,12 @@ def test_rk_graph_ignores_premul_metadata_outside_surface_base_color():
     assert "has_premultiplied_alpha" not in graph
 
 
-def _validate_principled_inputs(inputs, profile="realitykit_portable"):
+def _validate_principled_inputs(
+    inputs,
+    profile="realitykit_portable",
+    *,
+    normalize_unsupported_values=False,
+):
     principled = _Node()
     principled.type = "BSDF_PRINCIPLED"
     principled.name = "Principled"
@@ -638,6 +644,7 @@ def _validate_principled_inputs(inputs, profile="realitykit_portable"):
         only_connected=False,
         strict=True,
         surface_profile=profile,
+        normalize_unsupported_values=normalize_unsupported_values,
     )
 
 
@@ -868,7 +875,48 @@ def test_extended_profiles_reject_unverified_active_specular_tint(profile):
 
     assert result["ok"] is False
     assert any(
-        "Specular Tint" in issue["message"] and "not verified" in issue["message"]
+        "Specular Tint" in issue["message"] and "export-only" in issue["message"]
+        for issue in result["errors"]
+    )
+
+
+@pytest.mark.parametrize(
+    "profile",
+    ["realitykit_portable", "realitykit_pbr2", "openpbr_1_1"],
+)
+def test_safe_achromatic_specular_tint_normalization_is_explicit_opt_in(profile):
+    result = _validate_principled_inputs(
+        {"Specular Tint": _Socket((2.0, 2.0, 2.0, 1.0))},
+        profile,
+        normalize_unsupported_values=True,
+    )
+
+    assert result["ok"] is True
+    assert result["errors"] == []
+    assert any(
+        "Export-only normalization applied" in issue["message"]
+        and ".blend file were not changed" in issue["message"]
+        for issue in result["warnings"]
+    )
+
+
+@pytest.mark.parametrize(
+    "socket",
+    [
+        _Socket((2.0, 1.5, 1.0, 1.0)),
+        _Socket((2.0, 2.0, 2.0, 1.0), linked=True),
+    ],
+)
+def test_colored_or_linked_specular_tint_cannot_be_auto_normalized(socket):
+    result = _validate_principled_inputs(
+        {"Specular Tint": socket},
+        "realitykit_pbr2",
+        normalize_unsupported_values=True,
+    )
+
+    assert result["ok"] is False
+    assert any(
+        "cannot be normalized safely" in issue["message"]
         for issue in result["errors"]
     )
 

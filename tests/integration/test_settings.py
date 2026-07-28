@@ -38,7 +38,10 @@ class TestSettingsGet:
     def test_group_filter_materials(self, run_cli, blend_file):
         result = run_cli("settings", "get", str(blend_file), "--group", "materials")
         assert result.ok
-        assert result.json == {"materialx_surface_profile": "realitykit_portable"}
+        assert result.json == {
+            "materialx_surface_profile": "realitykit_portable",
+            "normalize_unsupported_values": False,
+        }
 
     def test_group_filter_general(self, run_cli, blend_file):
         result = run_cli("settings", "get", str(blend_file), "--group", "general")
@@ -87,6 +90,17 @@ class TestSettingsSet:
     @pytest.mark.parametrize(
         "key",
         [
+            "convert_orientation",
+            "forward_axis",
+            "up_axis",
+            "convert_scene_units",
+            "meters_per_unit",
+            "relative_paths",
+            "export_meshes",
+            "export_uvmaps",
+            "rename_uvmaps",
+            "export_normals",
+            "apply_yup_geometry",
             "export_curves",
             "export_points",
             "export_hair",
@@ -135,19 +149,25 @@ class TestSettingsList:
         assert "export_format" in keys
         assert "diagnostics_enabled" in keys
 
-    def test_realitykit_os27_defaults_are_strict(self, run_cli):
+    def test_realitykit_os27_artist_settings_exclude_spatial_contract(self, run_cli):
         result = run_cli("settings", "list")
         assert result.ok
         defaults = {entry["key"]: entry.get("default") for entry in result.json}
 
-        assert defaults["convert_orientation"] is True
-        assert defaults["forward_axis"] == "-Z"
-        assert defaults["up_axis"] == "Y"
-        assert defaults["convert_scene_units"] == "METERS"
-        assert defaults["meters_per_unit"] == 1.0
-        assert defaults["export_meshes"] is True
         assert defaults["materialx_surface_profile"] == "realitykit_portable"
+        assert defaults["normalize_unsupported_values"] is False
         for key in (
+            "convert_orientation",
+            "forward_axis",
+            "up_axis",
+            "convert_scene_units",
+            "meters_per_unit",
+            "relative_paths",
+            "export_meshes",
+            "export_uvmaps",
+            "rename_uvmaps",
+            "export_normals",
+            "apply_yup_geometry",
             "export_curves",
             "export_points",
             "export_hair",

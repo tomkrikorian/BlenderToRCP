@@ -34,6 +34,12 @@ def _get_surface_profile(context) -> str:
     )
 
 
+def _normalize_unsupported_values(context) -> bool:
+    scene = getattr(context, "scene", None)
+    settings = getattr(scene, "blender_to_rcp_export_settings", None)
+    return bool(getattr(settings, "normalize_unsupported_values", False))
+
+
 class BLENDERTORCP_OT_validate_material(Operator):
     """Validate the active material against RealityKit rules."""
     bl_idname = "blendertorcp.validate_material"
@@ -50,6 +56,7 @@ class BLENDERTORCP_OT_validate_material(Operator):
             material,
             strict=True,
             surface_profile=_get_surface_profile(context),
+            normalize_unsupported_values=_normalize_unsupported_values(context),
         )
         if result["errors"]:
             self.report({'ERROR'}, f"{len(result['errors'])} errors found in '{material.name}'")
@@ -78,6 +85,7 @@ class BLENDERTORCP_OT_select_offenders(Operator):
             material,
             strict=True,
             surface_profile=_get_surface_profile(context),
+            normalize_unsupported_values=_normalize_unsupported_values(context),
         )
         if not result["offending_nodes"]:
             self.report({'INFO'}, "No offending nodes found")
@@ -103,6 +111,7 @@ class BLENDERTORCP_OT_remove_offenders(Operator):
             material,
             strict=True,
             surface_profile=_get_surface_profile(context),
+            normalize_unsupported_values=_normalize_unsupported_values(context),
         )
         removed = rk_validate.remove_offending_nodes(material, result)
         if removed == 0:

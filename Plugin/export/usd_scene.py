@@ -10,6 +10,7 @@ from pathlib import Path
 import re
 from typing import Iterable
 
+from ..apple_contract import REALITYKIT_UP_AXIS
 from .usd_utils import Sdf
 
 
@@ -48,11 +49,9 @@ def normalize_scene(
             root_prim = stage.DefinePrim(f"/{root_prim_name}", "Xform")
         stage.SetDefaultPrim(root_prim)
 
-    # Set up upAxis metadata based on convert orientation settings.
-    if getattr(settings, "convert_orientation", False):
-        up_axis = getattr(settings, "up_axis", "Y")
-        if up_axis:
-            stage.SetMetadata("upAxis", str(up_axis).lstrip("-"))
+    # RealityKit and Reality Composer Pro assets always use the Apple Y-up
+    # contract. This metadata is not an artist-configurable export option.
+    stage.SetMetadata("upAxis", REALITYKIT_UP_AXIS)
 
     _rename_invalid_prims(
         stage,

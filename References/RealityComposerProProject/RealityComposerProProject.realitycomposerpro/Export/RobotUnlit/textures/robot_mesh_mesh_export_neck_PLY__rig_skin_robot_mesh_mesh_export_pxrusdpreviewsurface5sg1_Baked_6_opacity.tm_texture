@@ -1,0 +1,33 @@
+__type: "tm_texture"
+__uuid: "d69001a2-6587-74c1-2add-8556782116e6"
+source_filename: "/Users/tkrmax/Documents/git/BlenderToRCP/References/RealityComposerProProject/Sources/RealityComposerProProject/RealityComposerProProject.rkassets/Export/RobotUnlit/textures/robot_mesh_mesh_export_neck_PLY__rig_skin_robot_mesh_mesh_export_pxrusdpreviewsurface5sg1_Baked_6_opacity.png"
+source_texture: "629f0678-65b6-d458-9729-133d4b2cb5a3"
+transform: "6b5fd8e4eec2cf5b"
+transform_settings: {
+	__uuid: "e54037aa-ec55-383d-bf31-bc65d62397d1"
+	__prototype_type: "tm_creation_graph"
+	__prototype_uuid: "565f9a46-b719-d76a-7eaa-36e7faaddc5f"
+	graph: {
+		__uuid: "62259ad1-1afa-0e3d-72f9-533ac2f8825b"
+		__prototype_type: "tm_graph"
+		__prototype_uuid: "31ddc72a-62d2-0d6e-83b1-392db7f56278"
+		interface: {
+			__uuid: "ee5b4425-aab4-c567-e734-d6c3265aef01"
+			__prototype_type: "tm_graph_interface"
+			__prototype_uuid: "fafb8c6f-264f-0609-fc29-68fbe0d040c1"
+		}
+	}
+}
+color_space: {
+	__uuid: "9d09c493-5586-794a-6416-e917217d2018"
+	color_primary: 1
+	transfer_function: 2
+	color_model: 1
+}
+__asset_uuid: "0816718f-3d56-3cbc-5fb0-0702516414ab"
+__asset_labels: [
+	"e4bec38d8f73f423"
+]
+__asset_thumbnail: {
+	__uuid: "3fad43ca-8a20-88a7-0fcc-6ed4aaddaf01"
+}

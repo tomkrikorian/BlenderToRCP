@@ -19,16 +19,8 @@ from .usd_assets import prepare_assets
 from .usd_utils import Usd, require_pxr
 
 
-def process_usd_stage(usd_path: str, settings, context, diagnostics=None, *, force_up_axis_y: bool = False) -> None:
-    """Post-process a USD stage for RealityKit compatibility.
-
-    ``force_up_axis_y`` is set by exports that ran the Y-up geometry bake: the
-    bake clears ``convert_orientation`` (so ``normalize_scene`` won't author an
-    up-axis and the exporter adds no root rotation), and the stage must be
-    stamped ``upAxis=Y`` to match the natively Y-up geometry. Authoring it here,
-    on the already-open stage, is the linchpin of the Y-up feature - without it
-    the USD ships silently mis-oriented.
-    """
+def process_usd_stage(usd_path: str, settings, context, diagnostics=None) -> None:
+    """Post-process a USD stage for RealityKit compatibility."""
     require_pxr()
 
     stage = Usd.Stage.Open(usd_path, Usd.Stage.LoadAll)
@@ -61,9 +53,6 @@ def process_usd_stage(usd_path: str, settings, context, diagnostics=None, *, for
             writable_layer_paths,
             diagnostics,
         )
-
-        if force_up_axis_y:
-            stage.SetMetadata("upAxis", "Y")
 
         # Persist the localized, normalized layer stack before later passes can
         # add or rewrite composition arcs. Even a semantically identical Sdf

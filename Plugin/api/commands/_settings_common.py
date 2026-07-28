@@ -6,6 +6,13 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from typing import Any
 
+from ...apple_contract import (
+    REALITYKIT_FORWARD_AXIS,
+    REALITYKIT_METERS_PER_UNIT,
+    REALITYKIT_SCENE_UNITS,
+    REALITYKIT_UP_AXIS,
+)
+
 
 # BlenderToRCP 2.0 deliberately targets the current RealityKit / Reality
 # Composer Pro generation.  Keep the baseline in one import-safe module so the
@@ -23,13 +30,8 @@ MATERIALX_SURFACE_PROFILES = (
     "openpbr_1_1",
 )
 REALITYKIT_OS27_DEFAULTS: dict[str, Any] = {
-    "convert_orientation": True,
-    "forward_axis": "-Z",
-    "up_axis": "Y",
-    "convert_scene_units": "METERS",
-    "meters_per_unit": 1.0,
-    "export_meshes": True,
     "materialx_surface_profile": MATERIALX_SURFACE_PROFILE_DEFAULT,
+    "normalize_unsupported_values": False,
 }
 
 REALITYKIT_OS27_ADVANCED_CONTENT_KEYS = frozenset()
@@ -44,6 +46,9 @@ INTERNAL_KEYS = frozenset({
     "background_job_dir",
     "background_job_pid",
     "force_unlit_materials",
+    "ui_material_type",
+    "ui_pbr_processing",
+    "ui_unlit_appearance",
 })
 
 # CLI boolean values are intentionally closed sets.  Keeping the accepted
@@ -67,23 +72,11 @@ SETTING_GROUPS: dict[str, set[str]] = {
         "custom_properties_namespace",
         "author_blender_name",
         "allow_unicode",
-        "relative_paths",
-        "convert_orientation",
-        "forward_axis",
-        "up_axis",
-        "convert_scene_units",
-        "meters_per_unit",
         "xform_op_mode",
         "evaluation_mode",
         "use_instancing",
     },
-    "objects": {
-        "export_meshes",
-    },
     "geometry": {
-        "export_uvmaps",
-        "rename_uvmaps",
-        "export_normals",
         "merge_parent_xform",
         "triangulate_meshes",
         "quad_method",
@@ -104,6 +97,7 @@ SETTING_GROUPS: dict[str, set[str]] = {
     },
     "materials": {
         "materialx_surface_profile",
+        "normalize_unsupported_values",
     },
     "bake": {
         "bake_mode",
@@ -117,7 +111,6 @@ SETTING_GROUPS: dict[str, set[str]] = {
         "bake_keep_materials",
         "bake_step_timeout_seconds",
         "bake_roughness_mode",
-        "apply_yup_geometry",
     },
     "diagnostics": {
         "diagnostics_enabled",
@@ -133,6 +126,67 @@ def get_settings():
     if settings is None:
         raise RuntimeError("BlenderToRCP addon not loaded — export settings unavailable.")
     return settings
+
+
+def attach_early_failure_diagnostics(
+    error,
+    args: dict,
+    settings,
+    *,
+    command: str,
+) -> None:
+    """Attach a best-effort report when validation fails before pipeline setup.
+
+    Export commands normally create their diagnostics collector after settings
+    have been validated and the output extension has been resolved. Invalid
+    overrides fail earlier, so they use this small fallback to preserve the
+    always-diagnose-failures contract.
+    """
+    if getattr(error, "artifacts", {}).get("diagnostics_path"):
+        return
+    requested_path = str(args.get("filepath") or "").strip()
+    if not requested_path:
+        return
+
+    from pathlib import Path
+
+    format_name = str(
+        args.get("format")
+        or getattr(settings, "export_format", "USDZ")
+        or "USDZ"
+    ).upper()
+    extension = {"USDA": ".usda", "USDC": ".usdc", "USDZ": ".usdz"}.get(
+        format_name,
+        ".usdz",
+    )
+    output_path = str(Path(requested_path).with_suffix(extension))
+    diagnostics_path = str(Path(output_path).with_suffix(".diagnostics.json"))
+
+    try:
+        import bpy
+        from ...export.diagnostics import ExportDiagnostics
+        from ...export.support_bundle import collect_environment, collect_scene_snapshot
+
+        diag = ExportDiagnostics()
+        diag.set_export_context(
+            command=command,
+            requested_path=requested_path,
+            resolved_output_path=output_path,
+            export_format=format_name,
+            selected_only=bool(getattr(settings, "selected_objects_only", False)),
+            blend_file=getattr(getattr(bpy, "data", None), "filepath", None),
+        )
+        diag.set_environment(**collect_environment(bpy.context))
+        diag.data["scene"] = collect_scene_snapshot(bpy.context)
+        diag.add_exception(error, stage=getattr(error, "stage", None) or "settings")
+        diag.set_artifact("diagnostics_path", diagnostics_path)
+        diag.save(Path(diagnostics_path))
+    except Exception:
+        return
+
+    artifacts = getattr(error, "artifacts", None)
+    if isinstance(artifacts, dict):
+        artifacts["diagnostics_path"] = diagnostics_path
 
 
 @contextmanager

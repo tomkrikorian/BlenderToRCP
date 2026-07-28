@@ -8,7 +8,7 @@ Core design constraints:
 - Strict mode first. If a material graph cannot be translated deterministically, export fails with actionable errors instead of silently falling back.
 - Portable outputs. Textures and auxiliary assets are copied next to the exported USD and rewritten to relative paths.
 - Reality Composer Pro compatibility. Post-processing reshapes Blender-authored USD into the subset RealityKit and RCP expect.
-- Responsive baking. Bake Textures & Export runs inside a second Blender process so the foreground UI stays interactive.
+- Responsive baking. The single Blender Export action routes bake-backed profiles through a second Blender process so the foreground UI stays interactive.
 - Built artifacts stay built. Runtime loads the prebuilt MaterialX manifest and nodegroup library; it does not regenerate them inside Blender.
 
 ## Supported platform contract
@@ -28,7 +28,7 @@ The pipeline has two distinct validation boundaries:
 
 Interactive Reality Composer Pro 3 import/save/reopen, visual inspection, Quick Look/Spatial Preview, and physical Vision Pro testing are manual release gates. Compilation alone is insufficient—the automated Apple gate also requires real macOS 27 RealityKit loading—but neither automated check proves the remaining UI, visual, or device acceptance.
 
-The mandatory shipping material profile is `realitykit_portable`, based on the established RealityKit PBR v1 surface. The graph builder also contains explicit `realitykit_pbr2` and `openpbr_1_1` profiles, but they remain experimental while current Apple beta import/rendering incompatibilities exist. PBR Surface 2 is currently limited to USDC-to-RCP3 experiments because Quick Look and USDKit are incompatible and strict USD/USDZ validation may reject its nodedef. Passing an experimental compile does not promote either profile into the supported release contract or weaken package validation.
+The mandatory shipping material profile is `realitykit_portable`, based on the established RealityKit PBR v1 surface. The graph builder also contains explicit `realitykit_pbr2` and `openpbr_1_1` profiles, but they remain experimental. Passing an experimental compile does not promote either profile into the supported release contract or weaken package validation.
 
 ## Repository layout
 - `Plugin/`: Blender add-on package.
@@ -85,7 +85,7 @@ Preferences live in `Plugin/prefs.py`:
 - `usdzip_path`
 - `materialx_library_path`
 
-Diagnostics are an export setting on `BlenderToRCPExportSettings`, not an always-on add-on preference. `diagnostics_enabled` gates whether `.diagnostics.json` files are written and whether the UI exposes the diagnostics viewer/support-bundle actions.
+Diagnostics are an export setting on `BlenderToRCPExportSettings`, not an add-on preference. Failures always write `.diagnostics.json`; `diagnostics_enabled` controls only successful-export sidecars.
 
 ## Export pipeline
 The foreground export operator is `blendertorcp.export` in `Plugin/ops/export_operator.py`.
@@ -136,13 +136,23 @@ Packager: `Plugin/export/pack_usdz.py`
 ### 5. Diagnostics
 Collector: `Plugin/export/diagnostics.py`
 - Captures warnings, errors, animation segments, texture work, and material conversion results.
-- If diagnostics are enabled for the export, writes `<output>.diagnostics.json`.
-- Failure paths write `<output>.diagnostics.json` only when diagnostics are enabled for that command.
+- Writes `<output>.diagnostics.json` for every failed export.
+- Successful exports retain the sidecar only when diagnostics are enabled for that command.
 - Diagnostics include export context, runtime environment, phase timings, validation issues, material graph issues, asset dependency preflights, generated files, artifacts, warnings, errors, and captured exceptions.
 - The diagnostics viewer in `Plugin/ops/export_operator.py` renders a summary dialog in Blender.
 - `Plugin/export/support_bundle.py` creates redacted ZIPs containing environment, scene/settings, asset dependencies, diagnostics, and background job files when a job directory is supplied. Material validation snapshots are included only for non-baked exports. Redaction covers plain absolute paths and JSON-escaped Windows path strings.
 
-## Background Bake Textures & Export
+## Profile-driven background baking
+
+The Blender UI exposes two artist-facing material types with one Export action:
+
+- `RealityKit PBR` + `Translate Materials` routes to the direct export operator.
+- `RealityKit PBR` + `Bake Materials` routes to `LIT_ALBEDO`.
+- `RealityKit Unlit` + `Material Color Only` routes to `UNLIT_ALBEDO`.
+- `RealityKit Unlit` + `Lighting & Shadows` routes to `LIT_IBL`.
+
+The CLI retains the explicit `export` and `bake-export` commands and their
+low-level settings. The UI-only routing fields are not part of the CLI schema.
 The background bake operator is `blendertorcp.bake_export_background` in `Plugin/ops/bake_export_operator.py`.
 
 ### Control-plane behavior
@@ -176,7 +186,7 @@ User-visible contracts:
 - `Material Color Only - Lit PBR` (`LIT_ALBEDO`) bakes light-independent material color and exports Lit PBR materials (roughness as a texture or averaged constant via `bake_roughness_mode`).
 - `Lighting & Shadows` (`LIT_IBL`) bakes appearance under the chosen lighting source, then still exports Unlit materials whose textures already include that lighting and shadowing.
 - `Isolate Meshes for Shadows` hides non-target meshes during each lighting-and-shadows bake pass to avoid cross-mesh shadows.
-- `Step Timeout (sec)` is enforced by the foreground watcher and can terminate the background Blender process when a single step stalls.
+- The CLI and persisted plugin settings expose an optional per-step timeout that the foreground watcher can use to terminate the background Blender process when a single step stalls. The Blender panel intentionally omits this operational control.
 
 ## Material rewrite flow
 Material rewriting is orchestrated in `Plugin/export/materials/rewrite.py`.

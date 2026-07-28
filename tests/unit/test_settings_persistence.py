@@ -39,16 +39,12 @@ def _load_prefs_module(monkeypatch):
 
 class _FakeSettings:
     DEFAULTS = {
-        "convert_orientation": True,
-        "export_meshes": True,
         "export_format": "USDA",
         "filepath": "",
         "history_applied": False,
         "persist_suspended": False,
     }
     TYPES = {
-        "convert_orientation": "BOOLEAN",
-        "export_meshes": "BOOLEAN",
         "export_format": "ENUM",
         "filepath": "STRING",
         "history_applied": "BOOLEAN",
@@ -133,9 +129,9 @@ def test_legacy_preferences_and_scene_idproperties_reset_to_strict_defaults(
     preferences = _install_preferences(monkeypatch, prefs_module, serialized)
     settings = _FakeSettings(
         {
+            "history_applied": True,
             "convert_orientation": False,
             "export_meshes": False,
-            "history_applied": True,
             "unknown_dev_flag": True,
         }
     )
@@ -144,19 +140,17 @@ def test_legacy_preferences_and_scene_idproperties_reset_to_strict_defaults(
 
     assert result["status"] in {"unversioned", "old_version"}
     assert result["scene_reset"] is True
-    assert settings.convert_orientation is True
-    assert settings.export_meshes is True
+    assert "convert_orientation" not in settings.keys()
+    assert "export_meshes" not in settings.keys()
     assert "unknown_dev_flag" not in settings.keys()
     assert prefs_module.export_settings_scene_is_current(settings)
 
     rewritten = json.loads(preferences.last_export_settings_json)
     assert rewritten == {
         "schema": "blendertorcp.export-settings",
-        "version": 2,
+        "version": 3,
         "profile": "REALITYKIT_OS27",
         "values": {
-            "convert_orientation": True,
-            "export_meshes": True,
             "export_format": "USDA",
         },
     }
@@ -167,21 +161,17 @@ def test_current_version_payload_roundtrips_explicit_profile_choices(monkeypatch
     preferences = _install_preferences(monkeypatch, prefs_module)
     source = _FakeSettings()
     prefs_module.ensure_current_export_settings_scene_profile(source)
-    source.convert_orientation = False
-    source.export_meshes = False
     source.export_format = "USDC"
 
     assert prefs_module.persist_export_settings(object(), source) is True
     payload = json.loads(preferences.last_export_settings_json)
-    assert payload["version"] == 2
+    assert payload["version"] == 3
     assert payload["profile"] == "REALITYKIT_OS27"
 
     target = _FakeSettings()
     result = prefs_module.apply_persisted_export_settings(object(), target)
 
     assert result == {"status": "current", "scene_reset": False}
-    assert target.convert_orientation is False
-    assert target.export_meshes is False
     assert target.export_format == "USDC"
     assert target.history_applied is True
     assert prefs_module.export_settings_scene_is_current(target)
@@ -194,9 +184,9 @@ def test_incomplete_current_payload_is_rejected_instead_of_partially_applied(
     serialized = json.dumps(
         {
             "schema": "blendertorcp.export-settings",
-            "version": 2,
+            "version": 3,
             "profile": "REALITYKIT_OS27",
-            "values": {"convert_orientation": False},
+            "values": {},
         }
     )
     preferences = _install_preferences(monkeypatch, prefs_module, serialized)
@@ -205,11 +195,7 @@ def test_incomplete_current_payload_is_rejected_instead_of_partially_applied(
     result = prefs_module.apply_persisted_export_settings(object(), settings)
 
     assert result == {"status": "invalid_values", "scene_reset": True}
-    assert settings.convert_orientation is True
-    assert settings.export_meshes is True
     assert json.loads(preferences.last_export_settings_json)["values"] == {
-        "convert_orientation": True,
-        "export_meshes": True,
         "export_format": "USDA",
     }
 

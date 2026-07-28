@@ -178,12 +178,12 @@ def cmd_validate(parsed: argparse.Namespace) -> int:
     args = {}
     if parsed.material:
         args["material"] = parsed.material
-    if parsed.strict:
-        args["strict"] = True
     if parsed.only_errors:
         args["only_errors"] = True
     if parsed.materialx_surface_profile:
         args["materialx_surface_profile"] = parsed.materialx_surface_profile
+    if parsed.normalize_unsupported_values:
+        args["normalize_unsupported_values"] = True
     result = _run("validate", args, parsed)
     _print_json(result)
     return _result_exit_code(result)
@@ -242,14 +242,6 @@ def cmd_export(parsed: argparse.Namespace) -> int:
         args["diagnostics"] = True
 
     overrides = _collect_overrides(parsed.overrides)
-    if parsed.apply_yup:
-        # Geometry baking is deliberately gated by orientation conversion in
-        # bake_finalize.should_apply_yup().  The convenience flag must enable
-        # the complete protocol, not leave apply_yup_geometry as a no-op.
-        overrides["convert_orientation"] = "true"
-        overrides["apply_yup_geometry"] = "true"
-        overrides["forward_axis"] = "-Z"
-        overrides["up_axis"] = "Y"
     if overrides:
         args["overrides"] = overrides
 
@@ -303,11 +295,6 @@ def cmd_bake_export(parsed: argparse.Namespace) -> int:
     overrides = _collect_overrides(parsed.overrides)
     if parsed.roughness_mode:
         overrides["bake_roughness_mode"] = parsed.roughness_mode
-    if parsed.apply_yup:
-        overrides["convert_orientation"] = "true"
-        overrides["apply_yup_geometry"] = "true"
-        overrides["forward_axis"] = "-Z"
-        overrides["up_axis"] = "Y"
     if overrides:
         args["overrides"] = overrides
 
@@ -434,7 +421,6 @@ def build_parser() -> argparse.ArgumentParser:
     p = subs.add_parser("validate", help="Check materials for RealityKit compatibility")
     p.add_argument("blend_file", help="Path to .blend file")
     p.add_argument("--material", help="Validate a single material by name")
-    p.add_argument("--strict", action="store_true", help="Treat warnings as errors")
     p.add_argument("--only-errors", action="store_true", help="Suppress warnings")
     p.add_argument(
         "--materialx-surface-profile",
@@ -442,6 +428,14 @@ def build_parser() -> argparse.ArgumentParser:
         help=(
             "Validate against a MaterialX surface profile for this run "
             "(default: active scene setting)"
+        ),
+    )
+    p.add_argument(
+        "--normalize-unsupported-values",
+        action="store_true",
+        help=(
+            "Validate with the export-only safe clamp enabled; currently applies "
+            "only to constant achromatic Specular Tint values above 1"
         ),
     )
     p.set_defaults(func=cmd_validate)
@@ -457,7 +451,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument(
         "--group",
         help=(
-            "Return settings from a group: all, general, objects, geometry, "
+            "Return settings from a group: all, general, geometry, "
             "rigging, texture, materials, bake, diagnostics"
         ),
     )
@@ -488,11 +482,6 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--diagnostics", action="store_true", help="Write diagnostics JSON sidecar")
     p.add_argument("--no-diagnostics", action="store_true", help="Skip diagnostics")
     p.add_argument(
-        "--apply-yup",
-        action="store_true",
-        help="Enable orientation conversion and bake safe mesh data to native Y-up",
-    )
-    p.add_argument(
         "overrides", nargs="*", metavar="key=value",
         help="Setting overrides (place immediately after the blend file, before -o/--format)",
     )
@@ -522,11 +511,6 @@ def build_parser() -> argparse.ArgumentParser:
     # Advanced
     p.add_argument("--keep-materials", action="store_true", help="Keep baked materials after export")
     p.add_argument("--roughness-mode", choices=["TEXTURE", "AVERAGE"], help="LIT_ALBEDO roughness output: full texture or averaged constant")
-    p.add_argument(
-        "--apply-yup",
-        action="store_true",
-        help="Enable orientation conversion and bake safe mesh data to native Y-up",
-    )
     p.add_argument(
         "--step-timeout", dest="timeout_step", type=_nonnegative_seconds,
         help="Per-bake/export-step worker timeout in seconds, 0 for no limit "

@@ -1,0 +1,34 @@
+__type: "tm_texture"
+__uuid: "ab3f0e95-63b1-d2fe-dc81-4fafc856ef85"
+source_filename: "channel_audio.png"
+source_texture: "5d5532bf-a929-cb36-5fa7-32e88bef42ad"
+transform: "cd121f4b2c09f389"
+transform_settings: {
+	__uuid: "addcd0c1-d3c7-6e26-c597-8a621dd75ce5"
+	__prototype_type: "tm_creation_graph"
+	__prototype_uuid: "8ecdf0e9-16ad-8a58-d16d-8f933a33ecda"
+	graph: {
+		__uuid: "c0882f5c-e9c3-e919-0f8e-8ed28d3546d5"
+		__prototype_type: "tm_graph"
+		__prototype_uuid: "af823c6b-7527-4a14-bd05-6c20cb51ca2d"
+		interface: {
+			__uuid: "11b4761e-e14d-70c0-0a67-4b51e785e682"
+			__prototype_type: "tm_graph_interface"
+			__prototype_uuid: "9b5202ad-28dd-d1e7-0d42-59c4bd184e27"
+		}
+	}
+}
+color_space: {
+	__uuid: "d2f52659-7edf-7d3d-eb11-c9e1ec53d87f"
+	color_primary: 1
+	transfer_function: 2
+	color_model: 1
+}
+__asset_uuid: "52172467-b9ba-a62d-62a4-d8b2971d9866"
+__asset_labels: [
+	"e4bec38d8f73f423"
+	"2cbc16a459dc040f"
+]
+__asset_thumbnail: {
+	__uuid: "10047520-0350-caf3-e926-bdc41de51f60"
+}

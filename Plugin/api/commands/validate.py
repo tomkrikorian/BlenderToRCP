@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from ._settings_common import (
+    BOOLEAN_FALSE_TOKENS,
+    BOOLEAN_TRUE_TOKENS,
     MATERIALX_SURFACE_PROFILE_DEFAULT,
     MATERIALX_SURFACE_PROFILES,
     get_settings,
@@ -30,14 +32,34 @@ def _resolve_surface_profile(args: dict, settings) -> str:
     return canonical
 
 
+def _resolve_normalization_policy(args: dict, settings) -> bool:
+    """Resolve the explicit opt-in without truthy-string surprises."""
+    requested = args.get("normalize_unsupported_values")
+    if requested is None:
+        return bool(getattr(settings, "normalize_unsupported_values", False))
+    if isinstance(requested, bool):
+        return requested
+    token = str(requested).strip().casefold()
+    if token in BOOLEAN_TRUE_TOKENS:
+        return True
+    if token in BOOLEAN_FALSE_TOKENS:
+        return False
+    raise ValueError(
+        "Invalid normalize_unsupported_values value. "
+        f"Allowed true values: {list(BOOLEAN_TRUE_TOKENS)}; "
+        f"false values: {list(BOOLEAN_FALSE_TOKENS)}"
+    )
+
+
 def handle(args: dict) -> dict:
     import bpy
     from ...nodes import validate as rk_validate
 
     material_name = args.get("material")
-    strict = args.get("strict", False)
     only_errors = args.get("only_errors", False)
-    surface_profile = _resolve_surface_profile(args, get_settings())
+    settings = get_settings()
+    surface_profile = _resolve_surface_profile(args, settings)
+    normalize_unsupported_values = _resolve_normalization_policy(args, settings)
 
     if material_name:
         mat = bpy.data.materials.get(material_name)
@@ -54,8 +76,9 @@ def handle(args: dict) -> dict:
     for mat in materials:
         result = rk_validate.validate_material(
             mat,
-            strict=strict,
+            strict=True,
             surface_profile=surface_profile,
+            normalize_unsupported_values=normalize_unsupported_values,
         )
         entry = {
             "name": result["material"],
@@ -87,6 +110,7 @@ def handle(args: dict) -> dict:
         "ok": all_ok,
         "error_count": total_errors,
         "materialx_surface_profile": surface_profile,
+        "normalize_unsupported_values": normalize_unsupported_values,
         "materials": results,
     }
     if not only_errors:

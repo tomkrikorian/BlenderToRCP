@@ -1,0 +1,73 @@
+__type: "tm_entity"
+__uuid: "8accb719-208b-6002-034b-0588f6218624"
+__prototype_type: "tm_entity"
+__prototype_uuid: "d29e7e3c-a1c7-0782-ce30-b4defa9600a3"
+name: ""
+components__instantiated: [
+	{
+		__type: "tm_transform_component"
+		__uuid: "1894bf33-145e-4bb9-201c-5aee146990a6"
+		__prototype_type: "tm_transform_component"
+		__prototype_uuid: "ffdc0c14-e364-c952-764f-2a3d549027ff"
+		local_position_double: {
+			__uuid: "dee7ab0c-eedc-ecb0-2824-b6ee94a230f5"
+			__prototype_type: "tm_position_double"
+			__prototype_uuid: "a6a71b53-eab0-0fed-383b-cf8e48b6d54f"
+			x: 0
+			y: 0
+			z: 0
+		}
+		local_rotation: {
+			__uuid: "fdf34350-6c74-e2c4-eb40-18be86405fc1"
+			__prototype_type: "tm_rotation"
+			__prototype_uuid: "240f1813-2fc5-dc9f-0f54-339432792ff6"
+		}
+		local_scale: {
+			__uuid: "a042cfe1-4286-8951-1707-d308ef6e11dd"
+			__prototype_type: "tm_scale"
+			__prototype_uuid: "0b26bbc7-861e-699c-1be5-0e1346035427"
+		}
+	}
+	{
+		__type: "tm_render_component"
+		__uuid: "2c84fecf-8adc-5040-e485-5186aa1abe92"
+		__prototype_type: "tm_render_component"
+		__prototype_uuid: "e70e36c5-e524-cf5d-0605-4f6575defa6e"
+		creation_graph: {
+			__uuid: "af6c1fe5-fc00-72f5-97a8-ee95c76bb15b"
+			__prototype_type: "tm_creation_graph"
+			__prototype_uuid: "0f819324-3858-5dfd-75e3-9d555e921130"
+			graph: {
+				__uuid: "94b59bcd-d849-1ef7-ca20-0a4e4cb61462"
+				__prototype_type: "tm_graph"
+				__prototype_uuid: "c5f56b96-50c7-3fc5-46f1-5681bde1792b"
+				interface: {
+					__uuid: "326446cd-d32f-510e-cb86-fc1e0e54e10b"
+					__prototype_type: "tm_graph_interface"
+					__prototype_uuid: "7e6ea119-7cd7-91b3-9d4d-a9d68a6b8bd6"
+					inputs__instantiated: [
+						{
+							__uuid: "04ee8927-0219-837a-74be-9a5d0d80c7b4"
+							__prototype_type: "tm_graph_input"
+							__prototype_uuid: "ea14b25c-fb23-9a27-e8a2-14a23ecb1906"
+							value_set_by_user: true
+							value: {
+								__type: "tm_creation_graph_resource_reference"
+								__uuid: "6ccd0271-2381-3d9c-8b67-42eb6ddeb95c"
+								__prototype_type: "tm_creation_graph_resource_reference"
+								__prototype_uuid: "4725f871-9679-be54-85a5-ec62595ee685"
+								creation_graph: "26692cc5-1931-59db-2510-21f68a024415"
+								creation_graph__type: "tm_texture"
+							}
+						}
+					]
+				}
+			}
+		}
+	}
+]
+active: true
+__asset_uuid: "be838543-2adb-5994-ece1-55d9116fddd0"
+__asset_labels: [
+	"2cbc16a459dc040f"
+]

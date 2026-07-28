@@ -158,6 +158,14 @@ serialized_unused = _serialize_settings(fake_settings, context=bpy.context)
 results["unused_hdri_path_not_required"] = (
     serialized_unused["bake_ibl_filepath"] == "//unused-missing.hdr"
 )
+serialized_ui_bake = _serialize_settings(
+    fake_settings,
+    context=bpy.context,
+    enable_texture_settings=True,
+)
+results["ui_bake_enables_visible_texture_settings"] = (
+    serialized_ui_bake["export_texture_settings_enabled"] is True
+)
 _cleanup_scene_snapshot(job)
 results["saved_cleanup"] = not snapshot.exists()
 
@@ -356,6 +364,7 @@ def test_background_snapshot_preserves_active_scene_and_unsaved_edits(tmp_path):
         "saved_relative_resolved": True,
         "background_hdri_path_pinned": True,
         "unused_hdri_path_not_required": True,
+        "ui_bake_enables_visible_texture_settings": True,
         "dirty_active_world_rejected": True,
         "dirty_displace_image_rejected": True,
         "dirty_external_image_rejected": True,

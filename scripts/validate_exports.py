@@ -79,12 +79,24 @@ def main() -> int:
     }
 
     failures = 0
+    compile_output_stems = _compile_output_stems(inputs)
 
     for entry in inputs:
-        if entry.suffix == ".rkassets":
-            result = _validate_rkassets(entry, nodedefs, args)
+        output_stem = compile_output_stems.get(entry)
+        if entry.suffix.lower() == ".rkassets":
+            result = _validate_rkassets(
+                entry,
+                nodedefs,
+                args,
+                compile_output_stem=output_stem,
+            )
         else:
-            result = _validate_usd(entry, nodedefs, args)
+            result = _validate_usd(
+                entry,
+                nodedefs,
+                args,
+                compile_output_stem=output_stem,
+            )
 
         report["results"].append(result)
         if result.get("status") != "ok":
@@ -99,7 +111,13 @@ def main() -> int:
     return 0 if failures == 0 else 1
 
 
-def _validate_usd(path: Path, nodedefs: set, args) -> Dict[str, object]:
+def _validate_usd(
+    path: Path,
+    nodedefs: set,
+    args,
+    *,
+    compile_output_stem: Optional[str] = None,
+) -> Dict[str, object]:
     result: Dict[str, object] = {
         "file": str(path),
         "status": "ok",
@@ -133,7 +151,11 @@ def _validate_usd(path: Path, nodedefs: set, args) -> Dict[str, object]:
             result["status"] = "error"
 
     if not args.no_compile and _is_compilable_usd(path):
-        compile_result = _compile_from_usd(path, args)
+        compile_result = _compile_from_usd(
+            path,
+            args,
+            output_stem=compile_output_stem,
+        )
         result["compile"] = compile_result
         if compile_result["ok"] is False:
             result["status"] = "error"
@@ -141,7 +163,13 @@ def _validate_usd(path: Path, nodedefs: set, args) -> Dict[str, object]:
     return result
 
 
-def _validate_rkassets(path: Path, nodedefs: set, args) -> Dict[str, object]:
+def _validate_rkassets(
+    path: Path,
+    nodedefs: set,
+    args,
+    *,
+    compile_output_stem: Optional[str] = None,
+) -> Dict[str, object]:
     result: Dict[str, object] = {
         "rkassets": str(path),
         "status": "ok",
@@ -209,7 +237,14 @@ def _validate_rkassets(path: Path, nodedefs: set, args) -> Dict[str, object]:
             result["status"] = "error"
 
     if not args.no_compile:
-        compile_result = _compile_rkassets(path, args)
+        if compile_output_stem is None:
+            compile_result = _compile_rkassets(path, args)
+        else:
+            compile_result = _compile_rkassets(
+                path,
+                args,
+                output_stem=compile_output_stem,
+            )
         result["compile"] = compile_result
         if compile_result["ok"] is False:
             result["status"] = "error"
@@ -220,21 +255,70 @@ def _validate_rkassets(path: Path, nodedefs: set, args) -> Dict[str, object]:
 def _collect_inputs(path: Path) -> List[Path]:
     if path.is_file():
         return [path] if path.suffix.lower() in USD_EXTENSIONS else []
-    if path.suffix == ".rkassets" and path.is_dir():
+    if path.suffix.lower() == ".rkassets" and path.is_dir():
         return [path]
+    if not path.is_dir():
+        return []
     results = []
     for ext in (".usda", ".usdc", ".usd", ".usdz", ".rkassets"):
-        results.extend(path.rglob(f"*{ext}"))
+        for entry in path.rglob(f"*{ext}"):
+            if entry.is_file() or (
+                entry.suffix.lower() == ".rkassets" and entry.is_dir()
+            ):
+                results.append(entry)
     # A .rkassets bundle is one validation unit; do not also report each of its
     # internal layers as an independent top-level export.
-    bundle_roots = [entry for entry in results if entry.suffix == ".rkassets"]
+    bundle_roots = [
+        entry
+        for entry in results
+        if entry.suffix.lower() == ".rkassets" and entry.is_dir()
+    ]
     results = [
         entry
         for entry in results
-        if entry.suffix == ".rkassets"
+        if entry in bundle_roots
         or not any(bundle in entry.parents for bundle in bundle_roots)
     ]
     return sorted(set(results))
+
+
+def _compile_output_stems(inputs: List[Path]) -> Dict[Path, Optional[str]]:
+    """Disambiguate persisted compiler outputs that share a source stem.
+
+    A directory can legitimately contain ``Asset.usdc`` and ``Asset.usdz``.
+    Both used to reserve ``Asset-<platform>-<target>.reality``, causing the
+    second valid input to fail. Preserve the concise historical filename for a
+    unique stem, but add the source format whenever a run contains a collision.
+    """
+    groups: Dict[str, List[Path]] = {}
+    for entry in inputs:
+        safe_stem = _safe_output_stem(entry.stem)
+        key = unicodedata.normalize("NFC", safe_stem).casefold()
+        groups.setdefault(key, []).append(entry)
+
+    output_stems: Dict[Path, Optional[str]] = {}
+    reserved: set[str] = set()
+    for entries in groups.values():
+        collides = len(entries) > 1
+        for entry in sorted(entries):
+            source_kind = entry.suffix.lower().lstrip(".") or "asset"
+            candidate: Optional[str] = (
+                f"{entry.stem}-{source_kind}" if collides else None
+            )
+            effective_candidate = candidate or entry.stem
+            safe_candidate = _safe_output_stem(effective_candidate)
+            normalized = unicodedata.normalize("NFC", safe_candidate).casefold()
+            if normalized in reserved:
+                digest = hashlib.sha256(
+                    entry.as_posix().encode("utf-8")
+                ).hexdigest()[:8]
+                candidate = f"{effective_candidate}-{digest}"
+                safe_candidate = _safe_output_stem(candidate)
+                normalized = unicodedata.normalize("NFC", safe_candidate).casefold()
+            reserved.add(normalized)
+            output_stems[entry] = candidate
+
+    return output_stems
 
 
 def _load_manifest(path: Path) -> Dict[str, object]:
@@ -417,7 +501,12 @@ def _is_compilable_usd(path: Path) -> bool:
     return path.suffix.lower() in USD_EXTENSIONS
 
 
-def _compile_from_usd(path: Path, args) -> Dict[str, object]:
+def _compile_from_usd(
+    path: Path,
+    args,
+    *,
+    output_stem: Optional[str] = None,
+) -> Dict[str, object]:
     with tempfile.TemporaryDirectory(prefix="blendertorcp_compile_") as temp_dir:
         bundle = Path(temp_dir) / f"{path.stem}.rkassets"
         bundle.mkdir(parents=True, exist_ok=True)
@@ -442,7 +531,11 @@ def _compile_from_usd(path: Path, args) -> Dict[str, object]:
                 "timed_out": False,
             }
 
-        return _compile_rkassets(bundle, args, output_stem=path.stem)
+        return _compile_rkassets(
+            bundle,
+            args,
+            output_stem=output_stem or path.stem,
+        )
 
 
 def _copy_compile_dependencies(root: Path, bundle: Path) -> None:

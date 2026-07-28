@@ -35,7 +35,14 @@ class TestInternalKeys:
 
     def test_contains_expected_keys(self):
         """Verify all expected internal keys are present."""
-        expected = {"rna_type", "name", "history_applied"}
+        expected = {
+            "rna_type",
+            "name",
+            "history_applied",
+            "ui_material_type",
+            "ui_pbr_processing",
+            "ui_unlit_appearance",
+        }
         assert expected.issubset(INTERNAL_KEYS)
 
     def test_not_empty(self):
@@ -71,7 +78,6 @@ class TestSettingGroups:
     def test_has_groups(self):
         assert set(SETTING_GROUPS.keys()) == {
             "general",
-            "objects",
             "geometry",
             "rigging",
             "materials",
@@ -106,7 +112,10 @@ class TestSettingGroups:
         assert "export_texture_settings_enabled" in SETTING_GROUPS["texture"]
 
     def test_materials_contains_surface_profile(self):
-        assert SETTING_GROUPS["materials"] == {"materialx_surface_profile"}
+        assert SETTING_GROUPS["materials"] == {
+            "materialx_surface_profile",
+            "normalize_unsupported_values",
+        }
 
     def test_geometry_contains_triangulate(self):
         assert "triangulate_meshes" in SETTING_GROUPS["geometry"]
@@ -114,11 +123,22 @@ class TestSettingGroups:
     def test_rigging_contains_armatures(self):
         assert "export_armatures" in SETTING_GROUPS["rigging"]
 
-    def test_objects_contains_meshes(self):
-        assert "export_meshes" in SETTING_GROUPS["objects"]
+    def test_no_object_type_group_remains(self):
+        assert "objects" not in SETTING_GROUPS
 
-    def test_objects_excludes_unsupported_raw_geometry_switches(self):
+    def test_no_group_exposes_spatial_contract_settings(self):
         assert not {
+            "convert_orientation",
+            "forward_axis",
+            "up_axis",
+            "convert_scene_units",
+            "meters_per_unit",
+            "relative_paths",
+            "export_meshes",
+            "export_uvmaps",
+            "rename_uvmaps",
+            "export_normals",
+            "apply_yup_geometry",
             "export_curves",
             "export_points",
             "export_hair",
@@ -126,7 +146,7 @@ class TestSettingGroups:
             "export_lights",
             "convert_world_material",
             "export_cameras",
-        }.intersection(SETTING_GROUPS["objects"])
+        }.intersection(set().union(*SETTING_GROUPS.values()))
 
     def test_diagnostics_contains_toggle(self):
         assert "diagnostics_enabled" in SETTING_GROUPS["diagnostics"]
@@ -182,6 +202,70 @@ def test_export_panel_does_not_expose_unsupported_raw_geometry_switches():
     assert not unsupported.intersection(drawn)
 
 
+def test_export_panel_keeps_operational_timeout_and_contract_details_hidden():
+    import ast
+
+    panel_path = Path(__file__).resolve().parents[2] / "Plugin" / "ui" / "panel.py"
+    source = panel_path.read_text()
+    tree = ast.parse(source, filename=str(panel_path))
+    settings_class = next(
+        node
+        for node in tree.body
+        if isinstance(node, ast.ClassDef)
+        and node.name == "BlenderToRCPExportSettings"
+    )
+    declared = {
+        node.target.id
+        for node in settings_class.body
+        if isinstance(node, ast.AnnAssign)
+        and isinstance(node.target, ast.Name)
+    }
+    drawn = {
+        call.args[1].value
+        for call in ast.walk(tree)
+        if isinstance(call, ast.Call)
+        and isinstance(call.func, ast.Attribute)
+        and call.func.attr == "prop"
+        and len(call.args) >= 2
+        and isinstance(call.args[1], ast.Constant)
+        and isinstance(call.args[1].value, str)
+    }
+
+    assert "bake_step_timeout_seconds" in declared
+    assert "bake_step_timeout_seconds" not in drawn
+    assert "RealityKit OS 27 profile" not in source
+    assert "Apple spatial contract" not in source
+    assert "USDKit" not in source
+    assert "Quick Look" not in source
+
+
+def test_export_panel_has_one_artist_facing_export_action_and_contextual_options():
+    panel_path = Path(__file__).resolve().parents[2] / "Plugin" / "ui" / "panel.py"
+    source = panel_path.read_text()
+
+    assert 'bl_label = "Material Settings"' in source
+    assert 'bl_label = "Optimization"' in source
+    assert 'bl_label = "Advanced USD"' in source
+    assert 'profile_row.prop(settings, "ui_material_type", expand=True)' in source
+    assert 'text="Export"' in source
+    assert "actions_box" not in source
+    assert 'text="Bake Textures & Export"' not in source
+    assert "_draw_usd_material_section" not in source
+    assert "_draw_usd_bake_section" not in source
+    assert 'text="Optimize Source Textures"' in source
+    assert 'text="Maximum Resolution"' in source
+    assert 'text="Bake Resolution"' in source
+    assert 'layout.prop(settings, "bake_margin")' in source
+    assert "_draw_usd_texture_section" not in source
+    assert '"blendertorcp_usd_texture"' not in source
+    assert source.count("expand=True") >= 3
+    assert "export_row.scale_y = 1.4" in source
+    assert "_export_route_summary" not in source
+    assert "icon='STATUS_WARNING'" in source
+    assert "icon='STATUS_ERROR'" in source
+    assert "layout.link(" in source
+
+
 @pytest.mark.parametrize(
     "key",
     [
@@ -197,7 +281,7 @@ def test_export_panel_does_not_expose_unsupported_raw_geometry_switches():
 def test_removed_raw_geometry_setting_has_stable_unknown_key_error(monkeypatch, key):
     settings = SimpleNamespace(
         bl_rna=SimpleNamespace(
-            properties=[_mock_prop("BOOLEAN", identifier="export_meshes")]
+            properties=[_mock_prop("ENUM", ["USDA", "USDC", "USDZ"], "export_format")]
         )
     )
     monkeypatch.setattr(settings_set, "get_settings", lambda: settings)

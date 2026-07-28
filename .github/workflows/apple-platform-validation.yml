@@ -203,7 +203,6 @@ jobs:
             export References/Blender/RedCube.blend \
             -o "$APPLE_VALIDATION_DIR/exports/RedCube/RedCube.usdc" \
             --format USDC \
-            --apply-yup \
             --diagnostics > "$APPLE_VALIDATION_DIR/exports/RedCube/export-usdc.json"
 
           python Plugin \
@@ -212,7 +211,6 @@ jobs:
             export References/Blender/RedCube.blend \
             -o "$APPLE_VALIDATION_DIR/exports/RedCube/RedCube.usdz" \
             --format USDZ \
-            --apply-yup \
             --diagnostics > "$APPLE_VALIDATION_DIR/exports/RedCube/export-usdz.json"
 
           python Plugin \
@@ -223,7 +221,6 @@ jobs:
             author-animation-library=true \
             -o "$APPLE_VALIDATION_DIR/exports/CubeWith4Animations/CubeWith4Animations.usdc" \
             --format USDC \
-            --apply-yup \
             --diagnostics > "$APPLE_VALIDATION_DIR/exports/CubeWith4Animations/export-usdc.json"
 
           python Plugin \
@@ -234,7 +231,6 @@ jobs:
             author-animation-library=true \
             -o "$APPLE_VALIDATION_DIR/exports/Robot/Robot.usdc" \
             --format USDC \
-            --apply-yup \
             --diagnostics > "$APPLE_VALIDATION_DIR/exports/Robot/export-usdc.json"
 
           set +e
@@ -248,7 +244,6 @@ jobs:
             -o "$APPLE_VALIDATION_DIR/exports/MeshyRiggedCharacter/MeshyRiggedCharacter.usdc" \
             --format USDC \
             --selected-only \
-            --apply-yup \
             --diagnostics > "$APPLE_VALIDATION_DIR/exports/MeshyRiggedCharacter/expected-portable-rejection.json"
           meshy_status=$?
           set -e

@@ -10,6 +10,7 @@ from ._settings_common import (
     INTERNAL_KEYS,
     MATERIALX_SURFACE_PROFILE_DEFAULT,
     apply_setting_updates_transactionally,
+    attach_early_failure_diagnostics,
     get_settings,
     prepare_setting_update,
     setting_value_issue,
@@ -21,7 +22,16 @@ from ..errors import CommandError
 def handle(args: dict) -> dict:
     settings = get_settings()
     with suspend_setting_persistence(settings):
-        return _handle(args, settings)
+        try:
+            return _handle(args, settings)
+        except CommandError as exc:
+            attach_early_failure_diagnostics(
+                exc,
+                args,
+                settings,
+                command="export",
+            )
+            raise
 
 
 def _handle(args: dict, settings) -> dict:
@@ -29,7 +39,7 @@ def _handle(args: dict, settings) -> dict:
     if not filepath:
         raise ValueError("'filepath' is required (output path).")
 
-    no_diagnostics = args.get("no_diagnostics", False)
+    suppress_success_diagnostics = args.get("no_diagnostics", False)
 
     # Apply overrides without persisting them
     overrides = args.get("overrides", {})
@@ -126,7 +136,6 @@ def _handle(args: dict, settings) -> dict:
     import bpy
     from ...export import (
         animation_export,
-        bake_finalize,
         blender_usd_export,
         diagnostics,
         pack_usdz,
@@ -140,10 +149,18 @@ def _handle(args: dict, settings) -> dict:
         "materialx_surface_profile",
         MATERIALX_SURFACE_PROFILE_DEFAULT,
     )
+    normalize_unsupported_values = bool(
+        getattr(settings, "normalize_unsupported_values", False)
+    )
 
     diag = diagnostics.ExportDiagnostics()
-    diagnostics_enabled = bool(getattr(settings, "diagnostics_enabled", False)) and not no_diagnostics
-    diagnostics_path = str(Path(filepath).with_suffix(".diagnostics.json")) if diagnostics_enabled else None
+    success_diagnostics_enabled = (
+        bool(getattr(settings, "diagnostics_enabled", False))
+        and not suppress_success_diagnostics
+    )
+    # Failure diagnostics are mandatory. The setting and CLI switches only
+    # control whether successful exports retain the same sidecar.
+    diagnostics_path = str(Path(filepath).with_suffix(".diagnostics.json"))
     diag.set_export_context(
         command="export",
         requested_path=args.get("filepath"),
@@ -151,6 +168,7 @@ def _handle(args: dict, settings) -> dict:
         export_format=requested_format,
         selected_only=bool(getattr(settings, "selected_objects_only", False)),
         materialx_surface_profile=surface_profile,
+        normalize_unsupported_values=normalize_unsupported_values,
         blend_file=bpy.data.filepath or None,
     )
     diag.set_environment(**collect_environment(bpy.context))
@@ -200,7 +218,13 @@ def _handle(args: dict, settings) -> dict:
             mat,
             strict=True,
             surface_profile=surface_profile,
+            normalize_unsupported_values=normalize_unsupported_values,
         )
+        for issue in result["warnings"]:
+            diag.add_validation_issue(mat.name, issue, severity="warning")
+            diag.add_warning(
+                f"{mat.name}: {issue.get('message', 'Material export warning.')}"
+            )
         if result["errors"]:
             for issue in result["errors"]:
                 diag.add_validation_issue(mat.name, issue, severity="error")
@@ -219,17 +243,8 @@ def _handle(args: dict, settings) -> dict:
             )
 
     start_time = time.time()
-    yup_state = None
     temp_usd_path = None
     try:
-        # Bake a -90deg X rotation into geometry for a native Y-up export when
-        # requested (and safe - the helper owns the settings gate, scope and
-        # animation preflight). This in-process export runs on the live scene,
-        # so it is undone in the finally below.
-        yup_state = bake_finalize.maybe_apply_yup_geometry_bake(
-            bpy.context, settings, diagnostics=diag
-        )
-
         # Step 1: Export from Blender to USD
         diag.begin_phase("blender_usd_export", {"output_path": filepath})
         temp_usd_path = blender_usd_export.export_blender_scene(
@@ -249,12 +264,10 @@ def _handle(args: dict, settings) -> dict:
             },
         )
 
-        # Step 2: Post-process (material rewrite; authors upAxis=Y when the
-        # Y-up geometry bake ran)
+        # Step 2: Post-process and enforce the Apple Y-up stage contract.
         diag.begin_phase("postprocess_usd", {"usd_path": temp_usd_path})
         postprocess_usd.process_usd_stage(
             temp_usd_path, settings, bpy.context, diag,
-            force_up_axis_y=yup_state is not None,
         )
         diag.end_phase("postprocess_usd")
 
@@ -322,13 +335,6 @@ def _handle(args: dict, settings) -> dict:
             artifacts=_artifacts(diagnostics_path, filepath, bpy.data.filepath),
         ) from exc
     finally:
-        # Undo the Y-up geometry bake first so the live scene is restored even
-        # if the export raised midway.
-        if yup_state is not None:
-            try:
-                bake_finalize.restore_yup_geometry_bake(bpy.context, settings, yup_state)
-            except Exception:
-                pass
         # A returned USD path identifies the exact unique attempt to clean.
         # If native export fails before returning, it cleans its own attempt.
         if temp_usd_path:
@@ -345,7 +351,7 @@ def _handle(args: dict, settings) -> dict:
 
     # Save diagnostics
     saved_diagnostics_path = None
-    if diagnostics_enabled:
+    if success_diagnostics_enabled:
         _save_diagnostics(diag, diagnostics_path)
         saved_diagnostics_path = diagnostics_path
 

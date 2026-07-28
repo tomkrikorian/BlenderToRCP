@@ -1,0 +1,30 @@
+__type: "tm_texture"
+__uuid: "c64e553d-10b6-82e9-c18f-7df382b23ccb"
+source_filename: ""
+source_texture: "30efb2ba-9077-00f0-e83e-8544ba882f4b"
+transform: "dbdb0d4a0b9144f5"
+transform_settings: {
+	__uuid: "f96dea00-508e-d3b8-2f5c-9f60eb4887e7"
+	__prototype_type: "tm_creation_graph"
+	__prototype_uuid: "9eee8001-52a4-671e-193e-13b33cb6c233"
+	graph: {
+		__uuid: "9ab3bb97-499d-c1ae-6a08-a7c67fee4538"
+		__prototype_type: "tm_graph"
+		__prototype_uuid: "311e84c2-053c-4beb-0569-d8aac8083cd2"
+		interface: {
+			__uuid: "17a30427-2e54-6701-6a72-399a24ceced9"
+			__prototype_type: "tm_graph_interface"
+			__prototype_uuid: "80ed42b0-003f-1504-072c-3ea14241dccf"
+		}
+	}
+}
+color_space: {
+	__uuid: "79a24e0f-1a9d-d35e-8687-e3d900c76fb3"
+	color_primary: 1
+	transfer_function: 2
+	color_model: 1
+}
+__asset_uuid: "b0b9821d-ad0b-339f-3501-e246d2c9d464"
+__asset_labels: [
+	"e4bec38d8f73f423"
+]

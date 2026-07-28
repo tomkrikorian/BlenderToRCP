@@ -6,6 +6,12 @@ from __future__ import annotations
 
 from typing import Dict, List, Optional, Set
 
+from ..material_policies import (
+    SPECULAR_TINT_NORMALIZATION_SETTING,
+    format_color,
+    safe_overbright_achromatic_specular_tint,
+    specular_tint_normalization_message,
+)
 from . import metadata
 
 
@@ -214,6 +220,7 @@ def _values_differ(value, neutral, epsilon: float = 1e-6) -> bool:
 def _unsupported_principled_inputs(
     node,
     surface_profile: str = "realitykit_portable",
+    normalize_unsupported_values: bool = False,
 ) -> List[str]:
     """Report Principled BSDF inputs that RealityKit PBR cannot represent.
 
@@ -255,6 +262,14 @@ def _unsupported_principled_inputs(
         issues.append("Principled 'Transmission Weight' is not exportable; the material will be opaque.")
 
     profile = (surface_profile or 'realitykit_portable').strip().lower()
+    specular_tint_socket = _socket('Specular Tint')
+    specular_tint_policy = safe_overbright_achromatic_specular_tint(
+        getattr(specular_tint_socket, 'default_value', None),
+        linked=bool(
+            specular_tint_socket is not None
+            and getattr(specular_tint_socket, 'is_linked', False)
+        ),
+    )
 
     # Coat constants are mapped, but linked Coat Weight/Roughness/Tint values
     # have no graph_input_map entry in extraction.  Reject those links in every
@@ -317,6 +332,18 @@ def _unsupported_principled_inputs(
                     if alternative
                     else "bake the material"
                 )
+                if (
+                    name == 'Specular Tint'
+                    and specular_tint_policy is not None
+                ):
+                    if normalize_unsupported_values:
+                        continue
+                    remediation = (
+                        "set it to [1, 1, 1] in Blender, enable "
+                        "'Normalize Unsupported Values' "
+                        f"({SPECULAR_TINT_NORMALIZATION_SETTING}) for an export-only "
+                        "clamp, or bake the material"
+                    )
                 issues.append(
                     f"Principled '{name}' is active, but the RealityKit Portable profile "
                     f"does not export it; {remediation}."
@@ -337,10 +364,23 @@ def _unsupported_principled_inputs(
         profile in {'realitykit_pbr2', 'openpbr_1_1'}
         and _active('Specular Tint', (1.0, 1.0, 1.0, 1.0))
     ):
-        issues.append(
-            "Principled 'Specular Tint' color semantics are not verified against the "
-            "selected MaterialX surface; bake the material before export."
-        )
+        if not (normalize_unsupported_values and specular_tint_policy is not None):
+            if specular_tint_policy is not None:
+                issues.append(
+                    "Principled 'Specular Tint' "
+                    f"{format_color(specular_tint_policy['input'])} exceeds the "
+                    "verified [0, 1] range. Set it to [1, 1, 1] in Blender, enable "
+                    "'Normalize Unsupported Values' "
+                    f"({SPECULAR_TINT_NORMALIZATION_SETTING}) for an export-only "
+                    "clamp, or bake the material."
+                )
+            else:
+                issues.append(
+                    "Principled 'Specular Tint' color semantics are not verified "
+                    "against the selected MaterialX surface. Linked or colored values "
+                    "cannot be normalized safely; set an artist-approved value in "
+                    "Blender or bake the material."
+                )
 
     if _active('Sheen Weight') and profile == "realitykit_pbr2":
         roughness = node.inputs.get('Sheen Roughness')
@@ -410,6 +450,7 @@ def validate_material(
     only_connected: bool = True,
     strict: bool = False,
     surface_profile: str = "realitykit_portable",
+    normalize_unsupported_values: bool = False,
 ) -> Dict[str, object]:
     """Validate a Blender material against RealityKit compatibility rules."""
     result = {
@@ -491,7 +532,27 @@ def validate_material(
                     force_error=strict,
                 )
             if node_type == 'BSDF_PRINCIPLED':
-                for issue in _unsupported_principled_inputs(node, surface_profile):
+                specular_tint_socket = node.inputs.get('Specular Tint')
+                normalization = safe_overbright_achromatic_specular_tint(
+                    getattr(specular_tint_socket, 'default_value', None),
+                    linked=bool(
+                        specular_tint_socket is not None
+                        and getattr(specular_tint_socket, 'is_linked', False)
+                    ),
+                )
+                if normalize_unsupported_values and normalization is not None:
+                    add_issue(
+                        "warnings",
+                        node,
+                        specular_tint_normalization_message(normalization),
+                        force_error=False,
+                        removable=False,
+                    )
+                for issue in _unsupported_principled_inputs(
+                    node,
+                    surface_profile,
+                    normalize_unsupported_values=normalize_unsupported_values,
+                ):
                     add_issue("warnings", node, issue, force_error=strict, removable=False)
             if node_type == 'NORMAL_MAP' and getattr(node, "convention", 'OPENGL') == 'DIRECTX':
                 add_issue(
@@ -622,6 +683,7 @@ def validate_materials(
     only_connected: bool = True,
     strict: bool = False,
     surface_profile: str = "realitykit_portable",
+    normalize_unsupported_values: bool = False,
 ) -> Dict[str, object]:
     """Validate a collection of materials and aggregate issues."""
     summary = {
@@ -637,6 +699,7 @@ def validate_materials(
             only_connected=only_connected,
             strict=strict,
             surface_profile=surface_profile,
+            normalize_unsupported_values=normalize_unsupported_values,
         )
         summary["materials"].append(result)
         summary["errors"].extend(result["errors"])

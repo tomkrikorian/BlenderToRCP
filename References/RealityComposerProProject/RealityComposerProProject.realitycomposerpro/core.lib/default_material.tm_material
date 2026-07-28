@@ -1,0 +1,68 @@
+__type: "tm_material"
+__uuid: "42ca87dc-f90b-5c24-aa37-b220976cba76"
+shader: {
+	__uuid: "05b7e174-8073-cbf0-8f97-a029d79e9303"
+}
+shader_graph: {
+	__uuid: "4dadcd3d-94f3-760b-48ae-2f2c2a2d00ce"
+	graph: {
+		__uuid: "5cf2bce9-a37f-7734-7487-15bd623602a9"
+		nodes: [
+			{
+				__uuid: "1cc38fe2-f160-aa1f-93b5-bbbcf39e14c2"
+				type: "tm_output_node"
+				position: {
+					__uuid: "60cba655-33a3-fad8-0dc1-d450566bf082"
+					x: 162.5
+					y: -36.5
+				}
+			}
+			{
+				__uuid: "eb91e532-7a8f-2239-98a7-eaab515af060"
+				type: "ND_UsdPreviewSurface_surfaceshader"
+				position: {
+					__uuid: "01dc245d-03d4-0a3a-7d48-49cf76ff62bc"
+					x: -67.65234375
+					y: -60.20703125
+				}
+				width: 265
+			}
+		]
+		connections: [
+			{
+				__uuid: "d2986748-e13d-09bc-6488-b0df3ad9284a"
+				from_node: "eb91e532-7a8f-2239-98a7-eaab515af060"
+				to_node: "1cc38fe2-f160-aa1f-93b5-bbbcf39e14c2"
+				from_connector_hash: "685a9889b8402b60"
+				to_connector_hash: "c324f3a437be79e3"
+			}
+		]
+		interface: {
+			__uuid: "6ae18a83-ec66-e7ce-6a31-04f8df9d99bf"
+			outputs: [
+				{
+					__uuid: "4fef6582-68f3-300f-fd9a-266edb3d357e"
+					name: "surface"
+					display_name: "Surface Shader"
+					id: "output__surface__0"
+					type_hash: "c3f642cf65c817b8"
+				}
+				{
+					__uuid: "679e3cbe-7b1b-9efa-5617-557f621c75ac"
+					name: "vertex"
+					display_name: "Geometry Modifier"
+					id: "output__vertex__1"
+					type_hash: "84dbff90ce229699"
+					order: 1
+				}
+			]
+		}
+	}
+}
+descriptor: {
+	__uuid: "c65592a5-4b4b-ece5-7932-d0094aa3263b"
+}
+__asset_uuid: "d7d61118-bba2-8160-6de9-12f05fa533d6"
+__asset_thumbnail: {
+	__uuid: "55257bf4-e177-d93c-abd6-18ee7ff6c0d6"
+}

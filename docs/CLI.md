@@ -228,7 +228,7 @@ blendertorcp list-materials <file.blend> [options]
 
 ### `validate`
 
-Check materials for RealityKit compatibility. Reports errors (nodes that block export) and warnings (nodes that require baking, unsupported Principled inputs such as Transmission/Sheen/Subsurface/Thin Wall, and DirectX-convention normal maps).
+Check materials with the same strict compatibility policy used by direct export. Reports errors that block export and informational warnings that do not.
 
 ```bash
 blendertorcp validate <file.blend> [options]
@@ -245,17 +245,17 @@ blendertorcp validate <file.blend> [options]
 | Flag | Description |
 |------|-------------|
 | `--material <name>` | Validate a single material by name. Validates all scene materials if omitted |
-| `--strict` | Treat warnings as errors (matches the plugin's strict enforcement mode) |
 | `--only-errors` | Suppress warnings in output |
 | `--materialx-surface-profile <PROFILE>` | Validate against `realitykit_portable`, `realitykit_pbr2`, or `openpbr_1_1` for this run. Defaults to the active scene setting |
+| `--normalize-unsupported-values` | Preview the explicit export-only safe normalization policy; currently limited to constant achromatic overbright Principled Specular Tint |
 
 **Examples:**
 
 ```bash
 blendertorcp validate scene.blend
 blendertorcp validate scene.blend --material "Wood"
-blendertorcp validate scene.blend --strict
 blendertorcp validate scene.blend --materialx-surface-profile realitykit_pbr2
+blendertorcp validate scene.blend --normalize-unsupported-values
 ```
 
 `realitykit_portable` is the production default. The PBR Surface 2 and OpenPBR profiles are experimental and should be selected only for a pinned, validated OS 27 toolchain.
@@ -295,7 +295,7 @@ blendertorcp validate scene.blend --materialx-surface-profile realitykit_pbr2
 | Code | Meaning |
 |------|---------|
 | 0 | All materials are compatible |
-| 1 | One or more errors found (or warnings in `--strict` mode) |
+| 1 | One or more export-blocking errors found |
 
 ---
 
@@ -318,19 +318,18 @@ blendertorcp settings get <file.blend> [options]
 | Flag | Description |
 |------|-------------|
 | `--keys <key> [<key> ...]` | Return only these specific setting keys |
-| `--group <name>` | Return settings from a panel group: `general`, `objects`, `geometry`, `rigging`, `texture`, `materials`, `bake`, `diagnostics`, or `all` (default) |
+| `--group <name>` | Return settings from a panel group: `general`, `geometry`, `rigging`, `texture`, `materials`, `bake`, `diagnostics`, or `all` (default) |
 
 **Group breakdown:**
 
 | Group | Settings included |
 |-------|-------------------|
-| `general` | `filepath`, `export_format`, `root_prim_name`, `export_animation`, `author_animation_library`, `selected_objects_only`, `export_custom_properties`, `custom_properties_namespace`, `author_blender_name`, `allow_unicode`, `relative_paths`, `convert_orientation`, `forward_axis`, `up_axis`, `convert_scene_units`, `meters_per_unit`, `xform_op_mode`, `evaluation_mode`, `use_instancing` |
-| `objects` | `export_meshes` |
-| `geometry` | `export_uvmaps`, `rename_uvmaps`, `export_normals`, `merge_parent_xform`, `triangulate_meshes`, `quad_method`, `ngon_method`, `export_subdivision` |
+| `general` | `filepath`, `export_format`, `root_prim_name`, `export_animation`, `author_animation_library`, `selected_objects_only`, `export_custom_properties`, `custom_properties_namespace`, `author_blender_name`, `allow_unicode`, `xform_op_mode`, `evaluation_mode`, `use_instancing` |
+| `geometry` | `merge_parent_xform`, `triangulate_meshes`, `quad_method`, `ngon_method`, `export_subdivision` |
 | `rigging` | `export_armatures`, `only_deform_bones`, `export_shapekeys` |
 | `texture` | `export_texture_settings_enabled`, `bake_resolution`, `bake_resolution_custom`, `bake_image_format`, `bake_margin` |
-| `materials` | `materialx_surface_profile` |
-| `bake` | `bake_mode`, `bake_ibl_source`, `bake_ibl_filepath`, `bake_ibl_strength`, `bake_ibl_rotation`, `bake_isolate_meshes_lit`, `bake_base_color`, `bake_opacity`, `bake_keep_materials`, `bake_roughness_mode`, `apply_yup_geometry`, `bake_step_timeout_seconds` |
+| `materials` | `materialx_surface_profile`, `normalize_unsupported_values` |
+| `bake` | `bake_mode`, `bake_ibl_source`, `bake_ibl_filepath`, `bake_ibl_strength`, `bake_ibl_rotation`, `bake_isolate_meshes_lit`, `bake_base_color`, `bake_opacity`, `bake_keep_materials`, `bake_roughness_mode`, `bake_step_timeout_seconds` |
 | `diagnostics` | `diagnostics_enabled` |
 
 **Examples:**
@@ -467,9 +466,8 @@ blendertorcp export <file.blend> [setting=value ...] -o <output_path> [options]
 |------|-------------|
 | `--format <FORMAT>` | Override export format: `USDA`, `USDC`, `USDZ` |
 | `--selected-only` | Export selected objects only |
-| `--diagnostics` | Write `<output>.diagnostics.json` |
-| `--no-diagnostics` | Do not write diagnostics, even if enabled by settings |
-| `--apply-yup` | Enforce `-Z` forward / `Y` up and bake a Y-up rotation into safe mesh data; unsafe animated, constrained, or skinned transforms fall back to root conversion |
+| `--diagnostics` | Keep `<output>.diagnostics.json` after a successful export |
+| `--no-diagnostics` | Do not keep success diagnostics, even if enabled by settings. Failures still write diagnostics |
 
 Any export setting key can also be passed as a positional `key=value` override. These overrides apply for this export only and do not modify the `.blend` file:
 
@@ -495,10 +493,13 @@ blendertorcp export scene.blend -o /output/scene.usdz --format USDZ
 # Export with overrides
 blendertorcp export scene.blend \
   export-animation=true \
-  convert-scene-units=CENTIMETERS \
   -o /output/scene.usda \
   --selected-only
 ```
+
+Every export uses the non-configurable Apple spatial contract: Blender's
+native orientation conversion, `-Z` forward, `Y` up, meters at
+`metersPerUnit=1`, relative dependencies, and mesh/UV/normal export.
 
 **Output:**
 
@@ -524,15 +525,16 @@ blendertorcp export scene.blend \
 
 ### `bake-export`
 
-Bake textures and export the scene. This is the CLI equivalent of the "Bake Textures & Export" button in the plugin UI.
+Bake textures and export the scene. The Blender UI reaches this command through its single Export button whenever the selected material type and profile options require baking.
 
 Which option should I choose?
 
 | Goal | Use |
 |------|-----|
-| Quick USDZ export without baking textures | `blendertorcp export` / `Export Scene` |
-| Reusable baked textures that Reality Composer Pro or RealityKit can light | `bake-export --bake-mode UNLIT_ALBEDO` / `Material Color Only - Unlit`, or `--bake-mode LIT_ALBEDO` / `Material Color Only - Lit PBR` |
-| Export that preserves Blender-looking lighting and shadows | `bake-export` default / `Lighting & Shadows` |
+| Translate compatible RealityKit PBR materials | `blendertorcp export` / `RealityKit PBR` → `Translate Materials` |
+| Bake materials and keep dynamic RealityKit lighting | `bake-export --bake-mode LIT_ALBEDO` / `RealityKit PBR` → `Bake Materials` |
+| Export unlit material color | `bake-export --bake-mode UNLIT_ALBEDO` / `RealityKit Unlit` → `Material Color Only` |
+| Preserve Blender lighting and shadows | `bake-export --bake-mode LIT_IBL` / `RealityKit Unlit` → `Lighting & Shadows` |
 
 All three bake modes bake material color or lighting into the texture. `UNLIT_ALBEDO` and `LIT_IBL` export the final result as RealityKit Unlit materials; `LIT_ALBEDO` exports Lit PBR materials so Reality Composer Pro or RealityKit lights the baked color.
 
@@ -559,8 +561,8 @@ blendertorcp bake-export <file.blend> -o <output_path> [options]
 | `--image-format <FMT>` | `AVIF` | Enables texture overrides for this run and sets baked/exported texture format: `ORIGINAL`, `AVIF`, or `PNG`. AVIF is encoded natively by Blender; no external tools required |
 | `--margin <PX>` | `8` | Enables texture overrides for this run and sets bake padding in pixels |
 | `--selected-only` | off | Only bake and export selected objects |
-| `--diagnostics` | off | Write `<output>.diagnostics.json` |
-| `--no-diagnostics` | off | Do not write diagnostics, even if enabled by settings |
+| `--diagnostics` | off | Keep `<output>.diagnostics.json` after success |
+| `--no-diagnostics` | off | Suppress success diagnostics; failures still write diagnostics |
 
 **Lighting source options** (only apply when `--bake-mode LIT_IBL` / Lighting & Shadows):
 
@@ -585,8 +587,7 @@ blendertorcp bake-export <file.blend> -o <output_path> [options]
 |------|---------|-------------|
 | `--keep-materials` | off | Keep baked materials assigned after export |
 | `--roughness-mode <MODE>` | `TEXTURE` | LIT_ALBEDO roughness output: `TEXTURE` (full map) or `AVERAGE` (constant) |
-| `--apply-yup` | off | Enforce `-Z` forward / `Y` up and bake a Y-up rotation into safe mesh data; unsafe animated, constrained, or armature-deformed transforms fall back to root conversion |
-| `--step-timeout <SEC>` | `0` (disabled) | Per-step worker timeout. Each bake, USD export, post-process, package, and cleanup step gets this budget independently. The CLI always emits a structured timeout error; diagnostics are written when enabled, and UI background jobs also persist terminal status. For the whole Blender process use global `--timeout` |
+| `--step-timeout <SEC>` | `0` (disabled) | Per-step worker timeout. Each bake, USD export, post-process, package, and cleanup step gets this budget independently. The CLI always emits a structured timeout error and failure diagnostics; UI background jobs also persist terminal status. For the whole Blender process use global `--timeout` |
 
 **Examples:**
 
@@ -765,17 +766,6 @@ Complete list of every export setting that can be read with `settings get`, writ
 | `custom_properties_namespace` | string | any | `userProperties` |
 | `author_blender_name` | bool | `true`, `false` | `true` |
 | `allow_unicode` | bool | `true`, `false` | `true` |
-| `relative_paths` | bool | `true`, `false` | `true` |
-
-### Orientation & Units
-
-| Key | Type | Values | Default |
-|-----|------|--------|---------|
-| `convert_orientation` | bool | `true`, `false` | `false` |
-| `forward_axis` | enum | `X`, `Y`, `Z`, `-X`, `-Y`, `-Z` | `-Z` |
-| `up_axis` | enum | `X`, `Y`, `Z`, `-X`, `-Y`, `-Z` | `Y` |
-| `convert_scene_units` | enum | `METERS`, `KILOMETERS`, `CENTIMETERS`, `MILLIMETERS`, `INCHES`, `FEET`, `YARDS`, `CUSTOM` | `METERS` |
-| `meters_per_unit` | float | 0.0001 – 1000.0 | `1.0` |
 
 ### Transform
 
@@ -786,12 +776,6 @@ Complete list of every export setting that can be read with `settings get`, writ
 | `use_instancing` | bool | `true`, `false` | `true` |
 | `merge_parent_xform` | bool | `true`, `false` | `false` |
 
-### Object Types
-
-| Key | Type | Values | Default |
-|-----|------|--------|---------|
-| `export_meshes` | bool | `true`, `false` | `true` |
-
 Raw Blender cameras, lights, World dome lights, curves, point clouds, volumes,
 and hair are not configurable export types in the portable RealityKit/RCP3
 profile. Author cameras and lighting downstream, and convert unsupported
@@ -801,9 +785,6 @@ geometry to polygon meshes.
 
 | Key | Type | Values | Default |
 |-----|------|--------|---------|
-| `export_uvmaps` | bool | `true`, `false` | `true` |
-| `rename_uvmaps` | bool | `true`, `false` | `true` |
-| `export_normals` | bool | `true`, `false` | `true` |
 | `triangulate_meshes` | bool | `true`, `false` | `false` |
 | `quad_method` | enum | `SHORTEST_DIAGONAL`, `BEAUTY`, `FIXED`, `FIXED_ALTERNATE` | `SHORTEST_DIAGONAL` |
 | `ngon_method` | enum | `BEAUTY`, `EAR_CLIP` | `BEAUTY` |
@@ -834,8 +815,17 @@ When `export_texture_settings_enabled` is `false`, `Export Scene` preserves Appl
 | Key | Type | Values | Default |
 |-----|------|--------|---------|
 | `materialx_surface_profile` | enum | `realitykit_portable`, `realitykit_pbr2`, `openpbr_1_1` | `realitykit_portable` |
+| `normalize_unsupported_values` | bool | `true`, `false` | `false` |
 
-`realitykit_portable` is the verified default for current RealityKit, Reality Composer Pro, Quick Look, and USDKit workflows. `realitykit_pbr2` (PBR Surface 2) and `openpbr_1_1` (OpenPBR 1.1 / MaterialX 1.39) are experimental OS 27 profiles; opt into them only when the target Apple toolchain and runtime have been validated for the asset. PBR Surface 2 is currently intended for USDC-to-RCP3 experiments: Quick Look and USDKit are incompatible, and strict USD/USDZ validation can reject its nodedef. The exporter does not weaken USDZ validation for this profile.
+`realitykit_portable` is the verified default for current RealityKit and Reality Composer Pro workflows. `realitykit_pbr2` (PBR Surface 2) and `openpbr_1_1` (OpenPBR 1.1 / MaterialX 1.39) are experimental OS 27 profiles; opt into them only when the target Apple toolchain and runtime have been validated for the asset. The exporter does not weaken USDZ validation for experimental profiles.
+
+`normalize_unsupported_values=false` preserves the fail-closed default. When enabled, the exporter may clamp only an unlinked constant achromatic Principled `Specular Tint` above `1` to `[1, 1, 1]` in temporary export data. It emits a prominent warning and does not assign to the Blender node or save the `.blend`. Colored, linked, negative, non-finite, and other unsupported values remain errors. Use it per export:
+
+```bash
+blendertorcp export scene.blend normalize-unsupported-values=true -o scene.usdc --diagnostics
+```
+
+PBR2 `specularWeight` redistribution is research-only. Generate the manual RCP 3 A/B fixture with `scripts/generate_pbr2_specular_tint_research.py`; production exports use clamp-only normalization.
 
 ### Diagnostics
 
@@ -843,7 +833,9 @@ When `export_texture_settings_enabled` is `false`, `Export Scene` preserves Appl
 |-----|------|--------|---------|
 | `diagnostics_enabled` | bool | `true`, `false` | `false` |
 
-When `diagnostics_enabled` is `false`, exports do not write `<output>.diagnostics.json`. Use `--diagnostics` or `diagnostics-enabled=true` to enable the sidecar for a run.
+Failures always write `<output>.diagnostics.json`. `diagnostics_enabled`,
+`--diagnostics`, and `--no-diagnostics` control only whether successful exports
+retain a sidecar.
 
 ### Bake
 
@@ -860,10 +852,6 @@ When `diagnostics_enabled` is `false`, exports do not write `<output>.diagnostic
 | `bake_keep_materials` | bool | `true`, `false` | `false` |
 | `bake_step_timeout_seconds` | int | 0+ (0 = disabled) | `0` |
 | `bake_roughness_mode` | enum | `TEXTURE`, `AVERAGE` | `TEXTURE` |
-| `apply_yup_geometry` | bool | `true`, `false` | `false` |
-
-`apply_yup_geometry` bakes a -90° X rotation into mesh data so the export is natively Y-up, but only when `convert_orientation` is also enabled. The CLI convenience flag `--apply-yup` enables both settings. Geometry baking is auto-skipped for animated, constrained, or armature-deformed transforms, leaving root orientation conversion enabled as the safe fallback.
-
 `bake_roughness_mode` only applies to `LIT_ALBEDO`: `TEXTURE` bakes a per-texel roughness map, `AVERAGE` uses one averaged roughness constant (no roughness texture exported).
 
 User-facing bake mode names in the Blender UI:
@@ -943,7 +931,7 @@ FORMAT=$(blendertorcp settings get scene.blend --keys export_format | jq -r '.ex
 echo "Current format: $FORMAT"
 
 # Use in scripts
-if blendertorcp validate scene.blend --strict; then
+if blendertorcp validate scene.blend; then
   blendertorcp export scene.blend -o output.usdz
 else
   echo "Validation failed" >&2

@@ -31,38 +31,12 @@ def _run_parsed(argv: list[str]):
     return mocked_run.call_args.kwargs
 
 
-def test_export_apply_yup_enables_complete_orientation_protocol(capsys):
-    call = _run_parsed(
-        [
-            "export",
-            "scene.blend",
-            "forward-axis=X",
-            "up-axis=Z",
-            "-o",
-            "out.usdc",
-            "--apply-yup",
-        ]
-    )
-
-    assert call["args"]["overrides"] == {
-        "convert_orientation": "true",
-        "apply_yup_geometry": "true",
-        "forward_axis": "-Z",
-        "up_axis": "Y",
-    }
-
-
-def test_bake_export_apply_yup_enables_complete_orientation_protocol(capsys):
-    call = _run_parsed(
-        ["bake-export", "scene.blend", "-o", "out.usdc", "--apply-yup"]
-    )
-
-    assert call["args"]["overrides"] == {
-        "convert_orientation": "true",
-        "apply_yup_geometry": "true",
-        "forward_axis": "-Z",
-        "up_axis": "Y",
-    }
+@pytest.mark.parametrize("command", ["export", "bake-export"])
+def test_apply_yup_is_not_a_public_cli_option(command):
+    with pytest.raises(CLIUsageError):
+        build_parser().parse_args(
+            [command, "scene.blend", "-o", "out.usdc", "--apply-yup"]
+        )
 
 
 def test_step_timeout_is_sent_to_the_bake_worker(capsys):
@@ -119,6 +93,18 @@ def test_validate_forwards_one_shot_material_surface_profile(capsys):
     )
 
     assert call["args"]["materialx_surface_profile"] == "realitykit_pbr2"
+
+
+def test_validate_forwards_one_shot_safe_normalization_policy(capsys):
+    call = _run_parsed(
+        [
+            "validate",
+            "scene.blend",
+            "--normalize-unsupported-values",
+        ]
+    )
+
+    assert call["args"]["normalize_unsupported_values"] is True
 
 
 def test_validate_rejects_unknown_material_surface_profile():

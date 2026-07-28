@@ -103,14 +103,21 @@ class BLENDERTORCP_OT_export(Operator, ExportHelper):
             "materialx_surface_profile",
             MATERIALX_SURFACE_PROFILE_DEFAULT,
         )
+        normalize_unsupported_values = bool(
+            getattr(settings, "normalize_unsupported_values", False)
+        )
 
         from ..export import diagnostics
         from ..export.support_bundle import collect_environment, collect_scene_snapshot
 
         diag = diagnostics.ExportDiagnostics()
-        diagnostics_enabled = bool(getattr(settings, "diagnostics_enabled", False))
-        diag_path = Path(self.filepath).with_suffix('.diagnostics.json') if diagnostics_enabled else None
-        if not diagnostics_enabled:
+        success_diagnostics_enabled = bool(
+            getattr(settings, "diagnostics_enabled", False)
+        )
+        # Failed exports always persist this report. The setting only controls
+        # whether successful exports keep it as well.
+        diag_path = Path(self.filepath).with_suffix('.diagnostics.json')
+        if not success_diagnostics_enabled:
             settings.last_diagnostics_path = ""
         diag.set_export_context(
             command="ui_export",
@@ -118,6 +125,7 @@ class BLENDERTORCP_OT_export(Operator, ExportHelper):
             export_format=export_format,
             selected_only=bool(getattr(settings, "selected_objects_only", False)),
             materialx_surface_profile=surface_profile,
+            normalize_unsupported_values=normalize_unsupported_values,
             blend_file=context.blend_data.filepath or None,
         )
         diag.set_environment(**collect_environment(context))
@@ -165,7 +173,13 @@ class BLENDERTORCP_OT_export(Operator, ExportHelper):
                 material,
                 strict=True,
                 surface_profile=surface_profile,
+                normalize_unsupported_values=normalize_unsupported_values,
             )
+            for issue in result["warnings"]:
+                diag.add_validation_issue(material.name, issue, severity="warning")
+                diag.add_warning(
+                    f"{material.name}: {issue.get('message', 'Material export warning.')}"
+                )
             if result["errors"]:
                 error_count = len(result["errors"])
                 for issue in result["errors"]:
@@ -186,20 +200,10 @@ class BLENDERTORCP_OT_export(Operator, ExportHelper):
                     settings.last_diagnostics_path = str(diag_path)
                 return {'CANCELLED'}
 
-        yup_state = None
         temp_usd_path = None
         try:
             # Import export modules
-            from ..export import blender_usd_export, postprocess_usd, pack_usdz, bake_finalize
-
-            # Bake a -90deg X rotation into geometry for a native Y-up export when
-            # requested (and safe - the helper owns the settings gate, scope and
-            # animation preflight). The regular export runs in the live scene, so
-            # the bake is undone in the finally below (the bake runner skips that
-            # - its scene is a throwaway background process).
-            yup_state = bake_finalize.maybe_apply_yup_geometry_bake(
-                context, settings, diagnostics=diag
-            )
+            from ..export import blender_usd_export, postprocess_usd, pack_usdz
 
             # Step 1: Export from Blender to USD
             self.report({'INFO'}, "Exporting from Blender...")
@@ -209,17 +213,18 @@ class BLENDERTORCP_OT_export(Operator, ExportHelper):
             
             if not temp_usd_path or not os.path.exists(temp_usd_path):
                 self.report({'ERROR'}, "Blender USD export failed")
+                diag.add_error("Blender USD export failed")
+                _save_diagnostics(diag, diag_path)
+                settings.last_diagnostics_path = str(diag_path)
                 return {'CANCELLED'}
             
-            # Step 2: Post-process USD (material rewrite; authors upAxis=Y when
-            # the Y-up geometry bake ran)
+            # Step 2: Post-process USD and enforce the Apple Y-up contract.
             self.report({'INFO'}, "Rewriting materials to RealityKit ShaderGraph...")
             postprocess_usd.process_usd_stage(
                 temp_usd_path,
                 settings,
                 context,
                 diag,
-                force_up_axis_y=yup_state is not None,
             )
 
             # Fail fast on strict export errors before packaging.
@@ -264,7 +269,7 @@ class BLENDERTORCP_OT_export(Operator, ExportHelper):
                     blender_usd_export.publish_unpacked_export(temp_usd_path, self.filepath, diag)
             
             # Save diagnostics if enabled for this export.
-            if diagnostics_enabled and diag_path:
+            if success_diagnostics_enabled:
                 _save_diagnostics(diag, diag_path)
                 settings.last_diagnostics_path = str(diag_path)
 
@@ -293,14 +298,6 @@ class BLENDERTORCP_OT_export(Operator, ExportHelper):
             traceback.print_exc()
             return {'CANCELLED'}
         finally:
-            # Undo the Y-up geometry bake first, so the live scene is restored
-            # even if the export failed midway.
-            if yup_state is not None:
-                try:
-                    from ..export import bake_finalize
-                    bake_finalize.restore_yup_geometry_bake(context, settings, yup_state)
-                except Exception:
-                    pass
             # A returned USD path identifies the exact unique attempt to clean.
             # If native export fails before returning, it cleans its own attempt.
             if temp_usd_path:
@@ -484,8 +481,6 @@ class BLENDERTORCP_OT_create_support_bundle(Operator):
 
 def _resolve_diagnostics_path(context) -> str | None:
     settings = context.scene.blender_to_rcp_export_settings
-    if not bool(getattr(settings, "diagnostics_enabled", False)):
-        return None
     candidates = []
     job_candidates = []
     job_dir = getattr(settings, "background_job_dir", "")

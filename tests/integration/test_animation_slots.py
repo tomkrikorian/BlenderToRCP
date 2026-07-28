@@ -28,7 +28,7 @@ repo_root = Path(sys.argv[sys.argv.index("--") + 1])
 marker = sys.argv[sys.argv.index("--") + 2]
 sys.path.insert(0, str(repo_root))
 
-from Plugin.export import animation_export, bake_finalize  # noqa: E402
+from Plugin.export import animation_export  # noqa: E402
 
 bpy.ops.wm.read_factory_settings(use_empty=True)
 scene = bpy.context.scene
@@ -150,7 +150,6 @@ class Diagnostics:
 
 
 diagnostics = Diagnostics()
-yup_reason = bake_finalize._yup_unsafe_reason(alpha)
 state = animation_export.prepare_animation_export(
     bpy.context,
     settings,
@@ -176,7 +175,6 @@ segments = {
 }
 
 results = {
-    "layered_yup_preflight": yup_reason == "animated transform",
     "alpha_baked_has_slot": alpha.animation_data.action_slot is not None,
     "beta_baked_has_slot": beta.animation_data.action_slot is not None,
     "later_first_sample": abs(prepared["4"][1] - 100.0) < 1e-5,

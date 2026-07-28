@@ -18,7 +18,7 @@ from .api.commands._settings_common import (
 
 
 EXPORT_SETTINGS_PAYLOAD_SCHEMA = "blendertorcp.export-settings"
-EXPORT_SETTINGS_PAYLOAD_VERSION = 2
+EXPORT_SETTINGS_PAYLOAD_VERSION = 3
 EXPORT_SETTINGS_PROFILE = REALITYKIT_OS27_PROFILE_NAME
 EXPORT_SETTINGS_SCENE_SCHEMA_KEY = "_blendertorcp_export_settings_schema_version"
 EXPORT_SETTINGS_SKIP_KEYS = frozenset({*INTERNAL_KEYS, "filepath"})
@@ -143,7 +143,7 @@ def _write_raw_settings_value(settings, key: str, value) -> None:
 
 
 def export_settings_scene_is_current(settings) -> bool:
-    """Return whether saved scene ID-properties use the current 2.0 schema."""
+    """Return whether saved scene ID-properties use the current settings schema."""
     return (
         _raw_settings_value(settings, EXPORT_SETTINGS_SCENE_SCHEMA_KEY)
         == EXPORT_SETTINGS_PAYLOAD_VERSION
@@ -334,7 +334,7 @@ def _apply_export_settings_values(settings, values: dict) -> bool:
 
 
 def persist_export_settings(context, settings, *, remember_path: bool = True) -> bool:
-    """Persist current settings under the strict versioned 2.0 profile."""
+    """Persist current settings under the strict versioned profile."""
     prefs = get_preferences(context) if context is not None else None
     if not prefs:
         return False

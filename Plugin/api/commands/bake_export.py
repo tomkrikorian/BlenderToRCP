@@ -16,6 +16,7 @@ from ._settings_common import (
     INTERNAL_KEYS,
     PreparedSettingUpdate,
     apply_setting_updates_transactionally,
+    attach_early_failure_diagnostics,
     get_settings,
     prepare_setting_update,
     setting_value_issue,
@@ -238,7 +239,16 @@ def _prepare_direct_setting_overrides(
 def handle(args: dict) -> dict:
     settings = get_settings()
     with suspend_setting_persistence(settings):
-        return _handle(args, settings)
+        try:
+            return _handle(args, settings)
+        except CommandError as exc:
+            attach_early_failure_diagnostics(
+                exc,
+                args,
+                settings,
+                command="bake_export",
+            )
+            raise
 
 
 def _handle(args: dict, settings) -> dict:
@@ -246,7 +256,7 @@ def _handle(args: dict, settings) -> dict:
     if not filepath:
         raise ValueError("'filepath' is required (output path).")
 
-    no_diagnostics = args.get("no_diagnostics", False)
+    suppress_success_diagnostics = args.get("no_diagnostics", False)
 
     # Stage positional and named arguments before the first live RNA write.
     overrides = args.get("overrides", {})
@@ -312,8 +322,13 @@ def _handle(args: dict, settings) -> dict:
     from ...ops import bake_export_operator as bake_ops
 
     diag = diagnostics.ExportDiagnostics()
-    diagnostics_enabled = bool(getattr(settings, "diagnostics_enabled", False)) and not no_diagnostics
-    diagnostics_path = str(Path(filepath).with_suffix(".diagnostics.json")) if diagnostics_enabled else None
+    success_diagnostics_enabled = (
+        bool(getattr(settings, "diagnostics_enabled", False))
+        and not suppress_success_diagnostics
+    )
+    # All failures must leave an actionable report. This path is therefore
+    # allocated independently from the success-sidecar preference.
+    diagnostics_path = str(Path(filepath).with_suffix(".diagnostics.json"))
     diag.set_export_context(
         command="bake_export",
         requested_path=args.get("filepath"),
@@ -522,14 +537,6 @@ def _handle(args: dict, settings) -> dict:
         step_watchdog.enter_step("Finalizing baked materials")
         bake_finalize.apply_force_unlit(settings)
 
-        # Y-up geometry bake when requested (and safe). This runs in a throwaway
-        # background scene, so the returned restore state is only used to decide
-        # whether to author upAxis=Y below - never to restore.
-        step_watchdog.enter_step("Applying Y-up geometry conversion")
-        yup_state = bake_finalize.maybe_apply_yup_geometry_bake(
-            bpy.context, settings, objects_to_export, diag
-        )
-
         _unlink_processing_scope(
             animation_export,
             processing_link_state,
@@ -566,12 +573,11 @@ def _handle(args: dict, settings) -> dict:
             },
         )
 
-        # Post-process (authors upAxis=Y when the Y-up geometry bake ran)
+        # Post-process and enforce the Apple Y-up stage contract.
         step_watchdog.enter_step("Post-processing USD")
         diag.begin_phase("postprocess_usd", {"usd_path": temp_usd_path})
         postprocess_usd.process_usd_stage(
             temp_usd_path, settings, bpy.context, diag,
-            force_up_axis_y=yup_state is not None,
         )
         diag.end_phase("postprocess_usd")
 
@@ -609,7 +615,7 @@ def _handle(args: dict, settings) -> dict:
 
         # Diagnostics
         saved_diagnostics_path = None
-        if diagnostics_enabled:
+        if success_diagnostics_enabled:
             step_watchdog.enter_step("Writing diagnostics")
             _save_diagnostics(diag, diagnostics_path)
             saved_diagnostics_path = diagnostics_path

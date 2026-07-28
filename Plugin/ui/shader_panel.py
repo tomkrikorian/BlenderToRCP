@@ -35,6 +35,12 @@ def _get_surface_profile(context) -> str:
     )
 
 
+def _normalize_unsupported_values(context) -> bool:
+    scene = getattr(context, "scene", None)
+    settings = getattr(scene, "blender_to_rcp_export_settings", None)
+    return bool(getattr(settings, "normalize_unsupported_values", False))
+
+
 class BLENDERTORCP_PT_shader_validation(Panel):
     """RealityKit compatibility status panel."""
     bl_label = "RealityKit Compatibility"
@@ -60,8 +66,11 @@ class BLENDERTORCP_PT_shader_validation(Panel):
             material,
             strict=True,
             surface_profile=surface_profile,
+            normalize_unsupported_values=_normalize_unsupported_values(context),
         )
         layout.label(text=f"Surface profile: {surface_profile}")
+        if _normalize_unsupported_values(context):
+            layout.label(text="Export-only safe normalization enabled", icon='INFO')
         if result["errors"]:
             status = layout.row()
             status.alert = True

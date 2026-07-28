@@ -33,7 +33,7 @@ Check materials for RealityKit compatibility. Exit code 0 = all OK, exit code 1 
 
 ```bash
 blendertorcp validate <file.blend>
-blendertorcp validate <file.blend> --material "MyMaterial" --strict
+blendertorcp validate <file.blend> --material "MyMaterial"
 blendertorcp validate <file.blend> --only-errors
 blendertorcp validate <file.blend> --materialx-surface-profile realitykit_pbr2
 ```
@@ -48,7 +48,10 @@ blendertorcp export <file.blend> -o out.usda --selected-only
 blendertorcp export <file.blend> -o out.usdz --diagnostics
 ```
 
-Export supports `--format`, `--selected-only`, `--diagnostics`, `--no-diagnostics`, and `--apply-yup`. `--apply-yup` enforces the RealityKit orientation tuple (`-Z` forward, `Y` up), requests native Y-up mesh data, and safely falls back to root conversion for animated, constrained, or skinned transforms.
+Export always uses Blender's native orientation conversion with `-Z` forward,
+`Y` up, meters at scale `1`, relative dependencies, and mesh/UV/normal export.
+`--diagnostics` and `--no-diagnostics` control successful-export sidecars;
+failures always write diagnostics.
 
 Any export setting key can be passed as a positional `key=value` override (does not modify the .blend). Put override tokens before optional flags:
 
@@ -111,8 +114,8 @@ Bake-export flags:
 |------|---------|-------------|
 | `--format` | from settings | `USDA`, `USDC`, or `USDZ` |
 | `--selected-only` | off | Only bake/export selected objects |
-| `--diagnostics` | off | Write `<output>.diagnostics.json` |
-| `--no-diagnostics` | off | Do not write diagnostics, even if enabled by settings |
+| `--diagnostics` | off | Keep `<output>.diagnostics.json` after success |
+| `--no-diagnostics` | off | Suppress success diagnostics; failures still write diagnostics |
 | `--bake-mode` | from settings (`LIT_IBL` for fresh scenes) | `UNLIT_ALBEDO` = Material Color Only - Unlit, `LIT_ALBEDO` = Material Color Only - Lit PBR, `LIT_IBL` = Lighting & Shadows |
 | `--resolution` | `2048` | `ORIGINAL`, `512`, `1024`, `2048`, `4096`, or any integer |
 | `--image-format` | `AVIF` | `ORIGINAL`, `AVIF`, or `PNG`; AVIF is encoded natively by Blender — no external tools required |
@@ -125,9 +128,8 @@ Bake-export flags:
 | `--no-base-color` | off | Skip base color channel |
 | `--no-opacity` | off | Skip opacity channel |
 | `--keep-materials` | off | Keep baked materials after export |
-| `--step-timeout` | `0` | Per-step worker timeout; always emits a structured error, writes diagnostics when enabled, and persists status for UI jobs |
+| `--step-timeout` | `0` | Per-step worker timeout; always emits a structured error and failure diagnostics, and persists status for UI jobs |
 | `--roughness-mode` | `TEXTURE` | LIT_ALBEDO roughness output: `TEXTURE` or `AVERAGE` |
-| `--apply-yup` | off | Enforce `-Z` forward / `Y` up and request native Y-up mesh data, with safe root-conversion fallback |
 
 The global `--timeout <sec>` flag (place before the subcommand, default 600, `0` = unlimited) bounds the whole Blender subprocess — raise it for long bakes.
 
@@ -228,7 +230,7 @@ For automation, use `--json`; failures then return a structured JSON envelope wi
 Chain commands conditionally:
 
 ```bash
-if blendertorcp validate scene.blend --strict; then
+if blendertorcp validate scene.blend; then
   blendertorcp export scene.blend -o output.usdz
 else
   echo "Fix material issues first"
@@ -252,11 +254,9 @@ fi
 
 **Materials:** `materialx_surface_profile` (`realitykit_portable` default; `realitykit_pbr2` and `openpbr_1_1` experimental OS 27 profiles)
 
-**Bake:** `bake_mode` (`UNLIT_ALBEDO` = Material Color Only - Unlit, `LIT_ALBEDO` = Material Color Only - Lit PBR, `LIT_IBL` = Lighting & Shadows), `bake_roughness_mode` (`TEXTURE`/`AVERAGE`, `LIT_ALBEDO` only), `bake_ibl_source`, `bake_ibl_filepath`, `bake_ibl_strength`, `bake_ibl_rotation`, `bake_isolate_meshes_lit`, `bake_base_color`, `bake_opacity`, `bake_keep_materials`, `bake_step_timeout_seconds`, `apply_yup_geometry`
+**Bake:** `bake_mode` (`UNLIT_ALBEDO` = Material Color Only - Unlit, `LIT_ALBEDO` = Material Color Only - Lit PBR, `LIT_IBL` = Lighting & Shadows), `bake_roughness_mode` (`TEXTURE`/`AVERAGE`, `LIT_ALBEDO` only), `bake_ibl_source`, `bake_ibl_filepath`, `bake_ibl_strength`, `bake_ibl_rotation`, `bake_isolate_meshes_lit`, `bake_base_color`, `bake_opacity`, `bake_keep_materials`, `bake_step_timeout_seconds`
 
-**Geometry:** `triangulate_meshes`, `export_normals`, `export_uvmaps`, `export_subdivision` (IGNORE/TESSELLATE/BEST_MATCH)
-
-**Objects:** `export_meshes`
+**Geometry:** `triangulate_meshes`, `export_subdivision` (IGNORE/TESSELLATE/BEST_MATCH)
 
 Raw Blender cameras, lights, World dome lights, curves, point clouds, volumes,
 and hair are intentionally not settings in the portable RealityKit/RCP3 export

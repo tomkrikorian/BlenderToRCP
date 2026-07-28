@@ -133,9 +133,9 @@ class TestValidateCommand:
         args = parser.parse_args(["validate", "scene.blend", "--material", "Wood"])
         assert args.material == "Wood"
 
-    def test_strict(self, parser):
-        args = parser.parse_args(["validate", "scene.blend", "--strict"])
-        assert args.strict is True
+    def test_strict_flag_is_removed_because_validation_always_matches_export(self, parser):
+        with pytest.raises(CLIUsageError):
+            parser.parse_args(["validate", "scene.blend", "--strict"])
 
     def test_only_errors(self, parser):
         args = parser.parse_args(["validate", "scene.blend", "--only-errors"])
@@ -262,14 +262,16 @@ class TestBakeExportCommand:
     def test_new_bake_flags(self, parser):
         args = parser.parse_args([
             "bake-export", "scene.blend", "-o", "out.usdz",
-            "--roughness-mode", "AVERAGE", "--apply-yup",
+            "--roughness-mode", "AVERAGE",
         ])
         assert args.roughness_mode == "AVERAGE"
-        assert args.apply_yup is True
 
-    def test_export_apply_yup(self, parser):
-        args = parser.parse_args(["export", "scene.blend", "--apply-yup", "-o", "out.usda"])
-        assert args.apply_yup is True
+    @pytest.mark.parametrize("command", ["export", "bake-export"])
+    def test_apply_yup_flag_is_removed(self, parser, command):
+        with pytest.raises(CLIUsageError):
+            parser.parse_args(
+                [command, "scene.blend", "--apply-yup", "-o", "out.usda"]
+            )
 
 
 class TestSupportBundleCommand:

@@ -12,7 +12,16 @@ from .. import prefs as addon_prefs
 from ..api.commands._settings_common import (
     MATERIALX_SURFACE_PROFILE_DEFAULT,
     REALITYKIT_OS27_DEFAULTS,
-    realitykit_os27_profile_deviations,
+)
+from ..export_profile import (
+    MATERIAL_TYPE_PBR,
+    MATERIAL_TYPE_UNLIT,
+    PBR_PROCESSING_BAKE,
+    PBR_PROCESSING_TRANSLATE,
+    PIPELINE_DIRECT,
+    UNLIT_APPEARANCE_COLOR,
+    UNLIT_APPEARANCE_LIGHTING,
+    resolve_ui_export_route,
 )
 from bpy.app.handlers import persistent
 from bpy.props import StringProperty, BoolProperty, EnumProperty, FloatProperty, IntProperty
@@ -34,35 +43,8 @@ _EXPORT_FORMAT_EXTENSIONS = {
 }
 
 
-def _bake_result_summary(settings) -> str:
-    bake_mode = getattr(settings, "bake_mode", "LIT_IBL")
-    if bake_mode == "LIT_IBL":
-        return "Final export: RealityKit Unlit, baked lighting/shadows."
-    if bake_mode == "LIT_ALBEDO":
-        return "Final export: RealityKit Lit PBR, material color only."
-    return "Final export: RealityKit Unlit, material color only."
-
-
-def _bake_mode_help_lines(settings) -> tuple[str, str]:
-    bake_mode = getattr(settings, "bake_mode", "LIT_IBL")
-    if bake_mode == "LIT_IBL":
-        return (
-            "Matches the Blender preview.",
-            "Lighting and shadows are baked into textures.",
-        )
-    if bake_mode == "LIT_ALBEDO":
-        return (
-            "Reality Composer Pro or RealityKit lights the baked color.",
-            "Blender shadows are not baked.",
-        )
-    return (
-        "Shown as-is, ignoring scene lighting (Unlit).",
-        "Blender shadows are not baked.",
-    )
-
-
 def _persist_settings(context, settings) -> None:
-    """Persist settings using the shared versioned 2.0 profile."""
+    """Persist settings using the shared versioned profile."""
     addon_prefs.persist_export_settings(context, settings)
 
 
@@ -115,7 +97,64 @@ def _on_settings_changed(self, context) -> None:
 
 class BlenderToRCPExportSettings(PropertyGroup):
     """Export settings stored in scene"""
-    
+
+    ui_material_type: EnumProperty(
+        name="Profile",
+        description="Choose the RealityKit material profile authored by the export",
+        items=[
+            (
+                MATERIAL_TYPE_PBR,
+                "RealityKit PBR",
+                "Export materials that respond to RealityKit lighting",
+            ),
+            (
+                MATERIAL_TYPE_UNLIT,
+                "RealityKit Unlit",
+                "Export materials shown without RealityKit lighting",
+            ),
+        ],
+        default=MATERIAL_TYPE_PBR,
+        update=_on_settings_changed,
+    )
+
+    ui_pbr_processing: EnumProperty(
+        name="Material Processing",
+        description="Translate compatible materials directly or bake them to textures",
+        items=[
+            (
+                PBR_PROCESSING_TRANSLATE,
+                "Translate Materials",
+                "Translate compatible Blender materials directly to MaterialX",
+            ),
+            (
+                PBR_PROCESSING_BAKE,
+                "Bake Materials",
+                "Bake material color and roughness before authoring RealityKit PBR",
+            ),
+        ],
+        default=PBR_PROCESSING_TRANSLATE,
+        update=_on_settings_changed,
+    )
+
+    ui_unlit_appearance: EnumProperty(
+        name="Appearance",
+        description="Choose what the exported unlit textures contain",
+        items=[
+            (
+                UNLIT_APPEARANCE_COLOR,
+                "Material Color Only",
+                "Bake material color without Blender lighting or shadows",
+            ),
+            (
+                UNLIT_APPEARANCE_LIGHTING,
+                "Lighting & Shadows",
+                "Bake Blender lighting and shadows into the final appearance",
+            ),
+        ],
+        default=UNLIT_APPEARANCE_COLOR,
+        update=_on_settings_changed,
+    )
+
     filepath: StringProperty(
         name="Output Path",
         description="Path where the USD/USDZ file will be exported",
@@ -202,26 +241,19 @@ class BlenderToRCPExportSettings(PropertyGroup):
         update=_on_settings_changed,
     )
 
-    relative_paths: BoolProperty(
-        name="Relative Paths",
-        description="Use relative paths for external files",
-        default=True,
-        update=_on_settings_changed,
-    )
-
     materialx_surface_profile: EnumProperty(
         name="Surface Profile",
         description="MaterialX surface contract used when rewriting Blender materials",
         items=[
             (
                 'realitykit_portable',
-                "RealityKit Portable (Recommended)",
+                "RealityKit PBR (Recommended)",
                 "Verified portable RealityKit PBR profile (recommended)",
             ),
             (
                 'realitykit_pbr2',
                 "RealityKit PBR Surface 2 (Experimental)",
-                "Experimental OS 27 PBR Surface 2 profile; currently incompatible with Quick Look and USDKit, and may be rejected by strict USD/USDZ validation",
+                "Experimental RealityKit PBR Surface 2 profile",
             ),
             (
                 'openpbr_1_1',
@@ -233,66 +265,13 @@ class BlenderToRCPExportSettings(PropertyGroup):
         update=_on_settings_changed,
     )
 
-    convert_orientation: BoolProperty(
-        name="Convert Orientation",
-        description="Convert Blender's Z-up scene to the RealityKit Y-up USD convention",
-        default=REALITYKIT_OS27_DEFAULTS["convert_orientation"],
-        update=_on_settings_changed,
-    )
-
-    forward_axis: EnumProperty(
-        name="Forward Axis",
-        description="Forward axis when converting orientation",
-        items=[
-            ('X', "X", "Positive X"),
-            ('Y', "Y", "Positive Y"),
-            ('Z', "Z", "Positive Z"),
-            ('-X', "-X", "Negative X"),
-            ('-Y', "-Y", "Negative Y"),
-            ('-Z', "-Z", "Negative Z"),
-        ],
-        default=REALITYKIT_OS27_DEFAULTS["forward_axis"],
-        update=_on_settings_changed,
-    )
-
-    up_axis: EnumProperty(
-        name="Up Axis",
-        description="Up axis when converting orientation",
-        items=[
-            ('X', "X", "Positive X"),
-            ('Y', "Y", "Positive Y"),
-            ('Z', "Z", "Positive Z"),
-            ('-X', "-X", "Negative X"),
-            ('-Y', "-Y", "Negative Y"),
-            ('-Z', "-Z", "Negative Z"),
-        ],
-        default=REALITYKIT_OS27_DEFAULTS["up_axis"],
-        update=_on_settings_changed,
-    )
-
-    convert_scene_units: EnumProperty(
-        name="Units",
-        description="Set the USD stage meters-per-unit",
-        items=[
-            ('METERS', "Meters", "Scene meters per unit to 1.0"),
-            ('KILOMETERS', "Kilometers", "Scene meters per unit to 1000.0"),
-            ('CENTIMETERS', "Centimeters", "Scene meters per unit to 0.01"),
-            ('MILLIMETERS', "Millimeters", "Scene meters per unit to 0.001"),
-            ('INCHES', "Inches", "Scene meters per unit to 0.0254"),
-            ('FEET', "Feet", "Scene meters per unit to 0.3048"),
-            ('YARDS', "Yards", "Scene meters per unit to 0.9144"),
-            ('CUSTOM', "Custom", "Specify a custom meters-per-unit value"),
-        ],
-        default=REALITYKIT_OS27_DEFAULTS["convert_scene_units"],
-        update=_on_settings_changed,
-    )
-
-    meters_per_unit: FloatProperty(
-        name="Meters Per Unit",
-        description="Custom meters-per-unit value for USD stage",
-        min=0.0001,
-        max=1000.0,
-        default=REALITYKIT_OS27_DEFAULTS["meters_per_unit"],
+    normalize_unsupported_values: BoolProperty(
+        name="Normalize Unsupported Values",
+        description=(
+            "Non-destructively clamp only safe constant achromatic overbright "
+            "Specular Tint values for this export; linked or colored values still fail"
+        ),
+        default=REALITYKIT_OS27_DEFAULTS["normalize_unsupported_values"],
         update=_on_settings_changed,
     )
 
@@ -316,34 +295,6 @@ class BlenderToRCPExportSettings(PropertyGroup):
             ('VIEWPORT', "Viewport", "Use viewport settings"),
         ],
         default='RENDER',
-        update=_on_settings_changed,
-    )
-
-    export_meshes: BoolProperty(
-        name="Meshes",
-        description="Export meshes",
-        default=REALITYKIT_OS27_DEFAULTS["export_meshes"],
-        update=_on_settings_changed,
-    )
-
-    export_uvmaps: BoolProperty(
-        name="UV Maps",
-        description="Include all mesh UV maps in export",
-        default=True,
-        update=_on_settings_changed,
-    )
-
-    rename_uvmaps: BoolProperty(
-        name="Rename UV Maps",
-        description="Rename active render UV map to 'st'",
-        default=True,
-        update=_on_settings_changed,
-    )
-
-    export_normals: BoolProperty(
-        name="Normals",
-        description="Include normals of exported meshes",
-        default=True,
         update=_on_settings_changed,
     )
 
@@ -489,8 +440,8 @@ class BlenderToRCPExportSettings(PropertyGroup):
     )
 
     export_texture_settings_enabled: BoolProperty(
-        name="Override Textures",
-        description="Resize and transcode exported textures with the USD Export: Texture panel",
+        name="Optimize Source Textures",
+        description="Resize or transcode source textures during direct export",
         default=False,
         update=_on_settings_changed,
     )
@@ -570,13 +521,6 @@ class BlenderToRCPExportSettings(PropertyGroup):
         update=_on_settings_changed,
     )
 
-    apply_yup_geometry: BoolProperty(
-        name="Apply RealityKit (Y-Up) to Geometry",
-        description="Bake a −90° X rotation (about the scene origin) into the mesh data and export as a native Y-up USD with no root orientation. Skipped automatically (falling back to root orientation conversion) when the scene has animated, constrained or armature-deformed transforms the bake cannot preserve.",
-        default=False,
-        update=_on_settings_changed,
-    )
-
     force_unlit_materials: BoolProperty(
         name="Force Unlit Materials",
         description="Force rewrite to RealityKit Unlit materials",
@@ -586,8 +530,11 @@ class BlenderToRCPExportSettings(PropertyGroup):
     )
 
     diagnostics_enabled: BoolProperty(
-        name="Enable Diagnostics",
-        description="Write an export diagnostics JSON sidecar next to the output file",
+        name="Keep Success Diagnostics",
+        description=(
+            "Write a diagnostics JSON sidecar for successful exports. "
+            "Failed exports always write diagnostics"
+        ),
         default=False,
         update=_on_settings_changed,
     )
@@ -637,7 +584,10 @@ class BLENDERTORCP_PT_export_panel(Panel):
     bl_space_type = 'VIEW_3D'
     bl_region_type = 'UI'
     bl_category = "RCP Exporter"
-    
+
+    def draw_header(self, context):
+        self.layout.label(text="", icon='EXPORT')
+
     def draw(self, context):
         """Draw panel UI"""
         layout = self.layout
@@ -662,38 +612,33 @@ class BLENDERTORCP_PT_export_panel(Panel):
                 _draw_job_monitor(layout, status, job_state, job_running)
 
             export_box = layout.box()
-            export_box.label(text="Export Settings", icon='EXPORT')
+            export_box.label(text="Export", icon='EXPORT')
             export_box.enabled = not job_running
             export_box.prop(settings, "filepath", placeholder="//export/scene.usdz")
             export_box.prop(settings, "export_format")
+            export_box.label(text="Profile")
+            profile_row = export_box.row(align=True)
+            profile_row.prop(settings, "ui_material_type", expand=True)
 
-            actions_box = layout.box()
-            actions_box.label(text="Actions", icon='PLAY')
-
-            export_row = actions_box.row()
+            route = resolve_ui_export_route(settings)
+            export_row = export_box.row()
             export_row.enabled = not job_running
-            export_row.operator("blendertorcp.export", icon='EXPORT', text="Export Scene")
-
-            bake_row = actions_box.row()
-            bake_row.enabled = not job_running
-            bake_row.operator(
-                "blendertorcp.bake_export_background",
-                icon='RENDER_STILL',
-                text="Bake Textures & Export"
+            export_row.scale_y = 1.4
+            operator_id = (
+                "blendertorcp.export"
+                if route.pipeline == PIPELINE_DIRECT
+                else "blendertorcp.bake_export_background"
             )
+            operator = export_row.operator(
+                operator_id,
+                icon='EXPORT',
+                text="Export",
+            )
+            if route.pipeline != PIPELINE_DIRECT:
+                operator.apply_ui_profile = True
 
-            timeout_row = actions_box.row()
-            timeout_row.enabled = not job_running
-            timeout_row.prop(settings, "bake_step_timeout_seconds")
-            if settings.bake_step_timeout_seconds == 0:
-                actions_box.label(text="Background steps have no time limit.", icon='INFO')
-            else:
-                actions_box.label(
-                    text=f"Each step stops after {settings.bake_step_timeout_seconds} seconds.",
-                    icon='TIME',
-                )
         except Exception as exc:
-            layout.label(text=f"UI error: {exc}")
+            layout.label(text=f"UI error: {exc}", icon='STATUS_ERROR')
             layout.operator("blendertorcp.export", icon='EXPORT', text="Export Scene")
 
 
@@ -714,13 +659,16 @@ def _draw_job_monitor(layout, status, job_state, job_running):
         state_row = header.row(align=True)
         if job_state == "error":
             state_row.alert = True
-            state_row.label(text="Background Job - Failed", icon='ERROR')
+            state_row.label(text="Background Job - Failed", icon='STATUS_ERROR')
         elif job_state == "done":
             state_row.label(text="Background Job - Done", icon='CHECKMARK')
         elif job_state == "canceled":
             state_row.label(text="Background Job - Canceled", icon='CANCEL')
         else:
-            state_row.label(text=f"Background Job - {job_state or 'Unknown'}", icon='QUESTION')
+            state_row.label(
+                text=f"Background Job - {job_state or 'Unknown'}",
+                icon='STATUS_WARNING',
+            )
         header.operator("blendertorcp.clear_bake_job", text="", icon='TRASH')
 
     message = str(status.get("message") or "")
@@ -740,7 +688,7 @@ def _draw_job_monitor(layout, status, job_state, job_running):
         message_column.alert = job_state == "error"
         message_column.label(
             text=message,
-            icon='ERROR' if job_state == "error" else 'INFO',
+            icon='STATUS_ERROR' if job_state == "error" else 'STATUS_INFO',
         )
 
     if status.get("export_path"):
@@ -758,6 +706,135 @@ def _draw_job_monitor(layout, status, job_state, job_running):
         op.filepath = status.get("diagnostics_path")
 
 
+class BLENDERTORCP_PT_export_material_settings(Panel):
+    """Contextual options for the selected output material type."""
+
+    bl_label = "Material Settings"
+    bl_idname = "BLENDERTORCP_PT_export_material_settings"
+    bl_parent_id = "BLENDERTORCP_PT_export_panel"
+    bl_space_type = 'VIEW_3D'
+    bl_region_type = 'UI'
+    bl_category = "RCP Exporter"
+    bl_order = 1
+
+    def draw_header(self, context):
+        self.layout.label(text="", icon='MATERIAL')
+
+    def draw(self, context):
+        layout = self.layout
+        layout.use_property_split = True
+        layout.use_property_decorate = False
+        settings = context.scene.blender_to_rcp_export_settings
+        layout.enabled = not _is_job_running(settings)
+
+        if settings.ui_material_type == MATERIAL_TYPE_PBR:
+            layout.label(text="Processing")
+            processing_row = layout.row(align=True)
+            processing_row.prop(settings, "ui_pbr_processing", expand=True)
+            if settings.ui_pbr_processing == PBR_PROCESSING_TRANSLATE:
+                layout.prop(
+                    settings,
+                    "materialx_surface_profile",
+                    text="Surface Model",
+                )
+                layout.prop(settings, "normalize_unsupported_values")
+                if settings.normalize_unsupported_values:
+                    policy = layout.box()
+                    policy.label(
+                        text="Export-only repair; the .blend is not changed.",
+                        icon='STATUS_WARNING',
+                    )
+                    policy.label(
+                        text="Only constant achromatic Specular Tint above 1 is clamped."
+                    )
+                    policy.label(text="Colored or linked values still stop export.")
+            else:
+                layout.prop(settings, "bake_roughness_mode", text="Roughness")
+                _draw_bake_channel_options(layout, settings)
+            return
+
+        layout.label(text="Appearance")
+        appearance_row = layout.row(align=True)
+        appearance_row.prop(settings, "ui_unlit_appearance", expand=True)
+        if settings.ui_unlit_appearance == UNLIT_APPEARANCE_LIGHTING:
+            layout.prop(settings, "bake_ibl_source")
+            if settings.bake_ibl_source == 'HDRI_FILE':
+                layout.prop(
+                    settings,
+                    "bake_ibl_filepath",
+                    placeholder="//studio.hdr",
+                )
+                layout.prop(settings, "bake_ibl_strength")
+                layout.prop(settings, "bake_ibl_rotation")
+            layout.prop(settings, "bake_isolate_meshes_lit")
+        _draw_bake_channel_options(layout, settings)
+
+
+def _draw_bake_channel_options(layout, settings):
+    advanced_header, advanced_body = layout.panel(
+        "blendertorcp_profile_bake_advanced",
+        default_closed=True,
+    )
+    advanced_header.label(text="Advanced")
+    if advanced_body is not None:
+        advanced_body.prop(settings, "bake_base_color")
+        advanced_body.prop(settings, "bake_opacity")
+        advanced_body.prop(settings, "bake_keep_materials")
+
+
+class BLENDERTORCP_PT_export_optimization(Panel):
+    """Contextual texture optimization and bake-output settings."""
+
+    bl_label = "Optimization"
+    bl_idname = "BLENDERTORCP_PT_export_optimization"
+    bl_parent_id = "BLENDERTORCP_PT_export_panel"
+    bl_space_type = 'VIEW_3D'
+    bl_region_type = 'UI'
+    bl_category = "RCP Exporter"
+    bl_options = {'DEFAULT_CLOSED'}
+    bl_order = 2
+
+    def draw_header(self, context):
+        self.layout.label(text="", icon='MODIFIER')
+
+    def draw(self, context):
+        layout = self.layout
+        layout.use_property_split = True
+        layout.use_property_decorate = False
+        settings = context.scene.blender_to_rcp_export_settings
+        layout.enabled = not _is_job_running(settings)
+
+        route = resolve_ui_export_route(settings)
+        if route.pipeline == PIPELINE_DIRECT:
+            layout.prop(
+                settings,
+                "export_texture_settings_enabled",
+                text="Optimize Source Textures",
+            )
+            column = layout.column()
+            column.enabled = bool(settings.export_texture_settings_enabled)
+            column.prop(
+                settings,
+                "bake_resolution",
+                text="Maximum Resolution",
+            )
+            column.prop(settings, "bake_image_format")
+            if settings.bake_resolution == 'CUSTOM':
+                column.prop(settings, "bake_resolution_custom")
+            return
+
+        layout.prop(settings, "bake_resolution", text="Bake Resolution")
+        layout.prop(settings, "bake_image_format")
+        if settings.bake_resolution == 'CUSTOM':
+            layout.prop(settings, "bake_resolution_custom")
+        layout.prop(settings, "bake_margin")
+        if settings.bake_image_format == 'ORIGINAL':
+            layout.label(
+                text="Newly baked textures use PNG when Original is selected.",
+                icon='STATUS_INFO',
+            )
+
+
 class BLENDERTORCP_PT_export_usd_root(Panel):
     """USD export settings root panel.
 
@@ -767,7 +844,7 @@ class BLENDERTORCP_PT_export_usd_root(Panel):
     per region, and the sections stay expandable while a background job runs
     (only their contents grey out, with a note explaining why).
     """
-    bl_label = "USD Export Settings"
+    bl_label = "Advanced USD"
     bl_idname = "BLENDERTORCP_PT_export_usd_root"
     bl_parent_id = "BLENDERTORCP_PT_export_panel"
     bl_space_type = 'VIEW_3D'
@@ -775,6 +852,9 @@ class BLENDERTORCP_PT_export_usd_root(Panel):
     bl_category = "RCP Exporter"
     bl_options = {'DEFAULT_CLOSED'}
     bl_order = 3
+
+    def draw_header(self, context):
+        self.layout.label(text="", icon='SETTINGS')
 
     def draw(self, context):
         layout = self.layout
@@ -794,11 +874,6 @@ class BLENDERTORCP_PT_export_usd_root(Panel):
 
 
 def _draw_usd_general_section(layout, settings):
-    deviations = realitykit_os27_profile_deviations(settings)
-    if deviations:
-        layout.label(text="Custom profile (differs from OS 27 defaults)", icon='INFO')
-    else:
-        layout.label(text="RealityKit OS 27 profile: Y-up, meters", icon='CHECKMARK')
     layout.prop(settings, "root_prim_name", placeholder="Scene")
 
     include_row = layout.row(align=True)
@@ -817,32 +892,12 @@ def _draw_usd_general_section(layout, settings):
         row.enabled = False
         row.prop(settings, "author_blender_name")
     layout.prop(settings, "allow_unicode")
-    layout.prop(settings, "relative_paths")
-    layout.prop(settings, "convert_orientation")
-    if settings.convert_orientation:
-        layout.prop(settings, "apply_yup_geometry")
-        # Y-up geometry bake forces a native Y-up export and disables the
-        # exporter's own orientation conversion, so the forward/up axis
-        # dropdowns no longer apply — hide them while it is enabled.
-        if not settings.apply_yup_geometry:
-            layout.prop(settings, "forward_axis")
-            layout.prop(settings, "up_axis")
-    layout.prop(settings, "convert_scene_units")
-    if settings.convert_scene_units == 'CUSTOM':
-        layout.prop(settings, "meters_per_unit")
     layout.prop(settings, "xform_op_mode")
     layout.prop(settings, "evaluation_mode")
     layout.prop(settings, "use_instancing")
 
 
-def _draw_usd_object_types_section(layout, settings):
-    layout.prop(settings, "export_meshes")
-
-
 def _draw_usd_geometry_section(layout, settings):
-    layout.prop(settings, "export_uvmaps")
-    layout.prop(settings, "rename_uvmaps")
-    layout.prop(settings, "export_normals")
     layout.prop(settings, "merge_parent_xform")
     layout.prop(settings, "triangulate_meshes")
     if settings.triangulate_meshes:
@@ -857,83 +912,10 @@ def _draw_usd_rigging_section(layout, settings):
     layout.prop(settings, "only_deform_bones")
 
 
-def _draw_usd_texture_section(layout, settings):
-    layout.prop(settings, "export_texture_settings_enabled")
-
-    column = layout.column()
-    column.enabled = bool(settings.export_texture_settings_enabled)
-    column.prop(settings, "bake_resolution")
-    column.prop(settings, "bake_image_format")
-    if settings.bake_resolution == 'CUSTOM':
-        column.prop(settings, "bake_resolution_custom")
-    column.prop(settings, "bake_margin")
-
-
-def _draw_usd_material_section(layout, settings):
-    profile = getattr(
-        settings,
-        "materialx_surface_profile",
-        MATERIALX_SURFACE_PROFILE_DEFAULT,
-    )
-    layout.prop(settings, "materialx_surface_profile")
-
-    caveats = layout.box()
-    if profile == MATERIALX_SURFACE_PROFILE_DEFAULT:
-        layout.label(
-            text="Portable RealityKit PBR is the verified shipping profile.",
-            icon='CHECKMARK',
-        )
-        caveats.label(text="Experimental profile caveats", icon='INFO')
-    else:
-        caveats.alert = True
-        caveats.label(text="Experimental Apple beta material path", icon='ERROR')
-    caveats.label(text="PBR Surface 2: incompatible with Quick Look and USDKit.")
-    caveats.label(text="PBR Surface 2: use USDC/RCP3; strict USDZ validation may reject it.")
-    caveats.label(text="OpenPBR: some MaterialX 1.39 nodes remain unsupported.")
-
-
-def _draw_usd_bake_section(layout, settings):
-    layout.prop(settings, "bake_mode")
-    layout.label(text=_bake_result_summary(settings), icon='INFO')
-
-    # The per-mode explanation lives in a collapsible sub-section instead of
-    # permanently occupying panel rows.
-    help_header, help_body = layout.panel("blendertorcp_bake_mode_help", default_closed=True)
-    help_header.label(text="About This Mode")
-    if help_body is not None:
-        help_column = help_body.column(align=True)
-        for line in _bake_mode_help_lines(settings):
-            help_column.label(text=line)
-
-    if settings.bake_mode == 'LIT_IBL':
-        lighting_box = layout.box()
-        lighting_box.label(text="Lighting Source")
-        lighting_box.prop(settings, "bake_ibl_source")
-        if settings.bake_ibl_source == 'HDRI_FILE':
-            lighting_box.prop(settings, "bake_ibl_filepath", placeholder="//studio.hdr")
-            lighting_box.prop(settings, "bake_ibl_strength")
-            lighting_box.prop(settings, "bake_ibl_rotation")
-        lighting_box.prop(settings, "bake_isolate_meshes_lit")
-
-    advanced_header, advanced_body = layout.panel("blendertorcp_bake_advanced", default_closed=True)
-    advanced_header.label(text="Advanced")
-    if advanced_body is not None:
-        if settings.bake_mode == 'LIT_ALBEDO':
-            advanced_body.prop(settings, "bake_roughness_mode")
-        advanced_body.prop(settings, "bake_base_color")
-        advanced_body.prop(settings, "bake_opacity")
-        advanced_body.prop(settings, "bake_step_timeout_seconds")
-        advanced_body.prop(settings, "bake_keep_materials")
-
-
 _USD_EXPORT_SECTIONS = (
     ("blendertorcp_usd_general", "General", _draw_usd_general_section),
-    ("blendertorcp_usd_object_types", "Object Types", _draw_usd_object_types_section),
     ("blendertorcp_usd_geometry", "Geometry", _draw_usd_geometry_section),
     ("blendertorcp_usd_rigging", "Rigging", _draw_usd_rigging_section),
-    ("blendertorcp_usd_materials", "Materials (Advanced)", _draw_usd_material_section),
-    ("blendertorcp_usd_texture", "Texture", _draw_usd_texture_section),
-    ("blendertorcp_usd_baking", "Baking", _draw_usd_bake_section),
 )
 
 
@@ -946,7 +928,10 @@ class BLENDERTORCP_PT_export_diagnostics(Panel):
     bl_region_type = 'UI'
     bl_category = "RCP Exporter"
     bl_options = {'DEFAULT_CLOSED'}
-    bl_order = 2
+    bl_order = 4
+
+    def draw_header(self, context):
+        self.layout.label(text="", icon='STATUS_INFO')
 
     def draw(self, context):
         layout = self.layout
@@ -960,16 +945,33 @@ class BLENDERTORCP_PT_export_diagnostics(Panel):
         toggle_row.prop(settings, "diagnostics_enabled")
 
         if not settings.diagnostics_enabled:
-            return
+            layout.label(
+                text="Failures always write diagnostics.",
+                icon='STATUS_INFO',
+            )
+        else:
+            diag_path = _diagnostics_output_path(settings)
+            if diag_path:
+                layout.label(text=f"Path: {diag_path}", icon='FILE')
 
-        diag_path = _diagnostics_output_path(settings)
-        if diag_path:
-            layout.label(text=f"Path: {diag_path}", icon='FILE')
+            actions = layout.row(align=True)
+            actions.operator(
+                "blendertorcp.show_diagnostics",
+                icon='STATUS_INFO',
+                text="Show Diagnostics",
+            )
+            actions.operator(
+                "blendertorcp.create_support_bundle",
+                icon='FILE_FOLDER',
+                text="Create Support Bundle",
+            )
 
-        actions = layout.row(align=True)
-        actions.operator("blendertorcp.show_diagnostics", icon='INFO', text="Show Diagnostics")
-        actions.operator("blendertorcp.create_support_bundle", icon='FILE_FOLDER', text="Create Support Bundle")
-
+        layout.separator()
+        layout.link(
+            url="https://github.com/tomkrikorian/BlenderToRCP#readme",
+            text="BlenderToRCP Documentation",
+            icon='HELP',
+        )
 
 
 def _diagnostics_output_path(settings) -> str:
@@ -989,6 +991,8 @@ def register():
     """Register UI classes"""
     bpy.utils.register_class(BlenderToRCPExportSettings)
     bpy.utils.register_class(BLENDERTORCP_PT_export_panel)
+    bpy.utils.register_class(BLENDERTORCP_PT_export_material_settings)
+    bpy.utils.register_class(BLENDERTORCP_PT_export_optimization)
     bpy.utils.register_class(BLENDERTORCP_PT_export_usd_root)
     bpy.utils.register_class(BLENDERTORCP_PT_export_diagnostics)
 
@@ -1007,6 +1011,8 @@ def unregister():
     del bpy.types.Scene.blender_to_rcp_export_settings
     bpy.utils.unregister_class(BLENDERTORCP_PT_export_diagnostics)
     bpy.utils.unregister_class(BLENDERTORCP_PT_export_usd_root)
+    bpy.utils.unregister_class(BLENDERTORCP_PT_export_optimization)
+    bpy.utils.unregister_class(BLENDERTORCP_PT_export_material_settings)
     bpy.utils.unregister_class(BLENDERTORCP_PT_export_panel)
     bpy.utils.unregister_class(BlenderToRCPExportSettings)
 
