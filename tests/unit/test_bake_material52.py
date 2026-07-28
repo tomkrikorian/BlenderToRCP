@@ -349,3 +349,90 @@ def test_bake_failure_restores_slots_and_removes_partial_datablocks(
     assert slot.material is original
     assert removed_materials == [baked]
     assert removed_images == [transient]
+
+
+# ---------------------------------------------------------------------------
+# bpy.ops.object.bake argument contract
+#
+# Blender fills any bake property left unset from scene.render.bake, so an
+# omitted argument silently inherits whatever the .blend was last saved with.
+# Verified in Blender 5.2.0 LTS: with scene.render.bake.target='VERTEX_COLORS'
+# and a mesh that has a color attribute, a DIFFUSE/COLOR bake returns
+# {'FINISHED'} and leaves the target image fully black; with
+# use_pass_direct/use_pass_indirect off, a COMBINED bake goes from mean red
+# 1.0 to 0.0. Both produce a saved, packaged, all-black texture and no error.
+# ---------------------------------------------------------------------------
+
+
+def _capture_bake_kwargs(monkeypatch, bake_type, pass_filter, **extra):
+    captured = {}
+
+    def fake_bake(**kwargs):
+        captured.update(kwargs)
+        return {'FINISHED'}
+
+    obj = types.SimpleNamespace(mode='OBJECT')
+    context = types.SimpleNamespace(
+        view_layer=types.SimpleNamespace(objects=types.SimpleNamespace(active=obj))
+    )
+    fake_bpy = types.SimpleNamespace(
+        ops=types.SimpleNamespace(object=types.SimpleNamespace(bake=fake_bake))
+    )
+    monkeypatch.setattr(bake_textures, "bpy", fake_bpy)
+    bake_textures._bake_object_pass(
+        context, obj, bake_type=bake_type, pass_filter=pass_filter, margin=8, **extra
+    )
+    return captured
+
+
+def test_bake_pass_pins_image_texture_target(monkeypatch):
+    """An inherited target='VERTEX_COLORS' bakes black into the target image."""
+    kwargs = _capture_bake_kwargs(monkeypatch, 'DIFFUSE', {'COLOR'})
+    assert kwargs["target"] == 'IMAGE_TEXTURES'
+
+
+def test_bake_pass_pins_internal_save_mode(monkeypatch):
+    """An inherited save_mode='EXTERNAL' redirects the bake to disk."""
+    kwargs = _capture_bake_kwargs(monkeypatch, 'DIFFUSE', {'COLOR'})
+    assert kwargs["save_mode"] == 'INTERNAL'
+    assert kwargs["use_split_materials"] is False
+
+
+def test_combined_bake_always_sends_explicit_pass_filter(monkeypatch):
+    """LIT_IBL passes pass_filter=None; unset means 'inherit', not 'no filter'."""
+    kwargs = _capture_bake_kwargs(monkeypatch, 'COMBINED', None)
+    assert "pass_filter" in kwargs, "COMBINED must never inherit scene use_pass_* toggles"
+    assert kwargs["pass_filter"] == set(bake_textures.COMBINED_PASS_FILTER)
+    assert {'DIRECT', 'INDIRECT'} <= kwargs["pass_filter"]
+
+
+def test_non_combined_bake_omits_pass_filter_when_not_applicable(monkeypatch):
+    """ROUGHNESS/EMIT have no pass_filter concept; don't invent one."""
+    kwargs = _capture_bake_kwargs(monkeypatch, 'ROUGHNESS', None)
+    assert "pass_filter" not in kwargs
+
+
+def test_explicit_pass_filter_is_preserved(monkeypatch):
+    kwargs = _capture_bake_kwargs(monkeypatch, 'DIFFUSE', {'COLOR'})
+    assert kwargs["pass_filter"] == {'COLOR'}
+
+
+def test_caller_can_override_pinned_properties(monkeypatch):
+    kwargs = _capture_bake_kwargs(
+        monkeypatch, 'DIFFUSE', {'COLOR'}, use_selected_to_active=True
+    )
+    assert kwargs["use_selected_to_active"] is True
+
+
+def test_forget_image_drops_datablock_before_it_is_freed():
+    """A freed datablock left in baked_images raises ReferenceError on read."""
+    result = bake_textures.BakeResult()
+    keep = object()
+    doomed = object()
+    result.baked_images.extend([keep, doomed])
+    result.temporary_images.append(doomed)
+
+    bake_textures._forget_image(result, doomed)
+
+    assert result.baked_images == [keep]
+    assert result.temporary_images == []

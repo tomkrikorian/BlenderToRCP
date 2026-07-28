@@ -30,6 +30,12 @@ _BAKE_IMAGE_FORMATS = {
     },
 }
 
+# Every lobe/direction a COMBINED bake can contribute. Passed explicitly so the
+# bake never inherits the scene's use_pass_* toggles (see _bake_object_pass).
+COMBINED_PASS_FILTER = frozenset(
+    {'DIRECT', 'INDIRECT', 'DIFFUSE', 'GLOSSY', 'TRANSMISSION', 'EMIT'}
+)
+
 _DEFAULT_BAKE_RESOLUTION = 2048
 # Floor for source-keyed bake sizes: a tiled source texture flattens its
 # repetition into the bake, so tiny tiles must not force a tiny bake.
@@ -46,6 +52,17 @@ class BakeResult:
         self.baked_materials: List[object] = []
         self.baked_images: List[object] = []
         self.temporary_images: List[object] = []
+
+
+def _forget_image(result: BakeResult, image) -> None:
+    """Drop ``image`` from the result's tracking lists by identity.
+
+    Must be called before ``bpy.data.images.remove``: a freed datablock raises
+    ReferenceError on *any* attribute access, so leaving it in ``baked_images``
+    turns a later read into a hard failure at the end of a successful bake.
+    """
+    for images in (result.baked_images, result.temporary_images):
+        images[:] = [tracked for tracked in images if tracked is not image]
 
 
 def bake_materials_for_objects(
@@ -221,7 +238,9 @@ def _bake_materials_for_objects_impl(
     color_pass_filter = {'COLOR'}
     if bake_mode == "LIT_IBL":
         color_bake_type = 'COMBINED'
-        color_pass_filter = None
+        # Explicit, not None: an omitted pass_filter inherits the scene's
+        # use_pass_* toggles and a .blend with them disabled bakes pure black.
+        color_pass_filter = set(COMBINED_PASS_FILTER)
 
     # Maps a per-slot reuse key -> the baked material already produced for it.
     # Lets objects that share a source material + mesh under identical bake
@@ -677,6 +696,12 @@ def _bake_materials_for_objects_impl(
                     bake_cache.setdefault(cache_key, entry["material"])
                 merged_opacity_image = entry.get("merged_opacity_image")
                 if merged_opacity_image is not None and getattr(merged_opacity_image, "users", 0) == 0:
+                    # Drop every reference before freeing the datablock.
+                    # Consumers iterate result.baked_images and read
+                    # image.filepath_raw; touching a removed datablock raises
+                    # ReferenceError, which getattr's default does not absorb.
+                    _forget_image(result, merged_opacity_image)
+                    entry["merged_opacity_image"] = None
                     try:
                         bpy.data.images.remove(merged_opacity_image)
                     except Exception:
@@ -1829,17 +1854,27 @@ def _bake_object_pass(
         "margin": int(margin),
         "use_clear": True,
         "use_selected_to_active": False,
+        # Pin every operator property this pipeline depends on. Blender fills
+        # unset bake properties from scene.render.bake, so anything left out
+        # here silently inherits whatever the .blend was last saved with.
+        # A scene saved with target='VERTEX_COLORS' bakes into a color
+        # attribute and leaves the target image untouched - the operator still
+        # returns {'FINISHED'} and an all-black texture is saved and packaged.
+        "target": 'IMAGE_TEXTURES',
+        # EXTERNAL redirects the bake to files on disk; this pipeline reads the
+        # pixels back off the image datablock and saves them itself.
+        "save_mode": 'INTERNAL',
+        "use_split_materials": False,
     }
+    if pass_filter is None and bake_type == 'COMBINED':
+        # Same inheritance trap: an omitted pass_filter takes the scene's
+        # use_pass_direct/use_pass_indirect/... toggles, so a .blend with those
+        # disabled bakes pure black through the LIT_IBL path.
+        pass_filter = set(COMBINED_PASS_FILTER)
     if pass_filter is not None:
         kwargs["pass_filter"] = pass_filter
     kwargs.update(extra_kwargs)
-    try:
-        bpy.ops.object.bake(**kwargs)
-    except TypeError:
-        # Some Blender builds don't expose every bake option; retry with the baseline args.
-        for key in list(extra_kwargs.keys()):
-            kwargs.pop(key, None)
-        bpy.ops.object.bake(**kwargs)
+    bpy.ops.object.bake(**kwargs)
 
 
 def _select_object(context, obj) -> None:
