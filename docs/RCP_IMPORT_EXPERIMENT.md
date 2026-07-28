@@ -174,6 +174,10 @@ two shared procedural materials and one object with two face materials:
   30-record/32-buffer unlit package shape;
 - USDA, USDC, and USDZ bake exports retained three USD meshes, four baked
   material records, and both material subsets.
+- the public RealityKit 27 smoke probe loaded both USDC and USDZ on Apple M5
+  Max, recursively found three model entities and four ShaderGraph materials,
+  and reported identical finite bounds (`min [-2.5, -1, -1]`,
+  `max [2.5, 3.5, 1]`).
 
 Every structural inspection reported zero derived or unknown hashed buffers.
 RCP open/save/reopen and visual/runtime acceptance of the generated multi-model
