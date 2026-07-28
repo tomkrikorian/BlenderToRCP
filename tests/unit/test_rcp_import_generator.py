@@ -158,6 +158,7 @@ def Xform "root"
             def Shader "Preview"
             {{
                 uniform token info:id = "UsdPreviewSurface"
+                color3f inputs:diffuseColor.connect = </root/_materials/Material_Baked/PreviewTexture.outputs:rgb>
                 token outputs:surface
             }}
             def Shader "PreviewTexture"
@@ -287,6 +288,166 @@ def Xform "root"
                 uniform token familyName = "materialBind"
                 int[] indices = {blue_indices}
                 rel material:binding = </root/Materials/Blue>
+            }}
+        }}
+    }}
+    def Scope "Materials"
+    {{
+        def Material "Red" (
+            prepend apiSchemas = ["ColorSpaceAPI"]
+        )
+        {{
+            uniform token colorSpace:name = "lin_rec709_scene"
+            token outputs:surface.connect = </root/Materials/Red/Preview.outputs:surface>
+            def Shader "Preview"
+            {{
+                uniform token info:id = "UsdPreviewSurface"
+                color3f inputs:diffuseColor = (1, 0, 0)
+                token outputs:surface
+            }}
+        }}
+        def Material "Blue" (
+            prepend apiSchemas = ["ColorSpaceAPI"]
+        )
+        {{
+            uniform token colorSpace:name = "lin_rec709_scene"
+            token outputs:surface.connect = </root/Materials/Blue/Preview.outputs:surface>
+            def Shader "Preview"
+            {{
+                uniform token info:id = "UsdPreviewSurface"
+                color3f inputs:diffuseColor = (0, 0, 1)
+                token outputs:surface
+            }}
+        }}
+    }}
+}}
+""",
+        encoding="utf-8",
+    )
+    return source
+
+
+def _multi_skeletal_source(
+    tmp_path: Path,
+    *,
+    mixed_skinning: bool = False,
+    nested_transform: bool = False,
+    time_sampled_uv_indices: bool = False,
+) -> Path:
+    right_api = (
+        'prepend apiSchemas = ["MaterialBindingAPI"]'
+        if mixed_skinning
+        else 'prepend apiSchemas = ["MaterialBindingAPI", "SkelBindingAPI"]'
+    )
+    right_skinning = (
+        ""
+        if mixed_skinning
+        else """
+            matrix4d primvars:skel:geomBindTransform = ( (1, 0, 0, 0), (0, 1, 0, 0), (0, 0, 1, 0), (0, 0, 0, 1) )
+            int[] primvars:skel:jointIndices = [0, 0, 0, 0, 0, 0, 0, 0, 0] (
+                elementSize = 3
+                interpolation = "vertex"
+            )
+            float[] primvars:skel:jointWeights = [1, 0, 0, 1, 0, 0, 1, 0, 0] (
+                elementSize = 3
+                interpolation = "vertex"
+            )
+            rel skel:skeleton = </root/Rig/Skeleton>
+"""
+    )
+    rig_transform = (
+        """
+        double3 xformOp:translate = (1, 2, 3)
+        float3 xformOp:scale = (2, 2, 2)
+        uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+"""
+        if nested_transform
+        else ""
+    )
+    meshes_transform = ""
+    uv_block = (
+        """
+                texCoord2f[] primvars:st = [(0, 0), (1, 0), (0, 1)] (
+                    interpolation = "faceVarying"
+                )
+                int[] primvars:st:indices.timeSamples = {
+                    1: [0, 1, 2],
+                    2: [0, 1, 2],
+                }
+"""
+        if time_sampled_uv_indices
+        else ""
+    )
+    source = tmp_path / "TwoSkinnedMeshes.usda"
+    source.write_text(
+        f"""#usda 1.0
+(
+    defaultPrim = "root"
+    endTimeCode = 2
+    metersPerUnit = 1
+    startTimeCode = 1
+    timeCodesPerSecond = 24
+    upAxis = "Y"
+)
+def Xform "root"
+{{
+    def SkelRoot "Rig"
+    {{
+{rig_transform}
+        def Xform "Meshes"
+        {{
+{meshes_transform}
+            def Mesh "Left" (
+                prepend apiSchemas = ["MaterialBindingAPI", "SkelBindingAPI"]
+            )
+            {{
+                int[] faceVertexCounts = [3]
+                int[] faceVertexIndices = [0, 1, 2]
+                point3f[] points = [(0, 0, 0), (1, 0, 0), (0, 1, 0)]
+{uv_block}
+                matrix4d primvars:skel:geomBindTransform = ( (1, 0, 0, 0), (0, 1, 0, 0), (0, 0, 1, 0), (0, 0, 0, 1) )
+                int[] primvars:skel:jointIndices = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0] (
+                    elementSize = 4
+                    interpolation = "vertex"
+                )
+                float[] primvars:skel:jointWeights = [1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0] (
+                    elementSize = 4
+                    interpolation = "vertex"
+                )
+                rel material:binding = </root/Materials/Red>
+                rel skel:skeleton = </root/Rig/Skeleton>
+            }}
+            def Mesh "Right" (
+                {right_api}
+            )
+            {{
+                int[] faceVertexCounts = [3]
+                int[] faceVertexIndices = [0, 1, 2]
+                point3f[] points = [(0, 0, 0), (-1, 0, 0), (0, 1, 0)]
+{uv_block}
+{right_skinning}
+                rel material:binding = </root/Materials/Blue>
+            }}
+        }}
+        def Skeleton "Skeleton" (
+            prepend apiSchemas = ["SkelBindingAPI"]
+        )
+        {{
+            uniform matrix4d[] bindTransforms = [( (1, 0, 0, 0), (0, 1, 0, 0), (0, 0, 1, 0), (0, 0, 0, 1) )]
+            uniform token[] joints = ["Root"]
+            uniform matrix4d[] restTransforms = [( (1, 0, 0, 0), (0, 1, 0, 0), (0, 0, 1, 0), (0, 0, 0, 1) )]
+            rel skel:animationSource = </root/Rig/Skeleton/Animation>
+            def SkelAnimation "Animation"
+            {{
+                uniform token[] joints = ["Root"]
+                quatf[] rotations.timeSamples = {{
+                    1: [(1, 0, 0, 0)],
+                    2: [(1, 0, 0, 0)],
+                }}
+                float3[] translations.timeSamples = {{
+                    1: [(0, 0, 0)],
+                    2: [(0, 0.1, 0)],
+                }}
             }}
         }}
     }}
@@ -481,6 +642,120 @@ def test_generate_multi_mesh_import_rejects_unmeasured_animation(
     assert not destination.exists()
 
 
+def test_generate_multi_skeletal_import_authors_shared_skeleton_and_materials(
+    tmp_path: Path,
+) -> None:
+    source = _multi_skeletal_source(tmp_path)
+
+    destination = generate_static_import(
+        source,
+        tmp_path / "TwoSkinnedMeshes.import",
+    )
+
+    report = build_report(
+        inspect_import(destination),
+        rcp_build="80.0.1.500.1",
+    )
+    assert report["record_types"]["tm_geometry"] == 2
+    assert report["record_types"]["tm_mesh_descriptor"] == 2
+    assert report["record_types"]["tm_mesh_resource"] == 3
+    assert report["record_types"]["tm_material"] == 2
+    assert report["record_types"]["tm_skeleton_hierarchy"] == 1
+    assert report["record_types"]["tm_skeleton_definition"] == 1
+    assert report["counts"]["derived_or_unknown_hashed_buffers"] == 0
+    source_entity = (
+        destination / "__TwoSkinnedMeshes.tm_entity"
+    ).read_text()
+    optimized_entity = (
+        destination / "__TwoSkinnedMeshes_optimized.tm_entity"
+    ).read_text()
+    assert source_entity.count('__type: "tm_skinning_component"') == 2
+    assert source_entity.count('__type: "tm_model_component"') == 2
+    assert optimized_entity.count('__type: "tm_model_component"') == 1
+    merged = (
+        destination / "geometry" / "Skeleton_merged.tm_mesh_resource"
+    ).read_text()
+    assert merged.count("\t\tgeometry: ") == 2
+    assert merged.count("\t\tskinning_data: {") == 2
+    left_descriptor = (
+        destination / "mesh_descriptors" / "Left.tm_mesh_descriptor"
+    ).read_text()
+    right_descriptor = (
+        destination / "mesh_descriptors" / "Right.tm_mesh_descriptor"
+    ).read_text()
+    assert "influence_count_per_vertex: 4" in left_descriptor
+    assert "influence_count_per_vertex: 3" in right_descriptor
+
+
+def test_generate_multi_skeletal_import_is_deterministic(tmp_path: Path) -> None:
+    source = _multi_skeletal_source(tmp_path)
+    first = generate_static_import(
+        source,
+        tmp_path / "FirstSkinned.import",
+        asset_name="TwoSkinnedMeshes",
+    )
+    second = generate_static_import(
+        source,
+        tmp_path / "SecondSkinned.import",
+        asset_name="TwoSkinnedMeshes",
+    )
+
+    first_files = {
+        path.relative_to(first): path.read_bytes()
+        for path in first.rglob("*")
+        if path.is_file()
+    }
+    second_files = {
+        path.relative_to(second): path.read_bytes()
+        for path in second.rglob("*")
+        if path.is_file()
+    }
+    assert first_files == second_files
+
+
+def test_generate_multi_skeletal_import_flattens_nested_armature_transform(
+    tmp_path: Path,
+) -> None:
+    source = _multi_skeletal_source(tmp_path, nested_transform=True)
+
+    asset = load_static_asset(source)
+
+    assert len(asset.meshes) == 2
+    assert all(
+        mesh.skinning.armature_translation == pytest.approx((1.0, 2.0, 3.0))
+        for mesh in asset.meshes
+    )
+    assert all(
+        mesh.skinning.armature_scale == pytest.approx((2.0, 2.0, 2.0))
+        for mesh in asset.meshes
+    )
+
+
+def test_generate_multi_skeletal_import_reads_time_sampled_uv_indices(
+    tmp_path: Path,
+) -> None:
+    source = _multi_skeletal_source(tmp_path, time_sampled_uv_indices=True)
+
+    asset = load_static_asset(source)
+
+    assert all(
+        mesh.face_uvs == ((0.0, 0.0), (1.0, 0.0), (0.0, 1.0))
+        for mesh in asset.meshes
+    )
+
+
+def test_generate_multi_skeletal_import_rejects_mixed_skinning(
+    tmp_path: Path,
+) -> None:
+    source = _multi_skeletal_source(tmp_path, mixed_skinning=True)
+    destination = tmp_path / "MixedSkinned.import"
+
+    with pytest.raises(ImportGenerationError, match="cannot mix"):
+        generate_static_import(source, destination)
+
+    assert not destination.exists()
+
+
 def test_generate_static_import_converts_rec709_material_to_aces2065(
     tmp_path: Path,
 ) -> None:
@@ -499,6 +774,40 @@ def test_generate_static_import_converts_rec709_material_to_aces2065(
     assert tuple(float(component) for component in color.groups()) == pytest.approx(
         (0.3522519171, 0.0721185282, 0.0167149641),
         abs=1e-4,
+    )
+
+
+def test_generate_static_import_classifies_truncated_bake_filename_from_graph(
+    tmp_path: Path,
+) -> None:
+    source, texture_bytes = _textured_material_source(
+        tmp_path,
+        filename="VeryLongBakedMaterial_baseCo-deadbeef.png",
+    )
+
+    destination = generate_static_import(source, tmp_path / "Textured.import")
+
+    assert len(list((destination / "materials").glob("*.tm_material"))) == 1
+    texture_payloads = [
+        path.read_bytes()
+        for path in (destination / "textures").glob("*.tm_buffers/*")
+    ]
+    assert texture_payloads == [texture_bytes]
+
+
+def test_generate_static_import_bounds_long_texture_record_names(
+    tmp_path: Path,
+) -> None:
+    filename = f"{'VeryLongMaterialTextureName' * 8}_baseColor.png"
+    source, _ = _textured_material_source(tmp_path, filename=filename)
+
+    destination = generate_static_import(source, tmp_path / "Textured.import")
+
+    buffer_directory = next((destination / "textures").glob("*.tm_buffers"))
+    assert len(buffer_directory.name.encode("utf-8")) <= 131
+    second = generate_static_import(source, tmp_path / "Second.import")
+    assert next((second / "textures").glob("*.tm_buffers")).name == (
+        buffer_directory.name
     )
 
 

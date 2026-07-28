@@ -133,8 +133,54 @@ It deduplicates shared material records. A USD mesh with `materialBind`
 material, preserving the selected faces, UVs, normals, object transform, and
 material binding without inventing a private material-index buffer.
 Overlapping/out-of-range subsets, unsupported topology/interpolation/hierarchy,
-and multi-mesh animation or skinning fail closed and remove the incomplete
+and multi-mesh transform animation fail closed and remove the incomplete
 destination.
+
+The experimental skeletal extension accepts one or more skinned meshes when
+every mesh belongs to the same common rig group (optionally through Blender's
+single-mesh object Xform wrapper), inherited skeleton, joint/rest/bind
+contract, and animation. Each mesh may have its own material and one to four
+vertex-interpolated joint influences. The writer emits one measured geometry,
+descriptor, and source model/skinning component per mesh, plus the measured
+optimizer resource containing multiple skinned models that reference those
+geometries and the shared skeleton. Intermediate rig transforms are flattened
+relative to the retained default prim. Mixed skinned/unskinned sets, multiple
+rig groups, multiple skeletons or animations, reset transform stacks,
+non-identity geometry binds, and face-material subsets on a skinned mesh fail
+closed.
+
+A synthetic two-mesh/two-material fixture passes deterministic structural
+inspection with two geometry records, two descriptors, three mesh resources
+(including the optimizer resource), one skeleton definition/hierarchy, and
+zero derived or unknown hashed buffers. A disposable copy of RCP's 12-mesh
+Robot source also generates the same measured record shape with 1- and
+3-influence descriptors and zero unknown buffers.
+
+The full Blender 5.2 CLI path was also exercised from
+`References/Blender/Robot.blend` with `export_animation=true`,
+`author_animation_library=true`, `UNLIT_ALBEDO`, and disposable 32-pixel bake
+textures. It baked 12 objects and produced a 12-mesh, 12-material, 12-texture
+skeletal package with 78 records, 130 content-hashed buffers, and zero derived
+or unknown hashed buffers. Two independent bake/export runs produced the same
+record-type/count shape, but not identical source paths, UUIDs, records, or
+opaque texture payload hashes: the bake publisher uses a volatile staging
+directory and independent baked image payloads. Running the generator twice
+against one fixed staged USDA and texture set was byte-for-byte deterministic.
+Generator determinism and whole-bake reproducibility must therefore remain
+separate acceptance claims.
+
+The Robot run also established three Blender-specific compatibility rules:
+time-sampled UV index primvars are evaluated at the stage start time; individual
+single-mesh object Xform wrappers are retained below one common rig group; and
+long staged texture names are classified from measured shader connections and
+bounded with deterministic hashes before creating filesystem records. Explicit
+unsupported filename roles still fail closed even when the shader graph is
+otherwise ambiguous.
+
+These are Blender, generator, and structural results only. Clean RCP
+load/save/reopen, two reimports, Sequence Editor playback, and RealityKit
+runtime/bounds acceptance for the multi-mesh skeletal output are still
+required.
 
 ### Baked material extension
 

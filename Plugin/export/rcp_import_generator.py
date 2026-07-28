@@ -155,6 +155,7 @@ class SkinningData:
     geom_bind_transform: tuple[tuple[float, float, float, float], ...]
     joints: tuple[SkeletonJoint, ...]
     animation: SkeletalAnimation
+    influence_count_per_vertex: int = 4
 
 
 class _Ids:
@@ -194,6 +195,26 @@ def _content_hash(data: bytes) -> str:
 def _safe_name(value: str, fallback: str) -> str:
     normalized = _SAFE_NAME.sub("_", value.strip()).strip("._")
     return normalized or fallback
+
+
+def _bounded_safe_name(
+    value: str,
+    fallback: str,
+    *,
+    max_bytes: int,
+) -> str:
+    normalized = _safe_name(value, fallback)
+    if len(normalized.encode("utf-8")) <= max_bytes:
+        return normalized
+    digest = hashlib.sha256(normalized.encode("utf-8")).hexdigest()[:12]
+    suffix = f"-{digest}"
+    prefix_limit = max_bytes - len(suffix)
+    prefix = ""
+    for character in normalized:
+        if len((prefix + character).encode("utf-8")) > prefix_limit:
+            break
+        prefix += character
+    return f"{prefix.rstrip('._-')}{suffix}"
 
 
 def _f(value: float) -> str:
@@ -594,6 +615,45 @@ def _local_transform(prim, time_code=None) -> tuple[
     return translation, rotation, scale
 
 
+def _relative_transform(prim, ancestor, time_code=None) -> tuple[
+    tuple[float, float, float],
+    tuple[float, float, float, float],
+    tuple[float, float, float],
+]:
+    """Return one flattened local transform relative to a retained ancestor."""
+
+    from pxr import Usd, UsdGeom
+
+    cache = UsdGeom.XformCache(
+        Usd.TimeCode.Default() if time_code is None else time_code
+    )
+    matrix, resets_xform_stack = cache.ComputeRelativeTransform(prim, ancestor)
+    if resets_xform_stack:
+        raise ImportGenerationError(
+            "build-80 skeletal subset does not support resetXformStack "
+            "between the mesh parent and defaultPrim"
+        )
+    return _matrix_transform(matrix)
+
+
+def _transforms_close(
+    first: tuple[Sequence[float], Sequence[float], Sequence[float]],
+    second: tuple[Sequence[float], Sequence[float], Sequence[float]],
+    *,
+    tolerance: float = 1e-5,
+) -> bool:
+    translation_and_scale_close = all(
+        abs(float(left) - float(right)) <= tolerance
+        for index in (0, 2)
+        for left, right in zip(first[index], second[index])
+    )
+    rotation_dot = sum(
+        float(left) * float(right)
+        for left, right in zip(first[1], second[1])
+    )
+    return translation_and_scale_close and abs(abs(rotation_dot) - 1.0) <= tolerance
+
+
 def _face_varying_values(
     values: Sequence[Sequence[float]],
     interpolation: str,
@@ -723,28 +783,35 @@ def _load_skinning(stage, mesh_prim, *, asset_name: str) -> SkinningData:
     binding = UsdSkel.BindingAPI(mesh_prim)
     indices_primvar = binding.GetJointIndicesPrimvar()
     weights_primvar = binding.GetJointWeightsPrimvar()
+    influence_count = (
+        int(indices_primvar.GetElementSize()) if indices_primvar else 0
+    )
     if (
         not indices_primvar
         or not weights_primvar
-        or indices_primvar.GetElementSize() != 4
-        or weights_primvar.GetElementSize() != 4
+        or influence_count not in {1, 2, 3, 4}
+        or weights_primvar.GetElementSize() != influence_count
         or str(indices_primvar.GetInterpolation()) != "vertex"
         or str(weights_primvar.GetInterpolation()) != "vertex"
     ):
         raise ImportGenerationError(
-            "build-80 skeletal subset requires four vertex-interpolated influences"
+            "build-80 skeletal subset requires one to four "
+            "vertex-interpolated influences"
         )
     flat_indices = tuple(int(value) for value in indices_primvar.ComputeFlattened())
     flat_weights = tuple(float(value) for value in weights_primvar.ComputeFlattened())
-    if len(flat_indices) != len(flat_weights) or len(flat_indices) % 4:
+    if (
+        len(flat_indices) != len(flat_weights)
+        or len(flat_indices) % influence_count
+    ):
         raise ImportGenerationError("invalid skin influence arrays")
     joint_indices = tuple(
-        tuple(flat_indices[offset : offset + 4])
-        for offset in range(0, len(flat_indices), 4)
+        tuple(flat_indices[offset : offset + influence_count])
+        for offset in range(0, len(flat_indices), influence_count)
     )
     joint_weights = tuple(
-        tuple(flat_weights[offset : offset + 4])
-        for offset in range(0, len(flat_weights), 4)
+        tuple(flat_weights[offset : offset + influence_count])
+        for offset in range(0, len(flat_weights), influence_count)
     )
 
     skeleton = binding.GetInheritedSkeleton()
@@ -887,6 +954,7 @@ def _load_skinning(stage, mesh_prim, *, asset_name: str) -> SkinningData:
         ),
         joints=tuple(joints),
         animation=animation,
+        influence_count_per_vertex=influence_count,
     )
 
 
@@ -927,10 +995,15 @@ def _load_material_data(
             material_profile = authored_profile
 
         texture_assets: dict[str, tuple[Path, str]] = {}
+        texture_shader_assets: dict[str, str] = {}
+        shaders = {}
         for descendant in Usd.PrimRange(material.GetPrim()):
             if not descendant.IsA(UsdShade.Shader):
                 continue
-            file_input = UsdShade.Shader(descendant).GetInput("file")
+            shader = UsdShade.Shader(descendant)
+            shader_path = str(descendant.GetPath())
+            shaders[shader_path] = shader
+            file_input = shader.GetInput("file")
             asset = file_input.Get() if file_input else None
             if asset is None:
                 continue
@@ -948,15 +1021,51 @@ def _load_material_data(
                 str(Path(resolved_path).resolve()),
                 (Path(resolved_path).resolve(), asset_path),
             )
+            texture_shader_assets[shader_path] = str(Path(resolved_path).resolve())
+
+        consumers: dict[str, list[tuple[str, str]]] = {}
+        for target_path, shader in shaders.items():
+            for shader_input in shader.GetInputs():
+                sources = shader_input.GetConnectedSources()[0]
+                for source in sources:
+                    source_path = str(source.source.GetPrim().GetPath())
+                    consumers.setdefault(source_path, []).append(
+                        (target_path, str(shader_input.GetBaseName()))
+                    )
+
+        graph_roles: dict[str, set[str]] = {}
+        for shader_path, resolved_key in texture_shader_assets.items():
+            visited = {shader_path}
+            queue = [shader_path]
+            while queue:
+                source_path = queue.pop()
+                for target_path, input_name in consumers.get(source_path, ()):
+                    lowered_input = input_name.lower()
+                    target_id = str(
+                        shaders[target_path].GetIdAttr().Get() or ""
+                    ).lower()
+                    if lowered_input in {"basecolor", "diffusecolor"} or (
+                        lowered_input == "color" and "unlit" in target_id
+                    ):
+                        graph_roles.setdefault(resolved_key, set()).add(
+                            "base_color"
+                        )
+                    elif lowered_input == "roughness":
+                        graph_roles.setdefault(resolved_key, set()).add(
+                            "roughness"
+                        )
+                    if target_path not in visited:
+                        visited.add(target_path)
+                        queue.append(target_path)
 
         for resolved_path, asset_path in texture_assets.values():
             lowered = Path(asset_path).name.lower()
+            measured_roles = graph_roles.get(str(resolved_path), set())
+            filename_role = None
             if "basecolor" in lowered or "base_color" in lowered:
-                role = "base_color"
-                color_space = "sRGB"
+                filename_role = "base_color"
             elif "roughness" in lowered:
-                role = "roughness"
-                color_space = "raw"
+                filename_role = "roughness"
             elif any(
                 marker in lowered
                 for marker in ("opacity", "normal", "metallic", "occlusion")
@@ -965,13 +1074,30 @@ def _load_material_data(
                     "build-80 texture writer does not yet support the material "
                     f"role in {Path(asset_path).name!r}"
                 )
-            else:
+            if len(measured_roles) > 1:
+                raise ImportGenerationError(
+                    "build-80 texture writer found conflicting graph roles "
+                    f"for {Path(asset_path).name!r}: {sorted(measured_roles)}"
+                )
+            graph_role = next(iter(measured_roles)) if measured_roles else None
+            if graph_role and filename_role and graph_role != filename_role:
+                raise ImportGenerationError(
+                    "build-80 texture writer found conflicting filename and "
+                    f"graph roles for {Path(asset_path).name!r}"
+                )
+            role = graph_role or filename_role
+            if role is None:
                 raise ImportGenerationError(
                     "build-80 texture writer requires a bake channel in the "
                     f"filename; cannot classify {Path(asset_path).name!r}"
                 )
+            color_space = "sRGB" if role == "base_color" else "raw"
             texture = MaterialTexture(
-                name=_safe_name(Path(asset_path).stem, "Texture"),
+                name=_bounded_safe_name(
+                    Path(asset_path).stem,
+                    "Texture",
+                    max_bytes=120,
+                ),
                 source_path=resolved_path,
                 source_asset_path=asset_path,
                 role=role,
@@ -1183,7 +1309,7 @@ def _unique_record_name(
     used: set[str],
     fallback: str,
 ) -> str:
-    base = _safe_name(candidate, fallback)
+    base = _bounded_safe_name(candidate, fallback, max_bytes=160)
     name = base
     suffix = 2
     while name in used:
@@ -1232,6 +1358,15 @@ def load_static_asset(
     mesh_prims = [prim for prim in stage.Traverse() if prim.IsA(UsdGeom.Mesh)]
     if not mesh_prims:
         raise ImportGenerationError("build-80 static subset requires at least one mesh")
+    skinned_flags = tuple(
+        mesh_prim.HasAPI(UsdSkel.BindingAPI) for mesh_prim in mesh_prims
+    )
+    if any(skinned_flags) and not all(skinned_flags):
+        raise ImportGenerationError(
+            "build-80 multi-mesh skeletal subset cannot mix skinned and "
+            "unskinned meshes"
+        )
+    multi_skeletal = len(mesh_prims) > 1 and all(skinned_flags)
 
     has_material_subsets = any(
         child.GetTypeName() == "GeomSubset"
@@ -1245,6 +1380,11 @@ def load_static_asset(
         for mesh_prim in mesh_prims
         for child in mesh_prim.GetChildren()
     )
+    if multi_skeletal and has_material_subsets:
+        raise ImportGenerationError(
+            "build-80 multi-mesh skeletal subset does not support face "
+            "material subsets"
+        )
     if len(mesh_prims) == 1 and not has_material_subsets:
         mesh = load_static_mesh(source_path, asset_name=asset_name)
         return StaticAsset(
@@ -1254,16 +1394,19 @@ def load_static_asset(
         )
 
     resolved_asset_name = _safe_name(asset_name or source_path.stem, "Asset")
-    for op in UsdGeom.Xformable(root_prim).GetOrderedXformOps():
-        if op.GetAttr().GetNumTimeSamples():
-            raise ImportGenerationError(
-                "build-80 multi-mesh subset does not yet support animation"
-            )
+    if not multi_skeletal:
+        for op in UsdGeom.Xformable(root_prim).GetOrderedXformOps():
+            if op.GetAttr().GetNumTimeSamples():
+                raise ImportGenerationError(
+                    "build-80 multi-mesh subset does not yet support animation"
+                )
     root_translation, root_rotation, root_scale = _local_transform(root_prim)
     used_mesh_names: set[str] = set()
     used_material_names: set[str] = set()
     materials_by_key: dict[str, MaterialData] = {}
     meshes: list[StaticMesh] = []
+    canonical_skinning: SkinningData | None = None
+    skeletal_parent_path: str | None = None
 
     def material_data(material) -> MaterialData:
         key = str(material.GetPath()) if material else "__default__"
@@ -1288,7 +1431,11 @@ def load_static_asset(
             base_color_texture=(
                 replace(
                     loaded.base_color_texture,
-                    name=f"{loaded.name}_{loaded.base_color_texture.name}",
+                    name=_bounded_safe_name(
+                        f"{loaded.name}_{loaded.base_color_texture.name}",
+                        "BaseColorTexture",
+                        max_bytes=120,
+                    ),
                 )
                 if loaded.base_color_texture is not None
                 else None
@@ -1296,7 +1443,11 @@ def load_static_asset(
             roughness_texture=(
                 replace(
                     loaded.roughness_texture,
-                    name=f"{loaded.name}_{loaded.roughness_texture.name}",
+                    name=_bounded_safe_name(
+                        f"{loaded.name}_{loaded.roughness_texture.name}",
+                        "RoughnessTexture",
+                        max_bytes=120,
+                    ),
                 )
                 if loaded.roughness_texture is not None
                 else None
@@ -1306,10 +1457,69 @@ def load_static_asset(
         return loaded
 
     for mesh_prim in mesh_prims:
-        if mesh_prim.HasAPI(UsdSkel.BindingAPI):
-            raise ImportGenerationError(
-                "build-80 multi-mesh subset does not yet support skinning"
+        mesh_parent = mesh_prim.GetParent()
+        wrapped_skeletal_mesh = bool(
+            multi_skeletal
+            and mesh_parent.IsA(UsdGeom.Xform)
+            and tuple(mesh_parent.GetChildren()) == (mesh_prim,)
+        )
+        skeletal_group = (
+            mesh_parent.GetParent() if wrapped_skeletal_mesh else mesh_parent
+        )
+        skinning = (
+            _load_skinning(stage, mesh_prim, asset_name=resolved_asset_name)
+            if multi_skeletal
+            else None
+        )
+        if skinning is not None:
+            armature_transform = _relative_transform(
+                skeletal_group,
+                root_prim,
+                Usd.TimeCode(stage.GetStartTimeCode()),
             )
+            skeleton_prim = stage.GetPrimAtPath(f"/{skinning.skeleton_path}")
+            skeleton_parent_transform = _relative_transform(
+                skeleton_prim.GetParent(),
+                root_prim,
+                Usd.TimeCode(stage.GetStartTimeCode()),
+            )
+            if not _transforms_close(
+                armature_transform, skeleton_parent_transform
+            ):
+                raise ImportGenerationError(
+                    "build-80 multi-mesh skeletal subset requires the mesh "
+                    "group and skeleton parent to share one transform space"
+                )
+            skinning = replace(
+                skinning,
+                armature_name=_safe_name(
+                    skeletal_group.GetName(), "Armature"
+                ),
+                armature_translation=armature_transform[0],
+                armature_rotation=armature_transform[1],
+                armature_scale=armature_transform[2],
+            )
+            parent_path = str(skeletal_group.GetPath())
+            if skeletal_parent_path is None:
+                skeletal_parent_path = parent_path
+            elif skeletal_parent_path != parent_path:
+                raise ImportGenerationError(
+                    "build-80 multi-mesh skeletal subset requires all meshes "
+                    "to share one parent"
+                )
+            comparable = replace(
+                skinning,
+                joint_indices=(),
+                joint_weights=(),
+                influence_count_per_vertex=0,
+            )
+            if canonical_skinning is None:
+                canonical_skinning = comparable
+            elif canonical_skinning != comparable:
+                raise ImportGenerationError(
+                    "build-80 multi-mesh skeletal subset requires one shared "
+                    "skeleton, bind contract, and animation"
+                )
         mesh_schema = UsdGeom.Mesh(mesh_prim)
         if mesh_schema.GetPointsAttr().GetNumTimeSamples():
             raise ImportGenerationError(
@@ -1348,7 +1558,10 @@ def load_static_asset(
         st = UsdGeom.PrimvarsAPI(mesh_prim).GetPrimvar("st")
         if st and st.HasValue():
             uvs = _face_varying_values(
-                st.ComputeFlattened() or (),
+                st.ComputeFlattened(
+                    Usd.TimeCode(stage.GetStartTimeCode())
+                )
+                or (),
                 str(st.GetInterpolation()),
                 face_counts,
                 face_indices,
@@ -1357,7 +1570,9 @@ def load_static_asset(
             uvs = tuple((0.0, 0.0) for _ in face_indices)
 
         parent = mesh_prim.GetParent()
-        if parent == root_prim:
+        if skinning is not None:
+            model_prim = parent if wrapped_skeletal_mesh else mesh_prim
+        elif parent == root_prim:
             model_prim = mesh_prim
         elif (
             parent.GetParent() == root_prim
@@ -1370,11 +1585,12 @@ def load_static_asset(
                 "build-80 multi-mesh subset requires each mesh directly below "
                 "defaultPrim or inside a single-mesh object Xform"
             )
-        for op in UsdGeom.Xformable(model_prim).GetOrderedXformOps():
-            if op.GetAttr().GetNumTimeSamples():
-                raise ImportGenerationError(
-                    "build-80 multi-mesh subset does not yet support animation"
-                )
+        if skinning is None:
+            for op in UsdGeom.Xformable(model_prim).GetOrderedXformOps():
+                if op.GetAttr().GetNumTimeSamples():
+                    raise ImportGenerationError(
+                        "build-80 multi-mesh subset does not yet support animation"
+                    )
         mesh_translation, mesh_rotation, mesh_scale = _local_transform(model_prim)
 
         direct_material = UsdShade.MaterialBindingAPI(
@@ -1481,6 +1697,7 @@ def load_static_asset(
                     material_profile=assigned_material.profile,
                     base_color_texture=assigned_material.base_color_texture,
                     roughness_texture=assigned_material.roughness_texture,
+                    skinning=skinning,
                     material_key=assigned_material.key,
                     source_prim_path=str(mesh_prim.GetPath()),
                 )
@@ -1606,7 +1823,7 @@ def _mesh_descriptor_record(mesh: StaticMesh, ids: _Ids, buffers: dict[str, str]
 skinning_data: {{
 \t__uuid: "{ids("mesh_descriptor.skinning")}"
 \tvertex_count: {len(mesh.points)}
-\tinfluence_count_per_vertex: 4
+\tinfluence_count_per_vertex: {mesh.skinning.influence_count_per_vertex}
 \tindices: "{buffers["joint_indices"]}"
 \tweights: "{buffers["joint_weights"]}"
 \tbind_transform: {{
@@ -1721,9 +1938,11 @@ def _geometry_block(
 \t\t}}'''
     skin_channels = ""
     if mesh.skinning is not None:
+        influence_count = mesh.skinning.influence_count_per_vertex
+        influence_stride = influence_count * 4
         indices_offset = corner_count * 12
-        weights_offset = indices_offset + corner_count * 16
-        uv_offset = weights_offset + corner_count * 16
+        weights_offset = indices_offset + corner_count * influence_stride
+        uv_offset = weights_offset + corner_count * influence_stride
         normal_offset = uv_offset + corner_count * 8
         material_offset = normal_offset + corner_count * 12
         skin_channels = f'''
@@ -1733,8 +1952,8 @@ def _geometry_block(
 \t\t\tcount: {corner_count}
 \t\t\tbuffer: "{vertex_buffer}"
 \t\t\toffset: {indices_offset}
-\t\t\tstride: 16
-\t\t\tformat: 352321824
+\t\t\tstride: {influence_stride}
+\t\t\tformat: {352321632 + (influence_count - 1) * 64}
 \t\t\tprimvar_name: "skel:jointIndices"
 \t\t}}
 \t\t{{
@@ -1743,8 +1962,8 @@ def _geometry_block(
 \t\t\tcount: {corner_count}
 \t\t\tbuffer: "{vertex_buffer}"
 \t\t\toffset: {weights_offset}
-\t\t\tstride: 16
-\t\t\tformat: 285212960
+\t\t\tstride: {influence_stride}
+\t\t\tformat: {285212768 + (influence_count - 1) * 64}
 \t\t\tprimvar_name: "skel:jointWeights"
 \t\t}}'''
         uv_offset_value = uv_offset
@@ -2110,6 +2329,87 @@ skeletons: [
 __asset_uuid: "{ids("merged.asset")}"'''
 
 
+def _multi_merged_mesh_resource_record(
+    asset: StaticAsset,
+    ids: _Ids,
+    mesh_ids: dict[str, _Ids],
+) -> str:
+    """Render RCP's measured multi-model skinned optimizer resource."""
+
+    first_skinning = asset.meshes[0].skinning
+    if first_skinning is None:
+        raise ImportGenerationError(
+            "multi-mesh merged resource requires skinning data"
+        )
+    instances = []
+    models = []
+    for mesh_index, mesh in enumerate(asset.meshes):
+        skinning = mesh.skinning
+        if skinning is None:
+            raise ImportGenerationError(
+                "multi-mesh merged resource cannot mix skinned meshes"
+            )
+        mesh_scope = mesh_ids[mesh.mesh_name]
+        label = f"merged.mesh.{mesh_index}"
+        instances.append(
+            f'''\t{{
+\t\t__uuid: "{ids(f"{label}.instance")}"
+\t\tmodel: "{ids(f"{label}.model")}"
+\t\ttransform: {{
+\t\t\t__uuid: "{ids(f"{label}.transform")}"
+\t\t\tposition: {{
+\t\t\t\t__uuid: "{ids(f"{label}.position")}"
+\t\t\t}}
+\t\t\trotation: {{
+\t\t\t\t__uuid: "{ids(f"{label}.rotation")}"
+\t\t\t}}
+\t\t\tscale: {{
+\t\t\t\t__uuid: "{ids(f"{label}.scale")}"
+\t\t\t}}
+\t\t}}
+\t}}'''
+        )
+        bones = "\n".join(
+            f'''\t\t\t\t{{
+\t\t\t\t\t__uuid: "{ids(f"{label}.bone.{joint_index}")}"'''
+            + (
+                f"\n\t\t\t\t\tbone_idx: {joint_index}"
+                if joint_index
+                else ""
+            )
+            + f'''
+\t\t\t\t\tname: "{joint.name}"
+\t\t\t\t}}'''
+            for joint_index, joint in enumerate(skinning.joints)
+        )
+        models.append(
+            f'''\t{{
+\t\t__uuid: "{ids(f"{label}.model")}"
+\t\tname: "{mesh.mesh_name}"
+\t\tgeometry: "{mesh_scope("geometry")}"
+\t\tskinning_data: {{
+\t\t\t__uuid: "{ids(f"{label}.skinning")}"
+\t\t\tskelton_name: "{skinning.skeleton_path}"
+\t\t\tbones: [
+{bones}
+\t\t\t]
+\t\t}}
+\t}}'''
+        )
+    return f'''__type: "tm_mesh_resource"
+__uuid: "{ids("merged.mesh_resource")}"
+instances: [
+{chr(10).join(instances)}
+]
+models: [
+{chr(10).join(models)}
+]
+skeletons: [
+\t"{ids("skeleton.hierarchy")}"
+]
+__asset_uuid: "{ids("merged.asset")}"'''
+
+
 def _texture_record(
     texture: MaterialTexture,
     ids: _Ids,
@@ -2172,8 +2472,13 @@ def _write_texture_buffer(
     buffer_id = ids(f"texture.{texture.role}.buffer")
     buffer_dir = destination / "textures" / f"{texture.name}.tm_buffers"
     buffer_dir.mkdir(parents=True, exist_ok=True)
+    source_name = _bounded_safe_name(
+        texture.source_path.name,
+        "texture",
+        max_bytes=180,
+    )
     payload_name = (
-        f"{buffer_id}.{_content_hash(data)}.{texture.source_path.name}]"
+        f"{buffer_id}.{_content_hash(data)}.{source_name}]"
     )
     (buffer_dir / payload_name).write_bytes(data)
 
@@ -2900,6 +3205,203 @@ children: [
 \t\t]
 \t\tchildren: [
 {children_text}
+\t\t]
+\t}}
+]
+__asset_uuid: "{ids(f"{prefix}.asset")}"
+__asset_labels: [
+\t"2cbc16a459dc040f"
+]'''
+
+
+def _multi_skeletal_entity_record(
+    asset: StaticAsset,
+    ids: _Ids,
+    mesh_ids: dict[str, _Ids],
+    material_ids: dict[str, _Ids],
+    *,
+    optimized: bool,
+) -> str:
+    """Render the measured shared-skeleton, many-model entity contract."""
+
+    prefix = "optimized" if optimized else "source"
+    first_mesh = asset.meshes[0]
+    skinning = first_mesh.skinning
+    if skinning is None:
+        raise ImportGenerationError(
+            "multi-mesh skeletal entity requires skinning data"
+        )
+    root_transform = _transform_component(
+        ids,
+        f"{prefix}.root_transform",
+        first_mesh,
+        True,
+    )
+    armature_transform = _transform_component_values(
+        ids,
+        f"{prefix}.armature_transform",
+        skinning.armature_translation,
+        skinning.armature_rotation,
+        skinning.armature_scale,
+    )
+    skeleton_transform = _transform_component_values(
+        ids,
+        f"{prefix}.skeleton_transform",
+        (0.0, 0.0, 0.0),
+        (0.0, 0.0, 0.0, 1.0),
+        (1.0, 1.0, 1.0),
+    )
+
+    if optimized:
+        material_bindings = "\n".join(
+            f'''\t\t\t\t\t\t\t\t\t{{
+\t\t\t\t\t\t\t\t\t\t__uuid: "{ids(f"optimized.material_binding.{index}")}"
+\t\t\t\t\t\t\t\t\t\tname: "{mesh.mesh_name}"
+\t\t\t\t\t\t\t\t\t\tmaterial: "{material_ids[mesh.material_key]("material")}"
+\t\t\t\t\t\t\t\t\t}}'''
+            for index, mesh in enumerate(asset.meshes)
+        )
+        model_component = f'''
+\t\t\t\t\t\t\t{{
+\t\t\t\t\t\t\t\t__type: "tm_model_component"
+\t\t\t\t\t\t\t\t__uuid: "{ids("optimized.model_component")}"
+\t\t\t\t\t\t\t\tmesh_resource: {{
+\t\t\t\t\t\t\t\t\t__type: "tm_mesh_resource_reference"
+\t\t\t\t\t\t\t\t\t__uuid: "{ids("optimized.mesh_reference")}"
+\t\t\t\t\t\t\t\t\tmesh_resource: "{ids("merged.mesh_resource")}"
+\t\t\t\t\t\t\t\t}}
+\t\t\t\t\t\t\t\tmaterials: [
+{material_bindings}
+\t\t\t\t\t\t\t\t]
+\t\t\t\t\t\t\t}}'''
+        mesh_children = ""
+    else:
+        model_component = ""
+        rendered_meshes = []
+        for index, mesh in enumerate(asset.meshes):
+            mesh_skinning = mesh.skinning
+            if mesh_skinning is None:
+                raise ImportGenerationError(
+                    "multi-mesh skeletal entity cannot mix skinned meshes"
+                )
+            mesh_scope = mesh_ids[mesh.mesh_name]
+            material_scope = material_ids[mesh.material_key]
+            label = f"source.mesh.{index}"
+            mesh_transform = _transform_component(
+                ids,
+                f"{label}.transform",
+                mesh,
+                False,
+            )
+            bone_names = "\n".join(
+                f'''\t\t\t\t\t\t\t\t\t{{
+\t\t\t\t\t\t\t\t\t\t__uuid: "{ids(f"{label}.bone_name.{joint_index}")}"'''
+                + (
+                    f"\n\t\t\t\t\t\t\t\t\t\tbone_index: {joint_index}"
+                    if joint_index
+                    else ""
+                )
+                + f'''
+\t\t\t\t\t\t\t\t\t\tbone_name: "{joint.name}"
+\t\t\t\t\t\t\t\t\t}}'''
+                for joint_index, joint in enumerate(mesh_skinning.joints)
+            )
+            rendered_meshes.append(
+                f'''\t\t\t\t\t{{
+\t\t\t\t\t\t__uuid: "{ids(f"{label}.entity")}"
+\t\t\t\t\t\tname: "{mesh.mesh_name}"
+\t\t\t\t\t\tcomponents: [
+\t\t\t\t\t\t\t{mesh_transform}
+\t\t\t\t\t\t\t{{
+\t\t\t\t\t\t\t\t__type: "tm_skinning_component"
+\t\t\t\t\t\t\t\t__uuid: "{ids(f"{label}.skinning_component")}"
+\t\t\t\t\t\t\t\tbones: "{ids("source.skinning.bones")}"
+\t\t\t\t\t\t\t\tbone_names: [
+{bone_names}
+\t\t\t\t\t\t\t\t]
+\t\t\t\t\t\t\t\tskeleton_entity: "{ids("source.skeleton")}"
+\t\t\t\t\t\t\t}}
+\t\t\t\t\t\t\t{{
+\t\t\t\t\t\t\t\t__type: "tm_model_component"
+\t\t\t\t\t\t\t\t__uuid: "{ids(f"{label}.model_component")}"
+\t\t\t\t\t\t\t\tmesh_resource: {{
+\t\t\t\t\t\t\t\t\t__type: "tm_mesh_resource_reference"
+\t\t\t\t\t\t\t\t\t__uuid: "{ids(f"{label}.mesh_reference")}"
+\t\t\t\t\t\t\t\t\tmesh_resource: "{mesh_scope("mesh_resource")}"
+\t\t\t\t\t\t\t\t}}
+\t\t\t\t\t\t\t\tmaterials: [
+\t\t\t\t\t\t\t\t\t{{
+\t\t\t\t\t\t\t\t\t\t__uuid: "{ids(f"{label}.material_binding")}"
+\t\t\t\t\t\t\t\t\t\tname: "{mesh.mesh_name}"
+\t\t\t\t\t\t\t\t\t\tmaterial: "{material_scope("material")}"
+\t\t\t\t\t\t\t\t\t}}
+\t\t\t\t\t\t\t\t]
+\t\t\t\t\t\t\t}}
+\t\t\t\t\t\t]
+\t\t\t\t\t}}'''
+            )
+        mesh_children = "\n".join(rendered_meshes)
+
+    skeleton_children = (
+        f"\n{mesh_children}" if mesh_children else ""
+    )
+    return f'''__type: "tm_entity"
+__uuid: "{ids(f"{prefix}.entity")}"
+name: "/"
+components: [
+\t{{
+\t\t__type: "tm_transform_component"
+\t\t__uuid: "{ids(f"{prefix}.scene_transform.component")}"
+\t\tlocal_position_double: {{
+\t\t\t__uuid: "{ids(f"{prefix}.scene_transform.position")}"
+\t\t}}
+\t\tlocal_rotation: {{
+\t\t\t__uuid: "{ids(f"{prefix}.scene_transform.rotation")}"
+\t\t}}
+\t\tlocal_scale: {{
+\t\t\t__uuid: "{ids(f"{prefix}.scene_transform.scale")}"
+\t\t}}
+\t}}
+\t{{
+\t\t__type: "tm_scene_tree_component"
+\t\t__uuid: "{ids(f"{prefix}.scene_tree.component")}"
+\t\tnodes: "{ids(f"{prefix}.scene_tree.nodes")}"
+\t\tnode_names: "{ids(f"{prefix}.scene_tree.names")}"
+\t}}
+]
+children: [
+\t{{
+\t\t__uuid: "{ids(f"{prefix}.root")}"
+\t\tname: "{asset.root_name}"
+\t\tcomponents: [
+\t\t\t{root_transform}
+\t\t\t{{
+\t\t\t\t__type: "tm_animation_library_component"
+\t\t\t\t__uuid: "{ids(f"{prefix}.animation_library_component")}"
+\t\t\t}}
+\t\t]
+\t\tchildren: [
+\t\t\t{{
+\t\t\t\t__uuid: "{ids(f"{prefix}.armature")}"
+\t\t\t\tname: "{skinning.armature_name}"
+\t\t\t\tcomponents: [
+\t\t\t\t\t{armature_transform}
+\t\t\t\t]
+\t\t\t\tchildren: [
+\t\t\t\t\t{{
+\t\t\t\t\t\t__uuid: "{ids(f"{prefix}.skeleton")}"
+\t\t\t\t\t\tname: "{skinning.skeleton_name}"
+\t\t\t\t\t\tcomponents: [
+\t\t\t\t\t\t\t{skeleton_transform}
+\t\t\t\t\t\t\t{{
+\t\t\t\t\t\t\t\t__type: "tm_skeleton_component"
+\t\t\t\t\t\t\t\t__uuid: "{ids(f"{prefix}.skeleton_component")}"
+\t\t\t\t\t\t\t\tskeleton_hierarchy: "{ids("skeleton.hierarchy")}"
+\t\t\t\t\t\t\t}}{model_component}
+\t\t\t\t\t\t]
+\t\t\t\t\t}}{skeleton_children}
+\t\t\t\t]
+\t\t\t}}
 \t\t]
 \t}}
 ]
@@ -3770,6 +4272,228 @@ def _generate_multi_static_import(
     return destination_path
 
 
+def _generate_multi_skeletal_import(
+    source_path: Path,
+    destination_path: Path,
+    asset: StaticAsset,
+) -> Path:
+    """Generate the measured shared-skeleton, many-model package."""
+
+    identity = hashlib.sha256(source_path.read_bytes()).hexdigest()
+    ids = _Ids(f"{RCP_BUILD}|{identity}|{asset.asset_name}")
+    mesh_ids = {
+        mesh.mesh_name: _Ids(
+            f"{RCP_BUILD}|{identity}|{asset.asset_name}|mesh|"
+            f"{mesh.source_prim_path}|{mesh.mesh_name}"
+        )
+        for mesh in asset.meshes
+    }
+    material_meshes: dict[str, StaticMesh] = {}
+    for mesh in asset.meshes:
+        if mesh.skinning is None:
+            raise ImportGenerationError(
+                "multi-mesh skeletal package cannot mix skinned meshes"
+            )
+        material_meshes.setdefault(mesh.material_key, mesh)
+    material_ids = {
+        key: _Ids(
+            f"{RCP_BUILD}|{identity}|{asset.asset_name}|material|{key}"
+        )
+        for key in material_meshes
+    }
+    first_mesh = asset.meshes[0]
+    skeletal = first_mesh.skinning
+    if skeletal is None:
+        raise ImportGenerationError(
+            "multi-mesh skeletal package requires skinning data"
+        )
+
+    destination_path.mkdir(parents=True)
+    try:
+        mesh_buffers = {
+            mesh.mesh_name: _write_mesh_buffers(
+                destination_path,
+                mesh,
+                mesh_ids[mesh.mesh_name],
+            )
+            for mesh in asset.meshes
+        }
+        skeletal_buffers = _write_skeletal_animation_buffers(
+            destination_path,
+            skeletal,
+            ids,
+        )
+        _write_skeletal_scene_tree_buffers(destination_path, skeletal, ids)
+        for key, mesh in material_meshes.items():
+            material_scope = material_ids[key]
+            for texture in (
+                mesh.base_color_texture,
+                mesh.roughness_texture,
+            ):
+                if texture is not None:
+                    _write_texture_buffer(
+                        destination_path,
+                        texture,
+                        material_scope,
+                    )
+
+        root_dir_id = ids("directory.root")
+        records = {
+            f"{asset.asset_name}.tm_entity": _proxy_record(first_mesh, ids),
+            f"__{asset.asset_name}.tm_entity": _multi_skeletal_entity_record(
+                asset,
+                ids,
+                mesh_ids,
+                material_ids,
+                optimized=False,
+            ),
+            (
+                f"__{asset.asset_name}_optimized.tm_entity"
+            ): _multi_skeletal_entity_record(
+                asset,
+                ids,
+                mesh_ids,
+                material_ids,
+                optimized=True,
+            ),
+            "__tm_directory.tm_dir": _directory_record(
+                ids,
+                "directory.root",
+                f"{asset.asset_name}.import",
+                None,
+            ),
+            "settings.tm_usd": _settings_record(
+                first_mesh,
+                ids,
+                os.path.relpath(source_path, destination_path.parent).replace(
+                    os.sep,
+                    "/",
+                ),
+                animation=None,
+                animation_buffers=None,
+                skeletal_buffers=skeletal_buffers,
+            ),
+            "geometry/__tm_directory.tm_dir": _directory_record(
+                ids,
+                "directory.geometry",
+                "geometry",
+                root_dir_id,
+            ),
+            "materials/__tm_directory.tm_dir": _directory_record(
+                ids,
+                "directory.materials",
+                "materials",
+                root_dir_id,
+            ),
+            "mesh_descriptors/__tm_directory.tm_dir": _directory_record(
+                ids,
+                "directory.mesh_descriptors",
+                "mesh_descriptors",
+                root_dir_id,
+            ),
+            "meshes/__tm_directory.tm_dir": _directory_record(
+                ids,
+                "directory.meshes",
+                "meshes",
+                root_dir_id,
+            ),
+            "skeletons/__tm_directory.tm_dir": _directory_record(
+                ids,
+                "directory.skeletons",
+                "skeletons",
+                root_dir_id,
+            ),
+            f"skeletons/{first_mesh.root_name}.tm_skeleton_hierarchy": (
+                _skeleton_hierarchy_record(first_mesh, ids)
+            ),
+            (
+                f"skeletons/{first_mesh.root_name}_skeldef.tm_skeleton_definition"
+            ): _skeleton_definition_record(ids),
+            "animations/__tm_directory.tm_dir": _directory_record(
+                ids,
+                "directory.animations",
+                "animations",
+                root_dir_id,
+            ),
+            f"animations/{skeletal.animation.name}_transform.tm_animation": (
+                _skeletal_armature_transform_clip_record(first_mesh, ids)
+            ),
+            f"animations/{first_mesh.root_name}/__tm_directory.tm_dir": (
+                _directory_record(
+                    ids,
+                    "directory.skeletal_animations",
+                    first_mesh.root_name,
+                    ids("directory.animations"),
+                )
+            ),
+            (
+                f"geometry/{skeletal.skeleton_name}_merged.tm_mesh_resource"
+            ): _multi_merged_mesh_resource_record(asset, ids, mesh_ids),
+        }
+        for mesh in asset.meshes:
+            mesh_scope = mesh_ids[mesh.mesh_name]
+            buffers = mesh_buffers[mesh.mesh_name]
+            records.update(
+                {
+                    f"geometry/{mesh.mesh_name}.tm_geometry": _geometry_record(
+                        mesh,
+                        mesh_scope,
+                        buffers,
+                    ),
+                    (
+                        f"mesh_descriptors/{mesh.mesh_name}.tm_mesh_descriptor"
+                    ): _mesh_descriptor_record(mesh, mesh_scope, buffers),
+                    f"meshes/{mesh.mesh_name}.tm_mesh_resource": (
+                        _mesh_resource_record(mesh, mesh_scope)
+                    ),
+                }
+            )
+        has_textures = False
+        for key, mesh in material_meshes.items():
+            material_scope = material_ids[key]
+            records[f"materials/{mesh.material_name}.tm_material"] = (
+                _material_record(mesh, material_scope)
+            )
+            for texture in (
+                mesh.base_color_texture,
+                mesh.roughness_texture,
+            ):
+                if texture is None:
+                    continue
+                has_textures = True
+                records[f"textures/{texture.name}.tm_texture"] = _texture_record(
+                    texture,
+                    material_scope,
+                    source_path=source_path,
+                )
+        if has_textures:
+            records["textures/__tm_directory.tm_dir"] = _directory_record(
+                ids,
+                "directory.textures",
+                "textures",
+                root_dir_id,
+            )
+        records.update(
+            {
+                (
+                    f"animations/{first_mesh.root_name}/{clip.name}.tm_animation"
+                ): _skeletal_clip_record(clip, first_mesh, ids)
+                for clip in skeletal.animation.clips
+            }
+        )
+
+        for relative_path, text in records.items():
+            output = destination_path / relative_path
+            output.parent.mkdir(parents=True, exist_ok=True)
+            output.write_text(text, encoding="utf-8")
+    except Exception:
+        import shutil
+
+        shutil.rmtree(destination_path, ignore_errors=True)
+        raise
+    return destination_path
+
+
 def generate_static_import(
     source: str | Path,
     destination: str | Path,
@@ -3789,6 +4513,12 @@ def generate_static_import(
 
     asset = load_static_asset(source_path, asset_name=asset_name)
     if len(asset.meshes) > 1:
+        if all(mesh.skinning is not None for mesh in asset.meshes):
+            return _generate_multi_skeletal_import(
+                source_path,
+                destination_path,
+                asset,
+            )
         return _generate_multi_static_import(source_path, destination_path, asset)
     mesh = asset.meshes[0]
     animation = (

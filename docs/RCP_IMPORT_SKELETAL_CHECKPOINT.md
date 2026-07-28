@@ -276,21 +276,24 @@ an exporter.
    `Walking`, and `walking_2`.
 3. Add a second controlled skeletal fixture with materially different joint
    hierarchy, topology, animation length, and clip partitioning while retaining
-   the explicit build-80 profile. The local `Robot` and `RobotUnlit` candidates
-   each contain 12 meshes and correctly fail closed because the current profile
-   requires exactly one.
+   the explicit build-80 profile. The generator now has a deterministic
+   multi-mesh scaffold measured from the local 12-mesh `Robot`/`RobotUnlit`
+   records. The real `Robot.blend` background bake/CLI path now generates a
+   structurally valid 12-mesh/12-material/12-texture package, but that scaffold
+   still needs its own committed acceptance manifest and RCP acceptance.
 4. Repeat clean load, save/reopen, two reimports, Sequence Editor, `realitytool`,
    and public RealityKit bounds/component/animation checks for that fixture.
 5. Only after both fixtures pass may the skeletal subset be described as a
-   staging writer. Multi-mesh support requires a separately measured RCP
-   contract; it must not be inferred from the single-mesh corpus.
+   staging writer. The multi-mesh contract must remain tied to the separately
+   measured Robot optimizer/source records rather than inferred from the
+   single-mesh corpus.
 
 ## Restart and product boundary
 
 The intended product remains a full `.import` generator, but implementation
 must remain a set of explicit, build-pinned profiles. The current skeletal
 profile must fail closed unless all measured preconditions hold: exact build,
-joint ordering, four vertex influences, supported interpolation, identity
+joint ordering, one to four vertex influences, supported interpolation, identity
 geometry bind, integer sample range, and known animation layout.
 
 Hierarchy rest transforms and inverse-bind matrices are now quantized to
