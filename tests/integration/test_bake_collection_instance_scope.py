@@ -108,7 +108,11 @@ def fake_bake(_context, _settings, objects, _output, _diag, **_kwargs):
     })
     if fail_bake[0]:
         raise RuntimeError("intentional bake failure")
-    return SimpleNamespace()
+    # The real BakeResult, not a SimpleNamespace: this double only overrides
+    # *which objects* get baked, so it must satisfy every attribute the command
+    # reads afterwards. A bare namespace silently drifts as the command grows
+    # new consumers (it did - bake_export now iterates result.baked_images).
+    return bake_textures.BakeResult()
 
 
 def fake_export(context, _settings, _filepath, _diag, **_kwargs):
@@ -117,8 +121,17 @@ def fake_export(context, _settings, _filepath, _diag, **_kwargs):
         "prototype_linked": in_scene(prototype),
         "parent_linked": in_scene(parent),
     })
-    temp = scratch / "native.usdc"
-    temp.write_text("#usda 1.0\n")
+    # The real exporter writes the root layer inside the staging directory it
+    # is handed, and the bake-output cleanup that follows requires exactly
+    # that. Writing to `scratch` instead makes the command fail with
+    # "bake texture cleanup requires the USD layer inside its owned staging
+    # directory" - a defect in this double, not in the code under test.
+    staging = Path(_kwargs["staging_dir"])
+    # .usda, not .usdc: the content below is ASCII USD, and downstream stages
+    # really open this layer. A crate extension on ASCII bytes fails with
+    # "File too small to contain bootstrap structure".
+    temp = staging / "native.usda"
+    temp.write_text('#usda 1.0\n(\n    defaultPrim = "Root"\n)\n\ndef Xform "Root"\n{\n}\n')
     return str(temp)
 
 
