@@ -487,6 +487,89 @@ def Xform "root"
     return source
 
 
+def _skinned_multi_material_source(
+    tmp_path: Path,
+    *,
+    single_source_mesh: bool = False,
+    overlap: bool = False,
+) -> Path:
+    """Extend the measured skeletal fixture with two face materials on Left."""
+
+    source = _multi_skeletal_source(tmp_path)
+    text = source.read_text(encoding="utf-8")
+    text = text.replace(
+        "                int[] faceVertexCounts = [3]\n"
+        "                int[] faceVertexIndices = [0, 1, 2]\n"
+        "                point3f[] points = [(0, 0, 0), (1, 0, 0), (0, 1, 0)]",
+        "                int[] faceVertexCounts = [3, 3]\n"
+        "                int[] faceVertexIndices = [0, 1, 2, 1, 3, 2]\n"
+        "                point3f[] points = [(0, 0, 0), (1, 0, 0), "
+        "(0, 1, 0), (1, 1, 0)]",
+        1,
+    )
+    text = text.replace(
+        "                int[] primvars:skel:jointIndices = "
+        "[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0] (",
+        "                int[] primvars:skel:jointIndices = "
+        "[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0] (",
+        1,
+    )
+    text = text.replace(
+        "                float[] primvars:skel:jointWeights = "
+        "[1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0] (",
+        "                float[] primvars:skel:jointWeights = "
+        "[1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0] (",
+        1,
+    )
+    overlapping_subset = (
+        """
+                def GeomSubset "OverlappingRedFaces" (
+                    prepend apiSchemas = ["MaterialBindingAPI"]
+                )
+                {
+                    uniform token elementType = "face"
+                    uniform token familyName = "materialBind"
+                    int[] indices = [1]
+                    rel material:binding = </root/Materials/Red>
+                }
+"""
+        if overlap
+        else ""
+    )
+    text = text.replace(
+        "                rel material:binding = </root/Materials/Red>\n"
+        "                rel skel:skeleton = </root/Rig/Skeleton>\n"
+        "            }\n"
+        '            def Mesh "Right" (',
+        "                rel material:binding = </root/Materials/Red>\n"
+        "                rel skel:skeleton = </root/Rig/Skeleton>\n"
+        """
+                def GeomSubset "BlueFaces" (
+                    prepend apiSchemas = ["MaterialBindingAPI"]
+                )
+                {
+                    uniform token elementType = "face"
+                    uniform token familyName = "materialBind"
+                    int[] indices = [1]
+                    rel material:binding = </root/Materials/Blue>
+                }
+"""
+        + overlapping_subset
+        + "            }\n"
+        + '            def Mesh "Right" (',
+        1,
+    )
+    if single_source_mesh:
+        text = text.replace(
+            '            def Mesh "Right" (\n',
+            '            def Mesh "Right" (\n'
+            "                active = false\n",
+            1,
+        )
+    source.write_text(text, encoding="utf-8")
+    return source
+
+
 def test_generate_static_import_passes_structural_contract(tmp_path: Path) -> None:
     source = _source(tmp_path)
     destination = tmp_path / "Cube.import"
@@ -685,6 +768,70 @@ def test_generate_multi_skeletal_import_authors_shared_skeleton_and_materials(
     ).read_text()
     assert "influence_count_per_vertex: 4" in left_descriptor
     assert "influence_count_per_vertex: 3" in right_descriptor
+
+
+@pytest.mark.parametrize("single_source_mesh", [False, True])
+def test_generate_skeletal_material_subsets_split_faces_and_keep_skinning(
+    tmp_path: Path,
+    single_source_mesh: bool,
+) -> None:
+    source = _skinned_multi_material_source(
+        tmp_path,
+        single_source_mesh=single_source_mesh,
+    )
+
+    asset = load_static_asset(source)
+
+    expected_meshes = 2 if single_source_mesh else 3
+    assert len(asset.meshes) == expected_meshes
+    assert {mesh.material_name for mesh in asset.meshes} == {"Red", "Blue"}
+    left_partitions = [
+        mesh for mesh in asset.meshes if mesh.source_prim_path.endswith("/Left")
+    ]
+    assert {mesh.material_name for mesh in left_partitions} == {"Red", "Blue"}
+    assert all(
+        mesh.mesh_name.endswith(f"_{mesh.material_name}")
+        for mesh in left_partitions
+    )
+    assert all(mesh.face_counts == (3,) for mesh in left_partitions)
+    assert sum(len(mesh.face_indices) for mesh in left_partitions) == 6
+    assert all(mesh.skinning is not None for mesh in asset.meshes)
+    assert all(len(mesh.skinning.joint_indices) == 4 for mesh in left_partitions)
+
+    destination = generate_static_import(
+        source,
+        tmp_path / "SkinnedMaterials.import",
+    )
+    report = build_report(
+        inspect_import(destination),
+        rcp_build="80.0.1.500.1",
+    )
+    assert report["record_types"]["tm_geometry"] == expected_meshes
+    assert report["record_types"]["tm_mesh_descriptor"] == expected_meshes
+    assert report["record_types"]["tm_mesh_resource"] == expected_meshes + 1
+    assert report["record_types"]["tm_material"] == 2
+    assert report["counts"]["derived_or_unknown_hashed_buffers"] == 0
+    source_entity = (
+        destination / "__TwoSkinnedMeshes.tm_entity"
+    ).read_text()
+    optimized_entity = (
+        destination / "__TwoSkinnedMeshes_optimized.tm_entity"
+    ).read_text()
+    assert source_entity.count('__type: "tm_skinning_component"') == expected_meshes
+    assert source_entity.count('__type: "tm_model_component"') == expected_meshes
+    assert optimized_entity.count('__type: "tm_model_component"') == 1
+
+
+def test_generate_skeletal_material_subsets_reject_overlap(
+    tmp_path: Path,
+) -> None:
+    source = _skinned_multi_material_source(tmp_path, overlap=True)
+    destination = tmp_path / "OverlappingSkinnedMaterials.import"
+
+    with pytest.raises(ImportGenerationError, match="overlapping material subsets"):
+        generate_static_import(source, destination)
+
+    assert not destination.exists()
 
 
 def test_generate_multi_skeletal_import_is_deterministic(tmp_path: Path) -> None:

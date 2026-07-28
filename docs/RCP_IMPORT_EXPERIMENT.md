@@ -140,14 +140,18 @@ The experimental skeletal extension accepts one or more skinned meshes when
 every mesh belongs to the same common rig group (optionally through Blender's
 single-mesh object Xform wrapper), inherited skeleton, joint/rest/bind
 contract, and animation. Each mesh may have its own material and one to four
-vertex-interpolated joint influences. The writer emits one measured geometry,
-descriptor, and source model/skinning component per mesh, plus the measured
-optimizer resource containing multiple skinned models that reference those
-geometries and the shared skeleton. Intermediate rig transforms are flattened
-relative to the retained default prim. Mixed skinned/unskinned sets, multiple
-rig groups, multiple skeletons or animations, reset transform stacks,
-non-identity geometry binds, and face-material subsets on a skinned mesh fail
-closed.
+vertex-interpolated joint influences. Face-material subsets are partitioned
+into one generated skinned mesh resource per material. Each partition keeps
+the source vertex and skin-weight tables and selects only the faces, UVs, and
+normals assigned to that material; this reuses RCP's measured multi-model
+skinned optimizer contract instead of inventing a private material-index
+buffer. The writer emits one measured geometry, descriptor, and source
+model/skinning component per partition, plus the measured optimizer resource
+containing multiple skinned models that reference those geometries and the
+shared skeleton. Intermediate rig transforms are flattened relative to the
+retained default prim. Mixed skinned/unskinned sets, multiple rig groups,
+multiple skeletons or animations, reset transform stacks, and non-identity
+geometry binds fail closed.
 
 A synthetic two-mesh/two-material fixture passes deterministic structural
 inspection with two geometry records, two descriptors, three mesh resources
@@ -168,6 +172,20 @@ directory and independent baked image payloads. Running the generator twice
 against one fixed staged USDA and texture set was byte-for-byte deterministic.
 Generator determinism and whole-bake reproducibility must therefore remain
 separate acceptance claims.
+
+A second disposable Robot run used
+`tests/fixtures/rcp_import/create_skinned_multimaterial_fixture.py` to assign
+two material slots to alternating faces of the skinned body mesh before the
+same 32-pixel `UNLIT_ALBEDO` bake. The generated package contained 13
+geometries, descriptors, materials, textures, and source model/skinning
+components for the 12 Blender mesh objects, plus one 13-model optimizer mesh
+resource. Structural inspection found 83 records, 140 content-hashed buffers,
+and zero derived or unknown hashed buffers. Its staged USDA passed Apple USD
+Tools 0.25.11 `usdchecker --arkit --strict` and Xcode 27 `realitytool`
+compilation. Public RealityKit 27 loaded the compiled artifact with 13
+`ShaderGraphMaterial` instances, the `Animation` library key,
+`MeshDeformerComponent`, `SkeletalPosesComponent`, and the same finite,
+nonempty Robot bounds as the one-material-per-source-mesh baseline.
 
 The Robot run also established three Blender-specific compatibility rules:
 time-sampled UV index primvars are evaluated at the stage start time; individual

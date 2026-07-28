@@ -1366,7 +1366,11 @@ def load_static_asset(
             "build-80 multi-mesh skeletal subset cannot mix skinned and "
             "unskinned meshes"
         )
-    multi_skeletal = len(mesh_prims) > 1 and all(skinned_flags)
+    # The generic asset path is also used when one skinned USD mesh is split
+    # into several one-material RCP mesh resources. Classify skinning from the
+    # source prims rather than the number of generated resources so those
+    # partitions retain the measured shared-skeleton contract.
+    skeletal_asset = all(skinned_flags)
 
     has_material_subsets = any(
         child.GetTypeName() == "GeomSubset"
@@ -1380,11 +1384,6 @@ def load_static_asset(
         for mesh_prim in mesh_prims
         for child in mesh_prim.GetChildren()
     )
-    if multi_skeletal and has_material_subsets:
-        raise ImportGenerationError(
-            "build-80 multi-mesh skeletal subset does not support face "
-            "material subsets"
-        )
     if len(mesh_prims) == 1 and not has_material_subsets:
         mesh = load_static_mesh(source_path, asset_name=asset_name)
         return StaticAsset(
@@ -1394,7 +1393,7 @@ def load_static_asset(
         )
 
     resolved_asset_name = _safe_name(asset_name or source_path.stem, "Asset")
-    if not multi_skeletal:
+    if not skeletal_asset:
         for op in UsdGeom.Xformable(root_prim).GetOrderedXformOps():
             if op.GetAttr().GetNumTimeSamples():
                 raise ImportGenerationError(
@@ -1459,7 +1458,7 @@ def load_static_asset(
     for mesh_prim in mesh_prims:
         mesh_parent = mesh_prim.GetParent()
         wrapped_skeletal_mesh = bool(
-            multi_skeletal
+            skeletal_asset
             and mesh_parent.IsA(UsdGeom.Xform)
             and tuple(mesh_parent.GetChildren()) == (mesh_prim,)
         )
@@ -1468,7 +1467,7 @@ def load_static_asset(
         )
         skinning = (
             _load_skinning(stage, mesh_prim, asset_name=resolved_asset_name)
-            if multi_skeletal
+            if skeletal_asset
             else None
         )
         if skinning is not None:
