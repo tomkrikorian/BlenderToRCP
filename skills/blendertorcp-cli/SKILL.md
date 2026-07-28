@@ -171,7 +171,7 @@ preserves Blender Action names in RCP.
 # Read all settings
 blendertorcp settings get <file.blend>
 
-# Read a specific group: general, objects, geometry, rigging, texture, materials, bake, diagnostics, or all
+# Read a specific group: general, geometry, rigging, texture, materials, bake, diagnostics, or all
 blendertorcp settings get <file.blend> --group texture
 blendertorcp settings get <file.blend> --group bake
 blendertorcp settings get <file.blend> --group materials
@@ -179,13 +179,12 @@ blendertorcp settings get <file.blend> --group materials
 # Read specific keys
 blendertorcp settings get <file.blend> --keys export_format bake_resolution
 
-# Modify settings
-blendertorcp settings set <file.blend> export_format=USDZ
-blendertorcp settings set <file.blend> export_texture_settings_enabled=true bake_resolution=4096
-blendertorcp settings set <file.blend> diagnostics_enabled=true
-
-# Modify and save the .blend
+# Modify settings. --save is REQUIRED to change the file: without it the
+# values are applied to the short-lived background Blender worker and are
+# discarded when it exits (the result reports "saved": false and warns).
 blendertorcp settings set <file.blend> export_format=USDZ --save
+blendertorcp settings set <file.blend> export_texture_settings_enabled=true bake_resolution=4096 --save
+blendertorcp settings set <file.blend> diagnostics_enabled=true --save
 
 # Validate without applying
 blendertorcp settings set <file.blend> export_format=FOO --dry-run

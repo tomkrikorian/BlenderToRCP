@@ -12,6 +12,26 @@ from ._settings_common import (
 from ..errors import CommandError
 
 
+def _ensure_settings_schema(settings) -> None:
+    """Bring the scene settings profile to the current schema before writing.
+
+    The RNA update callback runs the profile migrator, which treats a
+    PropertyGroup holding saved keys with no current schema stamp as legacy
+    state and resets it. On a pristine .blend the *first* assignment is what
+    creates that saved key, so without stamping first the migrator discards it
+    - and everything applied alongside it - while the command still reports the
+    write as updated and saved.
+    """
+    try:
+        from ... import prefs as addon_prefs
+    except ImportError:
+        # Non-Blender test doubles import this module without bpy present.
+        # They have no RNA update callback, so there is no migrator to outrun.
+        return
+
+    addon_prefs.ensure_current_export_settings_scene_profile(settings)
+
+
 def handle(args: dict) -> dict:
     settings_dict = args.get("settings", {})
     save = args.get("save", False)
@@ -70,6 +90,10 @@ def handle(args: dict) -> dict:
             "would_update": [update.key for update in to_apply],
         }
 
+    # Only past the --dry-run gate: a validation-only run must not mutate the
+    # scene, and stamping the schema is a write.
+    _ensure_settings_schema(settings)
+
     assignment_errors = apply_setting_updates_transactionally(settings, to_apply)
     if assignment_errors:
         raise CommandError(
@@ -80,10 +104,35 @@ def handle(args: dict) -> dict:
     updated = [update.key for update in to_apply]
 
     saved = False
+    warnings = []
     if save:
         import bpy
         if bpy.data.filepath:
-            bpy.ops.wm.save_mainfile()
-            saved = True
+            status = bpy.ops.wm.save_mainfile()
+            saved = 'FINISHED' in status
+            if not saved:
+                raise CommandError(
+                    "Settings were applied but the .blend could not be saved.",
+                    code="SETTINGS_SAVE_FAILED",
+                    details={"status": sorted(status), "updated": updated},
+                )
+        else:
+            raise CommandError(
+                "Cannot save: the .blend has no filepath.",
+                code="SETTINGS_SAVE_FAILED",
+                details={"updated": updated},
+            )
+    else:
+        # Every command runs in a short-lived `blender --background` worker that
+        # exits immediately after this returns. Without --save the writes above
+        # die with that process, so reporting them as "updated" alone reads as
+        # success for a change that never reached the file.
+        warnings.append(
+            "Settings were applied to a temporary Blender session and NOT "
+            "written to the .blend. Re-run with --save to persist them."
+        )
 
-    return {"updated": updated, "saved": saved}
+    result = {"updated": updated, "saved": saved}
+    if warnings:
+        result["warnings"] = warnings
+    return result

@@ -384,8 +384,13 @@ positional setting overrides for `export` and `bake-export`.
 
 **Examples:**
 
+> **`--save` is required to change the file.** Every command runs in a
+> short-lived `blender --background` worker. Without `--save` the values are
+> applied to that worker and discarded when it exits; the result reports
+> `"saved": false` and carries a warning saying so.
+
 ```bash
-blendertorcp settings set scene.blend export_format=USDZ
+blendertorcp settings set scene.blend export_format=USDZ --save
 blendertorcp settings set scene.blend export_texture_settings_enabled=true bake_resolution=4096 bake_image_format=PNG --save
 blendertorcp settings set scene.blend triangulate_meshes=true quad_method=BEAUTY --dry-run
 ```

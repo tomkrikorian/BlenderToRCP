@@ -1,5 +1,9 @@
 """Integration test — blendertorcp settings get/set/list."""
 
+import os
+import subprocess
+from pathlib import Path
+
 import pytest
 
 
@@ -177,3 +181,88 @@ class TestSettingsList:
             "export_cameras",
         ):
             assert key not in defaults
+
+
+class TestSettingsSetPersistence:
+    """settings set must actually reach the .blend.
+
+    Regression: settings_set was the only settings-writing command that did not
+    bring the scene settings profile to the current schema first. The RNA update
+    callback runs the profile migrator, which treats saved keys with no current
+    schema stamp as legacy state and resets them. On a pristine .blend the first
+    assignment is what creates that saved key, so the migrator wiped it while
+    the command still reported {"updated": [...], "saved": true} and exit 0.
+    """
+
+    @staticmethod
+    def _pristine_blend(tmp_path) -> Path:
+        """A .blend saved from factory settings — no settings schema stamp."""
+        blender = os.environ.get("BLENDERTORCP_BLENDER", "blender")
+        target = tmp_path / "pristine.blend"
+        proc = subprocess.run(
+            [
+                blender, "--background", "--factory-startup", "--python-expr",
+                f"import bpy; bpy.ops.wm.save_as_mainfile(filepath={str(target)!r})",
+            ],
+            capture_output=True, text=True, timeout=120,
+        )
+        assert target.exists(), proc.stdout + proc.stderr
+        return target
+
+    def test_save_persists_every_key_including_the_first(self, run_cli, tmp_path):
+        blend = self._pristine_blend(tmp_path)
+
+        result = run_cli(
+            "--json", "settings", "set", str(blend),
+            "export_format=USDZ", "triangulate_meshes=true", "bake_margin=32",
+            "--save",
+        )
+        assert result.ok, result.stderr
+        assert result.json["saved"] is True
+
+        read_back = run_cli(
+            "--json", "settings", "get", str(blend),
+            "--keys", "export_format", "triangulate_meshes", "bake_margin",
+        )
+        assert read_back.ok, read_back.stderr
+        # export_format is the first key applied and the one the migrator ate.
+        assert read_back.json["export_format"] == "USDZ", (
+            "First applied key did not survive; the settings profile migrator "
+            f"reset it. Got {read_back.json}"
+        )
+        assert read_back.json["triangulate_meshes"] is True
+        assert read_back.json["bake_margin"] == 32
+
+    def test_save_persists_a_single_key(self, run_cli, tmp_path):
+        """With one key there is no later write to mask the reset."""
+        blend = self._pristine_blend(tmp_path)
+
+        result = run_cli(
+            "--json", "settings", "set", str(blend), "export_format=USDZ", "--save"
+        )
+        assert result.ok, result.stderr
+
+        read_back = run_cli(
+            "--json", "settings", "get", str(blend), "--keys", "export_format"
+        )
+        assert read_back.ok, read_back.stderr
+        assert read_back.json["export_format"] == "USDZ"
+
+    def test_without_save_warns_that_nothing_was_written(self, run_cli, tmp_path):
+        """The no-save form is a no-op; it must not read as a successful write."""
+        blend = self._pristine_blend(tmp_path)
+
+        result = run_cli("--json", "settings", "set", str(blend), "export_format=USDZ")
+        assert result.ok, result.stderr
+        assert result.json["saved"] is False
+        assert result.json.get("warnings"), (
+            "settings set without --save discards the change when the worker "
+            "exits; the result must say so"
+        )
+
+        read_back = run_cli(
+            "--json", "settings", "get", str(blend), "--keys", "export_format"
+        )
+        assert read_back.json["export_format"] == "USDA", (
+            "value unexpectedly persisted without --save"
+        )
