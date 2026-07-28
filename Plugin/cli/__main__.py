@@ -488,10 +488,17 @@ def build_parser() -> argparse.ArgumentParser:
     p.set_defaults(func=cmd_export)
 
     # --- bake-export ---
-    p = subs.add_parser("bake-export", help="Bake textures and export scene")
+    p = subs.add_parser(
+        "bake-export",
+        help="Bake textures and export scene to USD/USDZ or experimental RCP .import",
+    )
     p.add_argument("blend_file", help="Path to .blend file")
     p.add_argument("-o", "--output", required=True, help="Output file path")
-    p.add_argument("--format", choices=["USDA", "USDC", "USDZ"], help="Export format")
+    p.add_argument(
+        "--format",
+        choices=["USDA", "USDC", "USDZ", "RCP_IMPORT"],
+        help="Export format",
+    )
     p.add_argument("--bake-mode", choices=["UNLIT_ALBEDO", "LIT_ALBEDO", "LIT_IBL"], help="Bake mode: LIT_IBL (Lighting & Shadows, default), UNLIT_ALBEDO (Material Color Only - Unlit), or LIT_ALBEDO (Material Color Only - Lit PBR)")
     p.add_argument("--resolution", help="Bake/export texture resolution (ORIGINAL, 512, 1024, 2048, 4096, or custom int)")
     p.add_argument("--image-format", choices=["ORIGINAL", "AVIF", "PNG"], help="Baked/exported texture format")

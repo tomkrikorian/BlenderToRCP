@@ -420,6 +420,18 @@ def main() -> int:
     export_path = payload.get("export_path")
     if export_path:
         scene_settings.filepath = export_path
+    requested_format = str(
+        getattr(scene_settings, "export_format", "USDZ") or "USDZ"
+    ).upper()
+    rcp_import_export = requested_format == "RCP_IMPORT"
+    usd_export_path = (
+        str(Path(export_path).with_suffix(".usda"))
+        if rcp_import_export and export_path
+        else export_path
+    )
+    if rcp_import_export:
+        # The private package is generated from the post-processed USDA.
+        scene_settings.export_format = "USDA"
 
     if payload.get("selected_only"):
         _select_objects(payload.get("selection") or [])
@@ -468,7 +480,7 @@ def main() -> int:
         diag.set_export_context(
             command="background_bake_export",
             resolved_output_path=payload.get("export_path"),
-            export_format=getattr(scene_settings, "export_format", None),
+            export_format=requested_format,
             selected_only=bool(payload.get("selected_only")),
             blend_file=source_blend_file,
             source_blend_file=source_blend_file,
@@ -625,6 +637,12 @@ def main() -> int:
         }
 
     try:
+        if rcp_import_export and Path(export_path).exists():
+            _defer_terminal_status(
+                "error",
+                f"Refusing to overwrite existing .import directory: {export_path}",
+            )
+            return 1
         bake_ops._ensure_object_mode(bpy.context)
         bake_ops._set_render_engine(bpy.context.scene, 'CYCLES')
         animation_export._link_processing_objects_for_bake(
@@ -636,7 +654,9 @@ def main() -> int:
         # Allocate one unique staging attempt before baking. The exact same
         # directory is passed to the native export below so it preserves the
         # freshly baked textures without sharing state with another attempt.
-        staging_dir = blender_usd_export.create_export_staging_dir(export_path, diag)
+        staging_dir = blender_usd_export.create_export_staging_dir(
+            usd_export_path, diag
+        )
         texture_dir = staging_dir / "textures"
 
         def _set_running_stage(progress: float, message: str) -> None:
@@ -675,7 +695,7 @@ def main() -> int:
         temp_usd_path = blender_usd_export.export_blender_scene(
             bpy.context,
             scene_settings,
-            export_path,
+            usd_export_path,
             diag,
             reset_staging=False,
             staging_dir=staging_dir,
@@ -703,7 +723,7 @@ def main() -> int:
             )
             return 1
 
-        if scene_settings.export_format == "USDZ":
+        if requested_format == "USDZ":
             _set_running_stage(0.85, "Packaging USDZ")
             pack_usdz.create_usdz(
                 temp_usd_path,
@@ -711,6 +731,22 @@ def main() -> int:
                 scene_settings,
                 bpy.context,
                 diag
+            )
+        elif rcp_import_export:
+            _set_running_stage(0.86, "Publishing USDA source")
+            if temp_usd_path != usd_export_path:
+                blender_usd_export.publish_unpacked_export(
+                    temp_usd_path, usd_export_path, diag
+                )
+            _set_running_stage(0.92, "Generating RCP import")
+            rcp_import_generator = _import_package_module(
+                "export.rcp_import_generator"
+            )
+            rcp_import_generator.generate_static_import(
+                usd_export_path, export_path
+            )
+            diag.add_generated_file(
+                "rcp_import", export_path, source=usd_export_path
             )
         else:
             _set_running_stage(0.9, "Publishing USD export")
@@ -781,7 +817,7 @@ def main() -> int:
         if cleanup_staging_dir is not None:
             try:
                 blender_usd_export.remove_export_staging_dir(
-                    export_path,
+                    usd_export_path,
                     diag,
                     staging_dir=cleanup_staging_dir,
                 )

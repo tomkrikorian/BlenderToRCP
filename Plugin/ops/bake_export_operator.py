@@ -93,7 +93,7 @@ class BLENDERTORCP_OT_bake_export_background(Operator, ExportHelper):
 
     filename_ext = ".usdz"
     filter_glob: StringProperty(
-        default="*.usdz;*.usda;*.usdc",
+        default="*.usdz;*.usda;*.usdc;*.import",
         options={'HIDDEN'}
     )
     apply_ui_profile: BoolProperty(

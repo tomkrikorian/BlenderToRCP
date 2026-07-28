@@ -203,6 +203,19 @@ class TestBakeExportCommand:
         args = parser.parse_args(["bake-export", "scene.blend", "-o", "out.usdz", "--bake-mode", "LIT_IBL"])
         assert args.bake_mode == "LIT_IBL"
 
+    def test_rcp_import_format(self, parser):
+        args = parser.parse_args(
+            [
+                "bake-export",
+                "scene.blend",
+                "-o",
+                "out.import",
+                "--format",
+                "RCP_IMPORT",
+            ]
+        )
+        assert args.format == "RCP_IMPORT"
+
     def test_resolution(self, parser):
         args = parser.parse_args(["bake-export", "scene.blend", "-o", "out.usdz", "--resolution", "4096"])
         assert args.resolution == "4096"

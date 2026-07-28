@@ -40,6 +40,15 @@ class ImportGenerationError(RuntimeError):
 
 
 @dataclass(frozen=True)
+class MaterialTexture:
+    name: str
+    source_path: Path
+    source_asset_path: str
+    role: str
+    color_space: str
+
+
+@dataclass(frozen=True)
 class StaticMesh:
     asset_name: str
     root_name: str
@@ -60,6 +69,9 @@ class StaticMesh:
     mesh_translation: tuple[float, float, float]
     mesh_rotation: tuple[float, float, float, float]
     mesh_scale: tuple[float, float, float]
+    material_profile: str = "realitykit_pbr"
+    base_color_texture: MaterialTexture | None = None
+    roughness_texture: MaterialTexture | None = None
     skinning: SkinningData | None = None
 
 
@@ -919,7 +931,100 @@ def load_static_mesh(source: str | Path, *, asset_name: str | None = None) -> St
         ).GetRGB()
     )
     metallic, roughness, opacity = 0.0, 0.5, 1.0
+    material_profile = "realitykit_pbr"
+    base_color_texture = None
+    roughness_texture = None
     if material:
+        custom_data = material.GetPrim().GetCustomData() or {}
+        plugin_data = custom_data.get("BlenderToRCP") or {}
+        authored_profile = str(plugin_data.get("surfaceProfile") or "")
+        if authored_profile:
+            material_profile = authored_profile
+
+        texture_assets: dict[str, tuple[Path, str]] = {}
+        for descendant in Usd.PrimRange(material.GetPrim()):
+            if not descendant.IsA(UsdShade.Shader):
+                continue
+            file_input = UsdShade.Shader(descendant).GetInput("file")
+            asset = file_input.Get() if file_input else None
+            if asset is None:
+                continue
+            asset_path = str(getattr(asset, "path", "") or asset)
+            resolved_path = str(getattr(asset, "resolvedPath", "") or "")
+            if not resolved_path:
+                candidate = (source_path.parent / asset_path).resolve()
+                if candidate.is_file():
+                    resolved_path = str(candidate)
+            if not resolved_path or not Path(resolved_path).is_file():
+                raise ImportGenerationError(
+                    f"material texture cannot be resolved: {asset_path!r}"
+                )
+            texture_assets.setdefault(
+                str(Path(resolved_path).resolve()),
+                (Path(resolved_path).resolve(), asset_path),
+            )
+
+        for resolved_path, asset_path in texture_assets.values():
+            lowered = Path(asset_path).name.lower()
+            if "basecolor" in lowered or "base_color" in lowered:
+                role = "base_color"
+                color_space = "sRGB"
+            elif "roughness" in lowered:
+                role = "roughness"
+                color_space = "raw"
+            elif any(
+                marker in lowered
+                for marker in ("opacity", "normal", "metallic", "occlusion")
+            ):
+                raise ImportGenerationError(
+                    "build-80 texture writer does not yet support the material "
+                    f"role in {Path(asset_path).name!r}"
+                )
+            else:
+                raise ImportGenerationError(
+                    "build-80 texture writer requires a bake channel in the "
+                    f"filename; cannot classify {Path(asset_path).name!r}"
+                )
+            texture = MaterialTexture(
+                name=_safe_name(Path(asset_path).stem, "Texture"),
+                source_path=resolved_path,
+                source_asset_path=asset_path,
+                role=role,
+                color_space=color_space,
+            )
+            if role == "base_color":
+                if (
+                    base_color_texture is not None
+                    and base_color_texture.source_path != texture.source_path
+                ):
+                    raise ImportGenerationError(
+                        "build-80 subset supports one base-color texture per material"
+                    )
+                base_color_texture = texture
+            else:
+                if (
+                    roughness_texture is not None
+                    and roughness_texture.source_path != texture.source_path
+                ):
+                    raise ImportGenerationError(
+                        "build-80 subset supports one roughness texture per material"
+                    )
+                roughness_texture = texture
+
+        if roughness_texture is not None and base_color_texture is None:
+            raise ImportGenerationError(
+                "roughness texture requires a measured base-color texture graph"
+            )
+        if base_color_texture is not None and material_profile not in {
+            "realitykit_unlit",
+            "realitykit_portable",
+            "realitykit_pbr",
+        }:
+            raise ImportGenerationError(
+                "unmeasured textured material profile "
+                f"{material_profile!r} for RCP {RCP_BUILD}"
+            )
+
         surface = material.ComputeSurfaceSource("mtlx")[0] or material.ComputeSurfaceSource()[0]
         if surface:
             shader = UsdShade.Shader(surface)
@@ -1015,6 +1120,9 @@ def load_static_mesh(source: str | Path, *, asset_name: str | None = None) -> St
         mesh_translation=mesh_translation,
         mesh_rotation=mesh_rotation,
         mesh_scale=mesh_scale,
+        material_profile=material_profile,
+        base_color_texture=base_color_texture,
+        roughness_texture=roughness_texture,
         skinning=skinning,
     )
 
@@ -1636,7 +1744,508 @@ skeletons: [
 __asset_uuid: "{ids("merged.asset")}"'''
 
 
+def _texture_record(
+    texture: MaterialTexture,
+    ids: _Ids,
+    *,
+    source_path: Path,
+) -> str:
+    """Render the measured build-80 wrapper around one source image."""
+
+    texture_label = f"texture.{texture.role}"
+    source_filename = (
+        f"{source_path.resolve()}[{texture.source_asset_path}]"
+        .replace("\\", "/")
+        .replace('"', '\\"')
+    )
+    return f'''__type: "tm_texture"
+__uuid: "{ids(texture_label)}"
+source_filename: "{source_filename}"
+source_texture: "{ids(texture_label + ".buffer")}"
+transform: "6b5fd8e4eec2cf5b"
+transform_settings: {{
+\t__uuid: "{ids(texture_label + ".transform_settings")}"
+\t__prototype_type: "tm_creation_graph"
+\t__prototype_uuid: "565f9a46-b719-d76a-7eaa-36e7faaddc5f"
+\tgraph: {{
+\t\t__uuid: "{ids(texture_label + ".transform_graph")}"
+\t\t__prototype_type: "tm_graph"
+\t\t__prototype_uuid: "31ddc72a-62d2-0d6e-83b1-392db7f56278"
+\t\tinterface: {{
+\t\t\t__uuid: "{ids(texture_label + ".transform_interface")}"
+\t\t\t__prototype_type: "tm_graph_interface"
+\t\t\t__prototype_uuid: "fafb8c6f-264f-0609-fc29-68fbe0d040c1"
+\t\t}}
+\t}}
+}}
+color_space: {{
+\t__uuid: "{ids(texture_label + ".color_space")}"
+\tcolor_primary: 1
+\ttransfer_function: {2 if texture.color_space == "sRGB" else 1}
+\tcolor_model: 1
+}}
+__asset_uuid: "{ids(texture_label + ".asset")}"
+__asset_labels: [
+\t"e4bec38d8f73f423"
+]
+__asset_thumbnail: {{
+\t__uuid: "{ids(texture_label + ".thumbnail")}"
+}}'''
+
+
+def _write_texture_buffer(
+    destination: Path,
+    texture: MaterialTexture,
+    ids: _Ids,
+) -> None:
+    """Copy the measured source-image payload without transcoding it."""
+
+    data = texture.source_path.read_bytes()
+    if not data:
+        raise ImportGenerationError(f"material texture is empty: {texture.source_path}")
+    buffer_id = ids(f"texture.{texture.role}.buffer")
+    buffer_dir = destination / "textures" / f"{texture.name}.tm_buffers"
+    buffer_dir.mkdir(parents=True, exist_ok=True)
+    payload_name = (
+        f"{buffer_id}.{_content_hash(data)}.{texture.source_path.name}]"
+    )
+    (buffer_dir / payload_name).write_bytes(data)
+
+
+def _material_node(ids: _Ids, label: str, node_type: str, title: str, x: int) -> str:
+    y_line = "\n\t\t\t\t\ty: 32" if node_type != "tm_output_node" else "\n\t\t\t\t\ty: 112"
+    label_line = f'\n\t\t\t\tlabel: "{title}"' if title else ""
+    x_line = f"\n\t\t\t\t\tx: {x}" if x else ""
+    return f'''{{
+\t\t\t\t__uuid: "{ids("material." + label)}"
+\t\t\t\ttype: "{node_type}"{label_line}
+\t\t\t\tposition: {{
+\t\t\t\t\t__uuid: "{ids("material." + label + ".position")}"{x_line}{y_line}
+\t\t\t\t}}
+\t\t\t}}'''
+
+
+def _material_connection(
+    ids: _Ids,
+    label: str,
+    source: str,
+    target: str,
+    source_connector: str,
+    target_connector: str,
+) -> str:
+    return f'''{{
+\t\t\t\t__uuid: "{ids("material.connection." + label)}"
+\t\t\t\tfrom_node: "{ids("material." + source)}"
+\t\t\t\tto_node: "{ids("material." + target)}"
+\t\t\t\tfrom_connector_hash: "{source_connector}"
+\t\t\t\tto_connector_hash: "{target_connector}"
+\t\t\t}}'''
+
+
+def _material_resource_data(
+    texture: MaterialTexture,
+    ids: _Ids,
+    *,
+    label: str,
+    node: str,
+) -> str:
+    return f'''{{
+\t\t\t\t__uuid: "{ids("material.data." + label)}"
+\t\t\t\tto_node: "{ids("material." + node)}"
+\t\t\t\tto_connector_hash: "63d525adf27fd749"
+\t\t\t\tdata: {{
+\t\t\t\t\t__type: "tm_material_resource"
+\t\t\t\t\t__uuid: "{ids("material.data." + label + ".value")}"
+\t\t\t\t\tname: "{texture.name}"
+\t\t\t\t\tresource: "{ids("texture." + texture.role)}"
+\t\t\t\t\tresource__type: "tm_texture"
+\t\t\t\t}}
+\t\t\t}}'''
+
+
+def _material_string_data(
+    ids: _Ids,
+    *,
+    label: str,
+    node: str,
+    connector: str,
+    value: str,
+) -> str:
+    return f'''{{
+\t\t\t\t__uuid: "{ids("material.data." + label)}"
+\t\t\t\tto_node: "{ids("material." + node)}"
+\t\t\t\tto_connector_hash: "{connector}"
+\t\t\t\tdata: {{
+\t\t\t\t\t__type: "tm_string"
+\t\t\t\t\t__uuid: "{ids("material.data." + label + ".value")}"
+\t\t\t\t\tstring: "{value}"
+\t\t\t\t}}
+\t\t\t}}'''
+
+
+def _material_float_data(
+    ids: _Ids,
+    *,
+    label: str,
+    node: str,
+    connector: str,
+    value: float,
+) -> str:
+    value_line = (
+        f"\n\t\t\t\t\tfloat: {_f(float(value))}" if float(value) != 0.0 else ""
+    )
+    return f'''{{
+\t\t\t\t__uuid: "{ids("material.data." + label)}"
+\t\t\t\tto_node: "{ids("material." + node)}"
+\t\t\t\tto_connector_hash: "{connector}"
+\t\t\t\tdata: {{
+\t\t\t\t\t__type: "tm_float"
+\t\t\t\t\t__uuid: "{ids("material.data." + label + ".value")}"{value_line}
+\t\t\t\t}}
+\t\t\t}}'''
+
+
+def _material_wrap_data(
+    ids: _Ids,
+    *,
+    label: str,
+    node: str,
+    connector: str,
+) -> str:
+    return f'''{{
+\t\t\t\t__uuid: "{ids("material.data." + label)}"
+\t\t\t\tto_node: "{ids("material." + node)}"
+\t\t\t\tto_connector_hash: "{connector}"
+\t\t\t\tdata: {{
+\t\t\t\t\t__type: "sg_enum"
+\t\t\t\t\t__uuid: "{ids("material.data." + label + ".value")}"
+\t\t\t\t\tenum_type: "4ef730b38709ac8e"
+\t\t\t\t\tenum_value: "periodic"
+\t\t\t\t}}
+\t\t\t}}'''
+
+
+def _textured_material_record(mesh: StaticMesh, ids: _Ids) -> str:
+    """Author only texture graphs measured in build-80 RCP fixtures."""
+
+    base = mesh.base_color_texture
+    if base is None:
+        raise ImportGenerationError("textured material requires a base-color texture")
+    unlit = mesh.material_profile == "realitykit_unlit"
+    if unlit and mesh.roughness_texture is not None:
+        raise ImportGenerationError("unlit material cannot consume a roughness texture")
+
+    nodes = [
+        _material_node(ids, "output_node", "tm_output_node", "", -750),
+        _material_node(
+            ids,
+            "surface_node",
+            "ND_realitykit_unlit_surfaceshader"
+            if unlit
+            else "ND_realitykit_pbr_surfaceshader",
+            "unlit_surfaceshader_1" if unlit else "pbr_surfaceshader_1",
+            -500,
+        ),
+        _material_node(
+            ids,
+            "base_image",
+            "ND_image_color4" if unlit else "ND_image_color3",
+            "Image",
+            -250,
+        ),
+        _material_node(
+            ids, "preview_node", "ND_UsdPreviewSurface_surfaceshader",
+            "Principled_BSDF", 250
+        ),
+        _material_node(ids, "preview_base", "ND_UsdUVTexture", "Image_Texture", 500),
+        _material_node(
+            ids, "preview_uv", "ND_UsdPrimvarReader_vector2", "uvmap", 750
+        ),
+    ]
+    if unlit:
+        nodes.extend(
+            [
+                _material_node(
+                    ids, "base_separate", "ND_separate4_color4",
+                    "Image_separate4", 0
+                ),
+                _material_node(
+                    ids, "base_combine", "ND_combine3_color3",
+                    "Image_combine3", -250
+                ),
+            ]
+        )
+        surface_input_connections = [
+            _material_connection(
+                ids, "base_separate", "base_image", "base_separate",
+                "685a9889b8402b60", "4b08db74701cd3c7",
+            ),
+            _material_connection(
+                ids, "base_red", "base_separate", "base_combine",
+                "40b857f1ebd027ef", "d4fced42816f7f38",
+            ),
+            _material_connection(
+                ids, "base_green", "base_separate", "base_combine",
+                "b45e9df79f909e52", "c5e87a34cd64a44d",
+            ),
+            _material_connection(
+                ids, "base_blue", "base_separate", "base_combine",
+                "b3cfef9a6c8bfb6e", "ae849a5df1caae72",
+            ),
+            _material_connection(
+                ids, "base_surface", "base_combine", "surface_node",
+                "685a9889b8402b60", "06776ddaf0290228",
+            ),
+            _material_connection(
+                ids, "alpha_surface", "base_separate", "surface_node",
+                "638b66e5d351549f", "2bbe599c6c8fe881",
+            ),
+        ]
+    else:
+        nodes.append(
+            _material_node(
+                ids, "texcoord", "ND_texcoord_vector2", "TextureCoordinates", 0
+            )
+        )
+        surface_input_connections = [
+            _material_connection(
+                ids, "texcoord_base", "texcoord", "base_image",
+                "685a9889b8402b60", "d6cb00e5d1493023",
+            ),
+            _material_connection(
+                ids, "base_surface", "base_image", "surface_node",
+                "685a9889b8402b60", "b25bebfe670e1bb3",
+            ),
+        ]
+    connections = surface_input_connections + [
+        _material_connection(
+            ids, "surface_output", "surface_node", "output_node",
+            "685a9889b8402b60", "c1549ebf90daa052",
+        ),
+        _material_connection(
+            ids, "preview_uv_base", "preview_uv", "preview_base",
+            "685a9889b8402b60", "4f27247b006ef472",
+        ),
+        _material_connection(
+            ids, "preview_base_color", "preview_base", "preview_node",
+            "9c80259986e17ea8", "cb836048226639e6",
+        ),
+        _material_connection(
+            ids, "preview_base_opacity", "preview_base", "preview_node",
+            "071717d2d36b6b11", "2bbe599c6c8fe881",
+        ),
+        _material_connection(
+            ids, "preview_output", "preview_node", "output_node",
+            "685a9889b8402b60", "891f23467e3e5272",
+        ),
+    ]
+    data = [
+        _material_resource_data(base, ids, label="base", node="base_image"),
+        _material_resource_data(
+            base, ids, label="preview_base", node="preview_base"
+        ),
+        _material_string_data(
+            ids,
+            label="preview_base_color_space",
+            node="preview_base",
+            connector="70089fa6d454f6af",
+            value="sRGB",
+        ),
+        _material_string_data(
+            ids,
+            label="preview_uv_name",
+            node="preview_uv",
+            connector="de10f52f16908808",
+            value="st",
+        ),
+        _material_wrap_data(
+            ids,
+            label="preview_base_wrap_s",
+            node="preview_base",
+            connector="903b812955d1978a",
+        ),
+        _material_wrap_data(
+            ids,
+            label="preview_base_wrap_t",
+            node="preview_base",
+            connector="abbacc56fbba3d4c",
+        ),
+    ]
+    if not unlit:
+        for node in ("surface_node", "preview_node"):
+            data.extend(
+                [
+                    _material_float_data(
+                        ids,
+                        label=f"{node}.metallic",
+                        node=node,
+                        connector="7da4d360d4218a66",
+                        value=mesh.metallic,
+                    ),
+                    _material_float_data(
+                        ids,
+                        label=f"{node}.opacity",
+                        node=node,
+                        connector="2bbe599c6c8fe881",
+                        value=mesh.opacity,
+                    ),
+                    _material_float_data(
+                        ids,
+                        label=f"{node}.specular",
+                        node=node,
+                        connector="b043861ba01513f5",
+                        value=0.5,
+                    ),
+                ]
+            )
+        if mesh.roughness_texture is None:
+            for node in ("surface_node", "preview_node"):
+                data.append(
+                    _material_float_data(
+                        ids,
+                        label=f"{node}.roughness",
+                        node=node,
+                        connector="ea2298b545b7e617",
+                        value=mesh.roughness,
+                    )
+                )
+
+    roughness = mesh.roughness_texture
+    if roughness is not None:
+        nodes.extend(
+            [
+                _material_node(
+                    ids, "roughness_image", "ND_image_color3", "RoughnessImage", 0
+                ),
+                _material_node(
+                    ids,
+                    "roughness_swizzle",
+                    "ND_swizzle_color3_float",
+                    "swizzle_roughness_r",
+                    250,
+                ),
+                _material_node(
+                    ids,
+                    "preview_roughness",
+                    "ND_UsdUVTexture",
+                    "Roughness_Texture",
+                    750,
+                ),
+            ]
+        )
+        connections.extend(
+            [
+                _material_connection(
+                    ids, "texcoord_roughness", "texcoord", "roughness_image",
+                    "685a9889b8402b60", "d6cb00e5d1493023",
+                ),
+                _material_connection(
+                    ids, "roughness_swizzle", "roughness_image", "roughness_swizzle",
+                    "685a9889b8402b60", "4b08db74701cd3c7",
+                ),
+                _material_connection(
+                    ids, "roughness_surface", "roughness_swizzle", "surface_node",
+                    "685a9889b8402b60", "ea2298b545b7e617",
+                ),
+                _material_connection(
+                    ids, "preview_uv_roughness", "preview_uv", "preview_roughness",
+                    "685a9889b8402b60", "4f27247b006ef472",
+                ),
+                _material_connection(
+                    ids, "preview_roughness", "preview_roughness", "preview_node",
+                    "eb9e71988f8c8e3d", "ea2298b545b7e617",
+                ),
+            ]
+        )
+        data.extend(
+            [
+                _material_resource_data(
+                    roughness, ids, label="roughness", node="roughness_image"
+                ),
+                _material_resource_data(
+                    roughness,
+                    ids,
+                    label="preview_roughness",
+                    node="preview_roughness",
+                ),
+                _material_string_data(
+                    ids,
+                    label="preview_roughness_color_space",
+                    node="preview_roughness",
+                    connector="70089fa6d454f6af",
+                    value="raw",
+                ),
+                _material_wrap_data(
+                    ids,
+                    label="preview_roughness_wrap_s",
+                    node="preview_roughness",
+                    connector="903b812955d1978a",
+                ),
+                _material_wrap_data(
+                    ids,
+                    label="preview_roughness_wrap_t",
+                    node="preview_roughness",
+                    connector="abbacc56fbba3d4c",
+                ),
+            ]
+        )
+
+    nodes_text = "\n\t\t\t".join(nodes)
+    connections_text = "\n\t\t\t".join(connections)
+    data_text = "\n\t\t\t".join(data)
+    return f'''__type: "tm_material"
+__uuid: "{ids("material")}"
+shader: {{
+\t__uuid: "{ids("material.shader")}"
+}}
+shader_graph: {{
+\t__uuid: "{ids("material.shader_graph")}"
+\tgraph: {{
+\t\t__uuid: "{ids("material.graph")}"
+\t\tnodes: [
+\t\t\t{nodes_text}
+\t\t]
+\t\tconnections: [
+\t\t\t{connections_text}
+\t\t]
+\t\tdata: [
+\t\t\t{data_text}
+\t\t]
+\t\tinterface: {{
+\t\t\t__uuid: "{ids("material.interface")}"
+\t\t\toutputs: [
+\t\t\t\t{{
+\t\t\t\t\t__uuid: "{ids("material.interface.output")}"
+\t\t\t\t\tname: "surface"
+\t\t\t\t\tdisplay_name: "surface"
+\t\t\t\t\tid: "outputs:mtlx:surface"
+\t\t\t\t\ttype_hash: "c3f642cf65c817b8"
+\t\t\t\t\tedit_type_hash: "c3f642cf65c817b8"
+\t\t\t\t}}
+\t\t\t\t{{
+\t\t\t\t\t__uuid: "{ids("material.interface.preview_output")}"
+\t\t\t\t\tname: "surface"
+\t\t\t\t\tdisplay_name: "surface"
+\t\t\t\t\tid: "outputs:surface"
+\t\t\t\t\ttype_hash: "c3f642cf65c817b8"
+\t\t\t\t\tedit_type_hash: "c3f642cf65c817b8"
+\t\t\t\t}}
+\t\t\t]
+\t\t}}
+\t}}
+}}
+descriptor: {{
+\t__uuid: "{ids("material.descriptor")}"
+}}
+__asset_uuid: "{ids("material.asset")}"
+__asset_thumbnail: {{
+\t__uuid: "{ids("material.thumbnail")}"
+}}'''
+
+
 def _material_record(mesh: StaticMesh, ids: _Ids) -> str:
+    if mesh.base_color_texture is not None:
+        return _textured_material_record(mesh, ids)
     color = mesh.base_color
     data_entries = (
         ("pbr", "base_color", "b25bebfe670e1bb3", "tm_color_aces2065_rgb", color),
@@ -2579,6 +3188,16 @@ def generate_static_import(
         )
         if mesh.skinning is not None:
             _write_skeletal_scene_tree_buffers(destination_path, mesh.skinning, ids)
+        material_textures = tuple(
+            texture
+            for texture in (
+                mesh.base_color_texture,
+                mesh.roughness_texture,
+            )
+            if texture is not None
+        )
+        for texture in material_textures:
+            _write_texture_buffer(destination_path, texture, ids)
         root_dir_id = ids("directory.root")
         records = {
             f"{mesh.asset_name}.tm_entity": _proxy_record(mesh, ids),
@@ -2626,6 +3245,20 @@ def generate_static_import(
                 ids, "directory.meshes", "meshes", root_dir_id
             ),
         }
+        if material_textures:
+            records["textures/__tm_directory.tm_dir"] = _directory_record(
+                ids, "directory.textures", "textures", root_dir_id
+            )
+            records.update(
+                {
+                    f"textures/{texture.name}.tm_texture": _texture_record(
+                        texture,
+                        ids,
+                        source_path=source_path,
+                    )
+                    for texture in material_textures
+                }
+            )
         if animation is not None:
             records["animations/__tm_directory.tm_dir"] = _directory_record(
                 ids, "directory.animations", "animations", root_dir_id

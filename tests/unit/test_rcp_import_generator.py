@@ -100,6 +100,80 @@ def Xform "root"
     return source
 
 
+def _textured_material_source(
+    tmp_path: Path,
+    *,
+    filename: str = "Cube_Material_Baked_baseColor.png",
+) -> tuple[Path, bytes]:
+    texture_bytes = b"\x89PNG\r\n\x1a\nmeasured-source-payload"
+    texture_dir = tmp_path / "textures"
+    texture_dir.mkdir()
+    (texture_dir / filename).write_bytes(texture_bytes)
+    source = tmp_path / "TexturedCube.usda"
+    source.write_text(
+        f"""#usda 1.0
+(
+    defaultPrim = "root"
+    metersPerUnit = 1
+    upAxis = "Y"
+)
+def Xform "root"
+{{
+    def Mesh "Cube" (
+        prepend apiSchemas = ["MaterialBindingAPI"]
+    )
+    {{
+        int[] faceVertexCounts = [3]
+        int[] faceVertexIndices = [0, 1, 2]
+        point3f[] points = [(0, 0, 0), (1, 0, 0), (0, 1, 0)]
+        texCoord2f[] primvars:st = [(0, 0), (1, 0), (0, 1)] (
+            interpolation = "vertex"
+        )
+        rel material:binding = </root/_materials/Material_Baked>
+    }}
+    def Scope "_materials"
+    {{
+        def Material "Material_Baked" (
+            customData = {{
+                dictionary BlenderToRCP = {{
+                    string surfaceProfile = "realitykit_unlit"
+                }}
+            }}
+        )
+        {{
+            token outputs:mtlx:surface.connect = </root/_materials/Material_Baked/Unlit.outputs:out>
+            token outputs:surface.connect = </root/_materials/Material_Baked/Preview.outputs:surface>
+            def Shader "Unlit"
+            {{
+                uniform token info:id = "ND_realitykit_unlit_surfaceshader"
+                token outputs:out
+            }}
+            def Shader "Image"
+            {{
+                uniform token info:id = "ND_image_color3"
+                asset inputs:file = @textures/{filename}@
+                color3f outputs:out
+            }}
+            def Shader "Preview"
+            {{
+                uniform token info:id = "UsdPreviewSurface"
+                token outputs:surface
+            }}
+            def Shader "PreviewTexture"
+            {{
+                uniform token info:id = "UsdUVTexture"
+                asset inputs:file = @textures/{filename}@
+                float3 outputs:rgb
+            }}
+        }}
+    }}
+}}
+""",
+        encoding="utf-8",
+    )
+    return source, texture_bytes
+
+
 def test_generate_static_import_passes_structural_contract(tmp_path: Path) -> None:
     source = _source(tmp_path)
     destination = tmp_path / "Cube.import"
@@ -149,6 +223,42 @@ def test_generate_static_import_rejects_unmeasured_material_color_space(
         match="requires an authored, measured color space",
     ):
         generate_static_import(source, tmp_path / "ColoredCube.import")
+
+
+def test_generate_static_import_copies_measured_baked_texture_payload(
+    tmp_path: Path,
+) -> None:
+    source, texture_bytes = _textured_material_source(tmp_path)
+
+    destination = generate_static_import(source, tmp_path / "TexturedCube.import")
+
+    report = build_report(
+        inspect_import(destination),
+        rcp_build="80.0.1.500.1",
+    )
+    assert report["record_types"]["tm_texture"] == 1
+    assert report["counts"]["records"] == 15
+    texture_record = next((destination / "textures").glob("*.tm_texture"))
+    record_text = texture_record.read_text()
+    assert 'source_texture: "' in record_text
+    assert "TexturedCube.usda[textures/Cube_Material_Baked_baseColor.png]" in record_text
+    payload = next((destination / "textures").glob("*.tm_buffers/*"))
+    assert payload.read_bytes() == texture_bytes
+    material = (destination / "materials" / "Material_Baked.tm_material").read_text()
+    assert 'type: "ND_realitykit_unlit_surfaceshader"' in material
+    assert 'resource__type: "tm_texture"' in material
+
+
+def test_generate_static_import_rejects_unmeasured_texture_role(
+    tmp_path: Path,
+) -> None:
+    source, _ = _textured_material_source(
+        tmp_path,
+        filename="Cube_Material_Baked_normal.png",
+    )
+
+    with pytest.raises(ImportGenerationError, match="does not yet support"):
+        generate_static_import(source, tmp_path / "TexturedCube.import")
 
 
 def test_generate_static_import_is_deterministic(tmp_path: Path) -> None:

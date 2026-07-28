@@ -555,7 +555,7 @@ blendertorcp bake-export <file.blend> -o <output_path> [options]
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `--format <FORMAT>` | from settings | Export format: `USDA`, `USDC`, `USDZ` |
+| `--format <FORMAT>` | from settings | Export format: `USDA`, `USDC`, `USDZ`, or experimental `RCP_IMPORT` |
 | `--bake-mode <MODE>` | from settings (`LIT_IBL` for fresh scenes) | `UNLIT_ALBEDO` for Material Color Only - Unlit, `LIT_ALBEDO` for Material Color Only - Lit PBR, `LIT_IBL` for Lighting & Shadows |
 | `--resolution <RES>` | `2048` | Enables texture overrides for this run and sets bake/export texture resolution: `ORIGINAL`, `512`, `1024`, `2048`, `4096`, or any integer for custom |
 | `--image-format <FMT>` | `AVIF` | Enables texture overrides for this run and sets baked/exported texture format: `ORIGINAL`, `AVIF`, or `PNG`. AVIF is encoded natively by Blender; no external tools required |
@@ -608,6 +608,11 @@ blendertorcp bake-export scene.blend -o /output/scene.usdz \
   --resolution 4096 \
   --image-format PNG
 
+# Experimental RCP3 private package plus its adjacent USDA source
+blendertorcp bake-export scene.blend -o /output/scene.import \
+  --format RCP_IMPORT \
+  --bake-mode LIT_IBL
+
 # Lighting & Shadows bake with custom HDRI
 blendertorcp bake-export scene.blend -o /output/scene.usdz \
   --ibl-source HDRI_FILE \
@@ -626,6 +631,14 @@ blendertorcp --timeout 900 bake-export scene.blend -o /output/scene.usdz \
 ```
 
 **Output:**
+
+For `RCP_IMPORT`, the output path is a directory and the command also publishes
+the post-processed `.usda` source beside it. This lane is pinned to RCP 3.0
+build `80.0.1.500.1`, currently requires the generator's one-mesh subset, and
+fails closed on unmeasured material texture roles. Baked RGBA base color
+(including merged opacity) is supported for all three bake modes; the
+`LIT_ALBEDO` path also supports its baked roughness map. Normal, metallic,
+occlusion, and independent opacity texture records remain unsupported.
 
 ```json
 {

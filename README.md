@@ -11,6 +11,7 @@ Blender add-on to export USD/USDZ and rewrite Blender materials into Reality Com
 - Portable exports: textures and auxiliary assets are staged next to the USD and rewritten to relative paths.
 - Animation compatibility: actions can be concatenated for export; Reality Composer Pro clip-library metadata is opt-in for editor workflows.
 - Profile-driven texture baking: the single Blender Export button runs baking in a second process when the selected material type requires it, writes status/log files, and keeps the UI responsive.
+- Experimental, build-pinned Reality Composer Pro 3 `.import` generation for the validated one-mesh static, transform-animation, and skeletal subsets. Baked base-color/opacity and roughness texture payloads are supported within that same strict one-mesh boundary.
 - Shader authoring helpers: insert RealityKit PBR or Unlit node groups, browse a generated RealityKit node menu, and validate active materials in the Shader Editor.
 
 ## Important note
@@ -20,7 +21,12 @@ Release 2.x deliberately targets the Blender 5.2 API. Blender 5.1 and earlier ar
 
 The Apple validation baseline is Reality Composer Pro 3 with the version-27 Apple SDKs and deployment targets. Automated validation checks fresh USD/USDZ exports, compiles generated ShaderGraph and `.rkassets` fixtures with `realitytool`, exercises the Blender CLI, and loads fresh source plus compiled assets through RealityKit on macOS 27. Interactive import/save/reopen testing in Reality Composer Pro 3, visual acceptance in Reality Composer Pro or Quick Look/Spatial Preview, and physical-device testing remain manual release checks.
 
-`References/RealityComposerProProject` is currently a legacy Reality Composer Pro 2 project. It is retained as reference material but is intentionally excluded from the RCP3/Apple 27 release gates until it is migrated manually.
+`References/RealityComposerProProject` contains the disposable RCP3 research
+corpus used to measure the private `.import` format. `.import` generation is
+experimental and pinned to RCP 3.0 build `80.0.1.500.1`; it is not an Apple
+published interchange format. See
+[`docs/RCP_IMPORT_EXPERIMENT.md`](docs/RCP_IMPORT_EXPERIMENT.md) for its exact
+acceptance status and fail-closed boundaries.
 
 The shipping material profile is `realitykit_portable`, which authors the established RealityKit PBR v1 surface and is the mandatory CI path. `realitykit_pbr2` and `openpbr_1_1` are explicit experimental profiles for OS 27 investigation; they are not production compatibility claims or release gates.
 
@@ -85,6 +91,10 @@ blendertorcp export scene.blend -o output.usdz --format USDZ
 
 # Bake textures and export
 blendertorcp bake-export scene.blend -o output.usdz --resolution 2048
+
+# Experimental: bake and generate an adjacent USDA plus RCP3 .import directory
+blendertorcp bake-export scene.blend -o output.import \
+  --format RCP_IMPORT --bake-mode LIT_IBL --resolution 2048
 
 # Read and modify settings
 blendertorcp settings get scene.blend --group bake

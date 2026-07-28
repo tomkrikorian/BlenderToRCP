@@ -100,8 +100,8 @@ fixture and RCP acceptance establish their semantics.
 
 ## Experimental static generator
 
-The branch implements a complete 13-record, 7-buffer static artifact for the
-measured build. It writes:
+The branch implements a complete 13-record, 7-buffer constant-material static
+artifact for the measured build. It writes:
 
 - source, proxy, and optimized entity records;
 - mesh descriptor, processed geometry, mesh resource, and material records;
@@ -130,6 +130,36 @@ The generator currently accepts exactly one unskinned mesh directly below the
 USD default prim or inside Blender 5.2's single-mesh object Xform wrapper.
 Unsupported topology, interpolation, hierarchy, or skinning fails closed and
 removes the incomplete destination.
+
+### Baked material extension
+
+`bake-export --format RCP_IMPORT` now runs the existing bake pipeline, publishes
+its post-processed USDA beside the destination, then builds the private package.
+The writer uses the RCP-authored `bakeTest_02.import` and Robot material records
+as the build-80 contract:
+
+- source image bytes are copied unchanged into a `tm_texture` buffer;
+- the payload filename uses the same MurmurHash64A content suffix as RCP;
+- the measured `tm_texture` creation-graph wrapper, color-space fields, shader
+  connector hashes, and texture resource references are authored
+  deterministically;
+- `UNLIT_ALBEDO` and `LIT_IBL` use the measured RealityKit Unlit graph;
+- `LIT_ALBEDO` uses the measured RealityKit PBR base-color graph and may add its
+  baked roughness texture.
+
+The bounded writer currently accepts one baked RGBA base-color image (its alpha
+contains the bake pipeline's merged opacity) and, for Lit PBR, one roughness
+image. Normal, metallic, occlusion, independent opacity images, unknown filename
+roles, multiple base-color images, and unmeasured surface profiles fail closed.
+The existing one-mesh geometry limit still applies.
+
+Disposable Blender/CLI runs cover all three bake modes: textured
+`UNLIT_ALBEDO` generated 15 records/8 buffers, textured `LIT_ALBEDO` generated
+16 records/9 buffers, and `LIT_IBL` generated 15 records/8 buffers. In each
+case the structural inspector reported zero derived/unknown hashed buffers and
+the CLI returned `format: RCP_IMPORT`. RCP open/save/reopen and visual/runtime
+acceptance of these newly generated textured packages is still required before
+this extension can be called RCP-compatible.
 
 ### Direct plugin-output acceptance
 
@@ -394,23 +424,27 @@ python scripts/validate_rcp_import_acceptance.py \
    open/save/reopen acceptance are complete for cube topology. A different
    triangle topology confirms that the accepted bootstrap validity value
    generalizes inside the strict static subset.
-3. **Transform generator (implemented, final acceptance in progress):** the
+3. **Baked texture writer (implemented, RCP acceptance pending):** all three
+   bake modes pass the Blender/CLI and structural gates for one mesh. Repeat
+   clean import, save/reopen, reimport, visual, and RealityKit runtime checks
+   before widening the texture-role subset.
+4. **Transform generator (implemented, final acceptance in progress):** the
    aggregate sampled timeline, translation/time buffers, entity component, and
    four named clip records pass RCP open/save. Reopen, Sequence Editor, and
    playback evidence remain required.
-4. **Skeletal generator (rendering, not accepted):** the controlled hierarchy,
+5. **Skeletal generator (rendering, not accepted):** the controlled hierarchy,
    definition, binding, sampled timeline, scene-tree buffers, and four named
    clip records are generated. Resume with the record-group differential
    procedure in `RCP_IMPORT_SKELETAL_CHECKPOINT.md`; do not widen the input
    subset until the clean-shell console gate passes.
-5. **Acceptance automation:** retain reproducible RCP open/reimport captures;
+6. **Acceptance automation:** retain reproducible RCP open/reimport captures;
    extend the RealityKit probe from bounds/resource discovery to controlled
    playback duration only for clips that RCP actually exposes.
-6. **Runtime handoff gate:** create an RCP-authored entity in the disposable
+7. **Runtime handoff gate:** create an RCP-authored entity in the disposable
    world, export/compile that supported authoring output, and require successful
    public RealityKit loading. Package renaming alone is rejected by the current
    evidence.
-7. **Product decision:** if build churn or remaining private invariants defeat
+8. **Product decision:** if build churn or remaining private invariants defeat
    repeatability,
    keep `.import` support as a diagnostic/corpus tool and invest in supported
    USD/action-per-file workflows instead.

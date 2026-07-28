@@ -92,6 +92,10 @@ blendertorcp bake-export <file.blend> -o out.usdz --bake-mode LIT_ALBEDO
 # High-res PNG bake
 blendertorcp bake-export <file.blend> -o out.usdz --resolution 4096 --image-format PNG
 
+# Experimental RCP3 private package plus adjacent USDA source
+blendertorcp bake-export <file.blend> -o out.import \
+  --format RCP_IMPORT --bake-mode LIT_IBL
+
 # Keep original texture override semantics where source textures are staged.
 # For newly baked images, ORIGINAL falls back to concrete bake outputs.
 blendertorcp bake-export <file.blend> -o out.usdz --resolution ORIGINAL --image-format ORIGINAL
@@ -112,7 +116,7 @@ Bake-export flags:
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `--format` | from settings | `USDA`, `USDC`, or `USDZ` |
+| `--format` | from settings | `USDA`, `USDC`, `USDZ`, or experimental `RCP_IMPORT` |
 | `--selected-only` | off | Only bake/export selected objects |
 | `--diagnostics` | off | Keep `<output>.diagnostics.json` after success |
 | `--no-diagnostics` | off | Suppress success diagnostics; failures still write diagnostics |
@@ -134,6 +138,13 @@ Bake-export flags:
 The global `--timeout <sec>` flag (place before the subcommand, default 600, `0` = unlimited) bounds the whole Blender subprocess — raise it for long bakes.
 
 Missing, unpacked external images fail before baking with `MISSING_EXTERNAL_TEXTURES`; missing linked libraries, caches, HDRIs, or other non-image dependencies fail with `MISSING_EXTERNAL_ASSETS`. Pack or relink textures, relink the other dependency, and rerun. The scan is limited to the dependency-closed export scope, including collection prototypes and active Geometry Nodes/modifier/Scene World inputs. For existing texture staging, `ORIGINAL` preserves Apple-compatible AVIF, PNG, JPEG, and OpenEXR encodings and/or source dimensions; unsupported LDR inputs are normalized to PNG. OpenEXR always remains byte-for-byte unchanged and ignores overrides. Radiance HDR (`.hdr`) fails with guidance to convert it to OpenEXR. Bake Textures & Export creates new baked images, so `ORIGINAL` falls back to PNG/2048 for bake output where there is no source image to preserve.
+
+`RCP_IMPORT` publishes the post-processed USDA beside the generated `.import`
+directory. The writer is pinned to RCP 3.0 build `80.0.1.500.1`, currently
+requires one mesh, supports the baked RGBA base-color/opacity payload used by
+all three bake modes and the `LIT_ALBEDO` roughness map, and fails closed on
+unmeasured texture roles such as normal, metallic, occlusion, or a separate
+opacity image.
 
 Any export setting key can also be passed as a positional override (same as `export`), e.g. `export-animation=true`.
 
