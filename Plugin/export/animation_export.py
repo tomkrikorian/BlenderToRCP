@@ -1108,7 +1108,11 @@ def _bake_shapekeys(scene, obj, key, anim_data, total_frames: int):
 
     fcurves = {}
     for kb in key_blocks:
-        data_path = f'key_blocks["{kb.name}"].value'
+        # Escape the name: a shape key called e.g. Eye "Blink" would otherwise
+        # produce key_blocks["Eye "Blink""].value. fcurves.new() does not
+        # validate data_path, so the curve is created, keyframed, and resolves
+        # to nothing - the key exports as a static value with no warning.
+        data_path = f'key_blocks["{bpy.utils.escape_identifier(kb.name)}"].value'
         fcurves[kb.name] = _ensure_action_fcurve(
             baked_action,
             key,

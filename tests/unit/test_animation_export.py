@@ -562,3 +562,44 @@ def test_mid_schedule_failure_removes_partial_track_and_restores_assignment():
     assert anim_data.action_blend_type == "REPLACE"
     assert anim_data.action_extrapolation == "HOLD"
     assert anim_data.action_influence == 0.75
+
+
+def test_shape_key_data_path_escapes_quotes_in_the_name(monkeypatch):
+    """A shape key named e.g. Eye "Blink" must still animate.
+
+    fcurves.new() does not validate data_path, so an unescaped name produced
+    key_blocks["Eye "Blink""].value - a well-formed F-Curve object pointing at
+    nothing. The bake loop keyframed it, the action was assigned, and the key
+    exported as a static value with no warning anywhere.
+    """
+    recorded = []
+
+    def fake_ensure(action, owner, data_path, index=0, group_name=None):
+        recorded.append(data_path)
+        return SimpleNamespace(keyframe_points=SimpleNamespace(insert=lambda *a, **k: None))
+
+    monkeypatch.setattr(animation_export, "_ensure_action_fcurve", fake_ensure)
+    monkeypatch.setattr(
+        animation_export.bpy,
+        "utils",
+        SimpleNamespace(escape_identifier=lambda name: name.replace('"', '\\"')),
+        raising=False,
+    )
+
+    key_blocks = [
+        SimpleNamespace(name="Basis", value=0.0),
+        SimpleNamespace(name='Eye "Blink"', value=0.0),
+        SimpleNamespace(name="Plain", value=0.0),
+    ]
+    key = SimpleNamespace(key_blocks=key_blocks)
+
+    monkeypatch.setattr(animation_export, "_new_action", lambda name, owner: SimpleNamespace())
+    monkeypatch.setattr(animation_export, "_assign_action_and_slot", lambda *a, **k: None)
+    monkeypatch.setattr(animation_export, "_slot_for_owner", lambda *a, **k: None)
+
+    scene = SimpleNamespace(frame_set=lambda *a, **k: None)
+    obj = SimpleNamespace(name="Head")
+    animation_export._bake_shapekeys(scene, obj, key, SimpleNamespace(), total_frames=1)
+
+    assert 'key_blocks["Eye \\"Blink\\""].value' in recorded
+    assert 'key_blocks["Plain"].value' in recorded
