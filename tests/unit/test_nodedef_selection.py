@@ -1,0 +1,105 @@
+"""A supplied type is a constraint on nodedef selection, not a hint.
+
+`select_nodedef_name_for_node` used to fall through to progressively looser
+indexes when an exact match was missing: signature, then input/output, then
+output-only, then *any* nodedef of that name. The looser steps ignore the
+constraints the caller supplied, and callers treat any non-None result as
+success, so the "no mapping" diagnostic never fired.
+
+Measured before the guard, against the shipped manifest:
+
+- `convert` has no `color3->float` entry in `by_node_io`, and the output-only
+  fallback returned `ND_convert_boolean_float` — whose input type is `boolean`.
+  It was authored with a `color3f` `in` and wired to `inputs:roughness`.
+- `luminance` has no `float` output at all, and the by-node fallback returned
+  `ND_luminance_color3` for an `output_type` of `float`.
+
+Both shipped from a plain `Image Texture -> RGB to BW -> Roughness` graph with
+`ok: true` and no diagnostics. RealityKit cannot bind either.
+"""
+
+from __future__ import annotations
+
+import sys
+import types
+from pathlib import Path
+
+import pytest
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+sys.modules.setdefault("bpy", types.ModuleType("bpy"))
+
+from Plugin.manifest.materialx_nodes import (  # noqa: E402
+    load_manifest,
+    select_nodedef_name_for_node,
+)
+
+
+@pytest.fixture(scope="module")
+def manifest():
+    return load_manifest()
+
+
+def _nodedef(manifest, name):
+    return manifest["nodes"][name]
+
+
+def _output_types(node_def):
+    return {entry.get("type") for entry in node_def.get("outputs", [])}
+
+
+def test_impossible_conversion_returns_none(manifest):
+    """color3 -> float has no convert nodedef; do not invent one."""
+    assert select_nodedef_name_for_node(
+        manifest, "convert", input_type="color3", output_type="float"
+    ) is None
+
+
+def test_unavailable_output_type_returns_none(manifest):
+    """luminance has no float output; do not return the color3 one."""
+    assert select_nodedef_name_for_node(
+        manifest, "luminance", output_type="float"
+    ) is None
+
+
+@pytest.mark.parametrize(
+    "node_name,input_type,output_type,expected",
+    [
+        ("convert", "float", "color3", "ND_convert_float_color3"),
+        ("convert", "color3", "vector3", "ND_convert_color3_vector3"),
+    ],
+)
+def test_valid_conversions_still_resolve(
+    manifest, node_name, input_type, output_type, expected
+):
+    assert select_nodedef_name_for_node(
+        manifest, node_name, input_type=input_type, output_type=output_type
+    ) == expected
+
+
+def test_output_only_lookup_still_works_when_no_input_type_is_given(manifest):
+    """The looser index is legitimate when the caller constrains less."""
+    selected = select_nodedef_name_for_node(
+        manifest, "luminance", output_type="color3"
+    )
+    assert selected == "ND_luminance_color3"
+
+
+def test_unconstrained_lookup_still_works(manifest):
+    assert select_nodedef_name_for_node(manifest, "normalmap") == "ND_normalmap"
+
+
+def test_a_returned_nodedef_always_honours_the_requested_output_type(manifest):
+    """The property the fallbacks used to violate."""
+    for node_name in ("convert", "luminance", "image", "normalmap", "mix"):
+        for output_type in ("float", "color3", "vector3"):
+            selected = select_nodedef_name_for_node(
+                manifest, node_name, output_type=output_type
+            )
+            if selected is None:
+                continue
+            declared = _output_types(_nodedef(manifest, selected))
+            assert output_type in declared, (
+                f"{node_name} -> {output_type} selected {selected}, which "
+                f"declares outputs {sorted(declared)}"
+            )

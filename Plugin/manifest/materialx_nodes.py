@@ -88,10 +88,23 @@ def select_nodedef_name_for_node(
         io_key = f"{_normalize_type(input_type)}->{_normalize_type(output_type)}"
         candidates = list(by_node_io.get(node_name, {}).get(io_key, []))
 
-    if not candidates and output_type:
+    # A type the caller supplied is a constraint, not a hint. Falling through
+    # to a looser index silently returns a nodedef that cannot accept the value
+    # or cannot produce the requested one, and callers treat any non-None
+    # result as success - so the "no mapping" diagnostic never fires and invalid
+    # MaterialX reaches the stage.
+    #
+    # Measured before this guard: `convert` color3->float has no entry in
+    # by_node_io, and the output-only fallback returned ND_convert_boolean_float
+    # (input type boolean), which was authored with a color3f `in` and wired to
+    # inputs:roughness. Separately, `luminance` has no float output at all, and
+    # the by_node fallback returned ND_luminance_color3 for an output_type of
+    # float. Both shipped from `Image Texture -> RGB to BW -> Roughness` with
+    # ok: true and no diagnostics.
+    if not candidates and output_type and not input_type:
         candidates = list(by_node_output.get(node_name, {}).get(_normalize_type(output_type), []))
 
-    if not candidates:
+    if not candidates and not input_type and not output_type:
         candidates = list(index.get("by_node", {}).get(node_name, []))
 
     if not candidates:
