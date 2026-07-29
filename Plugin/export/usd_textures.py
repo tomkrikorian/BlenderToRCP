@@ -17,7 +17,10 @@ import unicodedata
 from urllib.parse import unquote, urlparse
 from urllib.request import url2pathname
 
-from .staging_namespace import output_sidecar_namespace
+from .staging_namespace import (
+    output_sidecar_namespace,
+    take_native_texture_copies,
+)
 from .usd_utils import Sdf
 
 
@@ -103,6 +106,10 @@ class TextureStagingState:
     seen_names: dict = field(default_factory=dict)
     seen_fingerprints: dict = field(default_factory=dict)
     superseded_paths: set[Path] = field(default_factory=set)
+    # Files Blender's own exporter wrote into <staging>/textures during this
+    # attempt. Empty when the native exporter did not run, in which case
+    # nothing outside the generation directory is ours to remove.
+    native_texture_copies: frozenset[Path] = frozenset()
 
 
 def create_texture_staging_state(
@@ -124,6 +131,8 @@ def create_texture_staging_state(
         textures_dir=usd_dir / "textures" / sidecar_namespace,
         texture_override=_texture_override_settings(settings, diagnostics),
         output_name_prefix=_texture_name_prefix(str(usd_path)),
+        # Consumed destructively: one export attempt, one staging pass.
+        native_texture_copies=take_native_texture_copies(usd_dir),
     )
 
 
@@ -478,6 +487,7 @@ def _stage_texture_source(
             dest_path,
             state.textures_dir,
             state.superseded_paths,
+            state.native_texture_copies,
         )
         if converted and diagnostics:
             diagnostics.add_texture_converted(str(source_path))
@@ -1259,7 +1269,23 @@ def _mark_superseded_export_texture(
     dest_path: Path,
     textures_dir: Path,
     superseded_paths: set[Path],
+    native_texture_copies: frozenset[Path] = frozenset(),
 ) -> None:
+    """Record a staging-owned source that ``dest_path`` has replaced.
+
+    Two kinds of source qualify:
+
+    * anything already inside this export's generation directory, and
+    * a file the native USD exporter wrote into ``<staging>/textures`` during
+      this attempt, as captured by ``record_native_texture_copies``.
+
+    The second set is passed in rather than inferred from the path: a user's
+    own authoritative texture can legitimately sit at ``textures/<name>.png``
+    next to its USD and is byte-for-byte indistinguishable from a copy Blender
+    just wrote. Deleting on path shape alone would destroy real source assets,
+    so an attempt that never ran the native exporter supersedes nothing outside
+    its generation directory.
+    """
     try:
         source_resolved = source_path.resolve()
         dest_resolved = dest_path.resolve()
@@ -1268,10 +1294,12 @@ def _mark_superseded_export_texture(
         return
     if source_resolved == dest_resolved:
         return
-    try:
-        source_resolved.relative_to(textures_resolved)
-    except ValueError:
-        return
+
+    if source_resolved not in native_texture_copies:
+        try:
+            source_resolved.relative_to(textures_resolved)
+        except ValueError:
+            return
     superseded_paths.add(source_resolved)
 
 

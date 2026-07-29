@@ -30,6 +30,11 @@ from ..apple_contract import (
 )
 from . import animation_export
 from . import usd_hook
+from .staging_namespace import (
+    forget_native_texture_copies,
+    record_native_texture_copies,
+    snapshot_texture_directory,
+)
 from .sidecar_manifest import (
     OWNED_SIDECAR_DIRECTORIES,
     SIDECAR_MANIFEST_DIRECTORY,
@@ -304,6 +309,15 @@ def export_blender_scene(
         # track so downstream tools (Reality Composer Pro) can clip the timeline.
         animation_state = animation_export.prepare_animation_export(context, settings, diagnostics)
 
+        # Record exactly which texture files the native exporter creates. With
+        # export_textures_mode='NEW' it copies packed/generated images to
+        # <staging>/textures/<basename>; texture staging then supersedes each
+        # with a content-addressed copy and must delete the flat original.
+        # Those originals cannot be recognised by path shape - a user's own
+        # authoritative texture can sit at exactly textures/<name>.png - so the
+        # only sound signal is what appeared while this operator ran.
+        textures_before = snapshot_texture_directory(temp_dir)
+
         # The prim-map hook records exactly which Blender material produced
         # each USD material prim for the MaterialX rewrite.
         with usd_hook.capture_prim_map():
@@ -312,6 +326,10 @@ def export_blender_scene(
                 export_kwargs,
                 diagnostics=diagnostics,
             )
+
+        record_native_texture_copies(
+            temp_dir, textures_before, snapshot_texture_directory(temp_dir)
+        )
         
         if not os.path.exists(output_path):
             raise RuntimeError(f"USD export failed: {output_path} not created")
@@ -457,6 +475,10 @@ def cleanup_export_staging_dir(staged_path: str | Path, diagnostics=None) -> Non
     if target_dir.parent.name != ".blendertorcp_temp":
         return
     temp_root = target_dir.parent
+    # The attempt is over, so any unconsumed native-texture record is dead.
+    # Texture staging pops it on the success path; this covers the failure one,
+    # where it would otherwise outlive its directory.
+    forget_native_texture_copies(target_dir)
     try:
         _validate_export_staging_dir(target_dir, create=False)
     except RuntimeError as exc:

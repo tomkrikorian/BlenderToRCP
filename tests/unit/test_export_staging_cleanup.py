@@ -23,6 +23,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 sys.modules.setdefault("bpy", types.ModuleType("bpy"))
 
 from Plugin.export.blender_usd_export import (  # noqa: E402
+    cleanup_export_staging_dir,
     create_export_staging_dir,
     get_export_staging_dir,
     remove_export_staging_dir,
@@ -156,3 +157,27 @@ def test_cleanup_rejects_another_outputs_prefix_matching_attempt(tmp_path):
 
     assert sentinel.read_text() == "other export"
     remove_export_staging_dir(longer_output, staging_dir=longer_attempt)
+
+
+def test_cleanup_drops_the_unconsumed_native_texture_record(tmp_path):
+    """A failed attempt must not leave its capture behind.
+
+    Texture staging pops the record on the success path. On the failure path
+    nothing consumes it, so without this the entry would outlive its staging
+    directory for the life of the Blender session.
+    """
+    from Plugin.export import staging_namespace
+
+    temp_root = tmp_path / ".blendertorcp_temp"
+    staging = temp_root / "scene.usda.0123456789abcdef0123456789abcdef"
+    staging.mkdir(parents=True)
+    staged_layer = staging / "scene.usda"
+    staged_layer.write_text("#usda 1.0\n")
+
+    staging_namespace.record_native_texture_copies(
+        staging, frozenset(), frozenset({staging / "textures" / "packedtex.png"})
+    )
+
+    cleanup_export_staging_dir(staged_layer)
+
+    assert staging_namespace.take_native_texture_copies(staging) == frozenset()

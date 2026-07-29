@@ -729,3 +729,78 @@ def test_inactive_variant_texture_opinions_are_all_localized_without_collapse(
     ).Get()
     assert Path(blue_value.resolvedPath).read_bytes() == b"blue texture"
     assert red_value.path != blue_value.path
+
+
+# ---------------------------------------------------------------------------
+# Which staging-owned sources may be deleted after being superseded.
+#
+# Blender's own textures/ copies must go: left behind they are published
+# un-namespaced, archived into the USDZ as a second unreferenced payload, and
+# claimed by the ownership manifest, which makes every later export to the same
+# path fail with "Immutable sidecar collision has different bytes".
+#
+# They are identified by capture, never by path shape - see
+# staging_namespace.record_native_texture_copies.
+# ---------------------------------------------------------------------------
+
+
+def _superseded(source, dest, textures_dir, native=frozenset()):
+    marked: set = set()
+    usd_textures._mark_superseded_export_texture(
+        source, dest, textures_dir, marked, native
+    )
+    return marked
+
+
+def _generation_dir(tmp_path, token="a"):
+    path = tmp_path / "textures" / "scene.usda" / (token * 32)
+    path.mkdir(parents=True)
+    return path
+
+
+def test_captured_native_copy_is_superseded(tmp_path):
+    generation = _generation_dir(tmp_path)
+    blender_copy = tmp_path / "textures" / "packedtex.png"
+    blender_copy.write_bytes(b"written by wm.usd_export")
+    staged = generation / "scene-packedtex-deadbeef.png"
+    staged.write_bytes(b"content addressed")
+
+    marked = _superseded(
+        blender_copy, staged, generation, frozenset({blender_copy.resolve()})
+    )
+
+    assert marked == {blender_copy.resolve()}
+
+
+def test_uncaptured_flat_texture_is_never_superseded(tmp_path):
+    """The property that makes capture necessary.
+
+    A user's authoritative texture can sit at exactly textures/<name>.png and
+    is byte-for-byte indistinguishable from a copy Blender just wrote. If it
+    was not captured during the native export, it is not ours to delete.
+    """
+    generation = _generation_dir(tmp_path, "b")
+    user_asset = tmp_path / "textures" / "wood.png"
+    user_asset.write_bytes(b"authoritative source")
+    staged = generation / "scene-wood-cafe.png"
+    staged.write_bytes(b"content addressed")
+
+    assert _superseded(user_asset, staged, generation, frozenset()) == set()
+
+
+def test_source_inside_the_generation_dir_is_still_superseded(tmp_path):
+    generation = _generation_dir(tmp_path, "c")
+    source = generation / "scene-old-1111.png"
+    source.write_bytes(b"old")
+    dest = generation / "scene-new-2222.png"
+    dest.write_bytes(b"new")
+
+    assert _superseded(source, dest, generation) == {source.resolve()}
+
+
+def test_identical_source_and_destination_is_not_superseded(tmp_path):
+    generation = _generation_dir(tmp_path, "d")
+    same = generation / "scene-wood-3333.png"
+    same.write_bytes(b"staged in place")
+
+    assert _superseded(same, same, generation, frozenset({same.resolve()})) == set()
