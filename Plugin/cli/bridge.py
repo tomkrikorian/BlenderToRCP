@@ -373,7 +373,11 @@ def run(
 
     if verbose:
         if proc.stderr:
-            print(proc.stderr, file=sys.stderr)
+            # Redacted like the copy carried inside the error envelope.
+            # --verbose is exactly what the docs tell users to pass when
+            # capturing output for a support issue, so this stream is the one
+            # most likely to be pasted somewhere public.
+            print(redact_home(proc.stderr), file=sys.stderr)
 
     try:
         return extract_result(proc.stdout or "", proc.stderr or "", proc.returncode, blender)

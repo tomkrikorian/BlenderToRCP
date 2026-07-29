@@ -15,6 +15,43 @@ from bpy_extras.io_utils import ExportHelper
 from .. import prefs as addon_prefs
 from ..api.commands._settings_common import MATERIALX_SURFACE_PROFILE_DEFAULT
 
+def _active_background_job_message(settings) -> str:
+    """Return an error message when a background bake job is still running.
+
+    The background bake stages into the same output directory this export
+    publishes to, so running both at once lets the foreground export delete
+    the staging tree the runner is baking into. bake_export_operator has
+    refused to start on an active job since it was written; this path - the
+    plain Export operator, reachable from the panel and from F3 search - did
+    not, so the collision was only avoidable by the user remembering not to.
+    """
+    try:
+        from .bake_export_operator import (
+            _ACTIVE_JOB_STATES,
+            _pid_is_running,
+            _read_job_status,
+            _status_pid,
+        )
+    except ImportError:
+        # Non-Blender test doubles stub bpy without bpy.props, which that
+        # module imports at load. There is no background job in that context.
+        return ""
+
+    job_dir = str(getattr(settings, "background_job_dir", "") or "")
+    if not job_dir:
+        return ""
+    status = _read_job_status(job_dir)
+    if not status or status.get("state") not in _ACTIVE_JOB_STATES:
+        return ""
+    pid = _status_pid(status)
+    if pid is None or not _pid_is_running(pid):
+        return ""
+    return (
+        "A background bake job is still running and is writing to this output "
+        "directory. Wait for it to finish, or cancel it, before exporting."
+    )
+
+
 class BLENDERTORCP_OT_export(Operator, ExportHelper):
     """Export scene to RealityKit-compatible USD/USDZ"""
     bl_idname = "blendertorcp.export"
@@ -73,6 +110,10 @@ class BLENDERTORCP_OT_export(Operator, ExportHelper):
         
         # Get settings
         settings = context.scene.blender_to_rcp_export_settings
+        blocked = _active_background_job_message(settings)
+        if blocked:
+            self.report({'ERROR'}, blocked)
+            return {'CANCELLED'}
         _apply_persisted_settings(context, settings)
         export_format = self._normalize_export_format(settings.export_format)
         settings.export_format = export_format

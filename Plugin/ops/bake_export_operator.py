@@ -346,6 +346,7 @@ class BLENDERTORCP_OT_bake_export_background(Operator, ExportHelper):
         )
         settings.background_job_dir = str(job_dir)
         settings.background_job_pid = proc.pid
+        _remember_background_process(proc)
         _store_last_export_settings(context, settings)
         try:
             bpy.ops.blendertorcp.watch_bake_export_job('INVOKE_DEFAULT')
@@ -566,9 +567,45 @@ def _tag_export_ui_redraw() -> None:
                         region.tag_redraw()
 
 
+#: Popen handles for background jobs launched by this Blender session, keyed by
+#: pid. The handle used to be dropped on the floor, leaving only the pid - and
+#: a dead direct child becomes a zombie until it is reaped, for which
+#: ``os.kill(pid, 0)`` still succeeds. The watcher therefore believed a crashed
+#: runner was alive, and if it died without writing a terminal status the panel
+#: stayed greyed out on "Settings are locked..." indefinitely.
+#:
+#: ``Popen.poll()`` both reports the real state and reaps the child, which is
+#: what clears the zombie. Only this session's own children can be polled; a pid
+#: from a previous session still falls back to the signal probe.
+_BACKGROUND_PROCESSES: dict = {}
+
+
+def _remember_background_process(proc) -> None:
+    """Track a launched background job so its exit can be detected."""
+    _BACKGROUND_PROCESSES[int(proc.pid)] = proc
+    # Drop handles for children that have already been reaped, so a long-lived
+    # Blender session does not accumulate them.
+    for pid in [p for p, handle in _BACKGROUND_PROCESSES.items() if handle.poll() is not None]:
+        if pid != int(proc.pid):
+            _BACKGROUND_PROCESSES.pop(pid, None)
+
+
 def _pid_is_running(pid: int) -> bool:
     if pid <= 0:
         return False
+
+    # Prefer the real handle: os.kill(pid, 0) cannot distinguish a running
+    # process from an unreaped zombie, and poll() reaps as it reports.
+    proc = _BACKGROUND_PROCESSES.get(int(pid))
+    if proc is not None:
+        try:
+            if proc.poll() is None:
+                return True
+            _BACKGROUND_PROCESSES.pop(int(pid), None)
+            return False
+        except Exception:
+            pass
+
     try:
         os.kill(pid, 0)
         return True

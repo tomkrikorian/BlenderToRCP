@@ -14,6 +14,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
+from Plugin.cli import bridge  # noqa: E402
 from Plugin.cli.bridge import (  # noqa: E402
     BridgeError,
     OUTPUT_MARKER,
@@ -267,3 +268,25 @@ def test_process_output_tails_are_redacted():
     assert home not in payload["process_output"]["stderr_tail"]
     assert "$HOME/scene.blend" in payload["process_output"]["stdout_tail"]
     assert "$HOME/Library/plugin/runner.py" in payload["process_output"]["stderr_tail"]
+
+
+def test_verbose_stderr_forward_is_redacted(monkeypatch, capsys):
+    """--verbose is what the docs tell users to pass for a support issue."""
+    from pathlib import Path as _Path
+    from types import SimpleNamespace
+
+    home = str(_Path.home())
+    completed = SimpleNamespace(
+        stdout=f"{bridge.OUTPUT_MARKER}"
+               '{"ok": true, "result": {}}'
+               f"{bridge.OUTPUT_MARKER}",
+        stderr=f'  File "{home}/Library/plugin/runner.py", line 1',
+        returncode=0,
+    )
+    monkeypatch.setattr(bridge.subprocess, "run", lambda *a, **k: completed)
+
+    bridge.run("version", {}, blender_path="blender", verbose=True)
+
+    captured = capsys.readouterr()
+    assert home not in captured.err
+    assert "$HOME/Library/plugin/runner.py" in captured.err

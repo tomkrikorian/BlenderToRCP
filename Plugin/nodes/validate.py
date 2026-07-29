@@ -481,6 +481,51 @@ def validate_material(
         target = "errors" if force_error else kind
         _add_issue(result, target, node, message, removable=removable)
 
+    # Blender evaluates a muted node as a pass-through and a muted link as
+    # absent. Nothing in the material pipeline reads either flag, so the
+    # extractor walks straight through them as if they were live and the export
+    # can silently disagree with the viewport - a muted Mix or Mapping is
+    # exported as though the artist had never disabled it.
+    #
+    # Reject rather than emulate: Blender's pass-through semantics vary by node
+    # type and socket layout, so reconstructing them is exactly the kind of
+    # guess this exporter refuses to make elsewhere. Unmuting or deleting the
+    # node is unambiguous and takes a moment.
+    for node in sorted(
+        (n for n in used_nodes if getattr(n, "mute", False)),
+        key=lambda n: (str(getattr(n, "name", "")), id(n)),
+    ):
+        add_issue(
+            "warnings",
+            node,
+            (
+                "Muted node: Blender bypasses it, but the exporter evaluates it "
+                "as if enabled, so the exported material would not match the "
+                "viewport. Unmute or delete the node."
+            ),
+            force_error=strict,
+            removable=True,
+        )
+
+    muted_links = [
+        link
+        for link in getattr(material.node_tree, "links", ())
+        if getattr(link, "is_muted", False)
+        and getattr(link, "to_node", None) in used_nodes
+    ]
+    if muted_links:
+        add_issue(
+            "warnings",
+            muted_links[0].to_node,
+            (
+                f"Material has {len(muted_links)} muted link(s). Blender treats "
+                "them as disconnected, but the exporter follows them as if live. "
+                "Delete the muted links or unmute them."
+            ),
+            force_error=strict,
+            removable=False,
+        )
+
     mapping_contracts, mapping_extraction_errors = (
         _effective_texture_mapping_uses(authored_nodes)
     )
