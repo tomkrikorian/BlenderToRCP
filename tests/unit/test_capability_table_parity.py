@@ -1,0 +1,63 @@
+"""The validator is the single capability authority.
+
+`validate` and the export-time warning pass each kept their own list of which
+Blender node types are supported. The extractor's copy had drifted 14 entries
+behind, so TEX_NOISE, CLAMP, MAP_RANGE, REROUTE and others exported correctly
+while being reported as "unrecognized; export may differ" - and INVERT as
+"requires baking" - directly contradicting what `validate` had just said about
+the same material.
+
+Measured before the fix: a plain Value -> Clamp -> Roughness graph exported
+successfully and emitted
+"Material 'M': Node 'Clamp' (CLAMP) is unrecognized; export may differ."
+"""
+
+from __future__ import annotations
+
+import inspect
+import sys
+import types
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+_bpy_stub = sys.modules.setdefault("bpy", types.ModuleType("bpy"))
+if not hasattr(_bpy_stub, "types"):
+    _bpy_stub.types = types.SimpleNamespace(NodeTree=object)
+
+from Plugin.export.materials.extract import core  # noqa: E402
+from Plugin.nodes import validate  # noqa: E402
+
+
+def _warning_pass_source() -> str:
+    return inspect.getsource(core.collect_material_warnings)
+
+
+def test_the_warning_pass_does_not_hardcode_a_supported_list():
+    """A second literal set is how the two drifted apart in the first place."""
+    source = _warning_pass_source()
+    assert "supported_types = set(" in source, (
+        "the supported-type set must be derived, not re-declared"
+    )
+    assert "'BSDF_PRINCIPLED'," not in source, (
+        "a literal node-type list has reappeared in the warning pass"
+    )
+
+
+def test_the_warning_pass_does_not_hardcode_a_bake_list():
+    source = _warning_pass_source()
+    assert "bake_types = set(" in source
+    assert "'TEX_MAGIC'," not in source
+
+
+def test_validator_supported_and_bake_sets_stay_disjoint():
+    """A type in both would make the warning phrasing arbitrary."""
+    overlap = validate.SUPPORTED_TYPES & validate.BAKE_TYPES
+    assert overlap == set(), f"types declared both supported and bake-only: {overlap}"
+
+
+def test_types_the_validator_accepts_are_not_called_unrecognized():
+    """The property that failed: CLAMP was supported and still warned."""
+    source = _warning_pass_source()
+    # The warning pass must consult the validator's set for this decision.
+    assert "_VALIDATOR_SUPPORTED_TYPES" in source
+    assert "CLAMP" in validate.SUPPORTED_TYPES

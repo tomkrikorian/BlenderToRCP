@@ -572,23 +572,17 @@ def collect_material_warnings(material) -> List[str]:
             f"Material '{material.name}': Displacement output is not supported; bake geometry."
         )
 
-    supported_types = {
-        'OUTPUT_MATERIAL',
-        'BSDF_PRINCIPLED',
-        'EMISSION',
-        'TEX_IMAGE',
-        'NORMAL_MAP',
-        'RGB',
-        'VALUE',
-        'INPUT_BOOL',
-        'INPUT_INT',
-        'INPUT_VECTOR',
-        'SEPARATE_COLOR',
-        'SEPARATE_RGB',
-        'SEPARATE_XYZ',
-        'SEPXYZ',
-        'VALTORGB',
-    }
+    # Derived from the validator rather than a second hand-maintained list.
+    # The local copy had drifted 14 entries behind - TEX_NOISE, CLAMP,
+    # MAP_RANGE, REROUTE and others export correctly but were reported as
+    # "unrecognized; export may differ", and INVERT as "requires baking",
+    # directly contradicting what `validate` had just told the user about the
+    # same material. The validator is the capability authority; this pass only
+    # phrases the warnings.
+    from ....nodes.validate import BAKE_TYPES as _VALIDATOR_BAKE_TYPES
+    from ....nodes.validate import SUPPORTED_TYPES as _VALIDATOR_SUPPORTED_TYPES
+
+    supported_types = set(_VALIDATOR_SUPPORTED_TYPES)
 
     partial_types = {
         'TEX_COORD',
@@ -596,36 +590,7 @@ def collect_material_warnings(material) -> List[str]:
         'MAPPING',
     }
 
-    bake_types = {
-        'BUMP',
-        'DISPLACEMENT',
-        'VECTOR_DISPLACEMENT',
-        'TEX_WAVE',
-        'TEX_WHITE_NOISE',
-        'TEX_MAGIC',
-        'TEX_CHECKER',
-        'TEX_BRICK',
-        'TEX_POINTDENSITY',
-        'TEX_SKY',
-        'TEX_GABOR',
-        'TEX_IES',
-        'BLACKBODY',
-        'LIGHT_FALLOFF',
-        'WAVELENGTH',
-        'VECTOR_MATH',
-        'CURVE_RGB',
-        'INVERT',
-        'GAMMA',
-        'SHADER_TO_RGB',
-        'COMBXYZ',
-        'CURVE_VEC',
-        'RADIAL_TILING',
-        'COMBINE_CYLINDRICAL',
-        'SEPARATE_CYLINDRICAL',
-        'COMBINE_SPHERICAL',
-        'SEPARATE_SPHERICAL',
-        'FLOAT_CURVE',
-    }
+    bake_types = set(_VALIDATOR_BAKE_TYPES)
 
     unsupported_types = {
         'OUTPUT_AOV',
