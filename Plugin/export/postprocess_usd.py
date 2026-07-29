@@ -93,6 +93,15 @@ def process_usd_stage(usd_path: str, settings, context, diagnostics=None) -> Non
             final_writable_layer_paths,
             diagnostics,
         )
+        # Before preflight: the retained preview network must not contradict
+        # the MaterialX graph about the same image's colour space.
+        _run_step(
+            diagnostics,
+            "normalize_preview_color_spaces",
+            _normalize_preview_network_color_spaces,
+            stage,
+            diagnostics,
+        )
         _run_step(
             diagnostics,
             "realitykit_preflight",
@@ -183,3 +192,93 @@ def _require_realitykit_preflight(stage, usd_path: str, settings, diagnostics=No
             f"error(s): {preview}"
         )
     return report
+
+
+def _normalize_preview_network_color_spaces(stage, diagnostics=None) -> None:
+    """Make Blender's retained preview network agree with the MaterialX graph.
+
+    The exporter emits two networks for the same material: the MaterialX
+    ShaderGraph that RealityKit consumes, and the native UsdPreviewSurface
+    network Blender authored, which is kept for other USD consumers such as
+    Quick Look.
+
+    ``textures._materialx_file_colorspace`` already decides that a Blender
+    Non-Color image feeding a perceptual colour input is scene-linear, and
+    authors ``lin_rec709`` for it. Blender tags its own copy of that same image
+    ``data``, so the two networks disagreed about one file and preflight - which
+    inspects the whole stage - rejected the export with
+    TEXTURE_COLOR_SPACE_MISMATCH on the preview network's texture. The material
+    was legal and the MaterialX graph was correct; nothing the user could change
+    in Blender would fix it.
+
+    Apply the same rule to the retained network rather than deleting it or
+    exempting it from preflight: deleting would break the Quick Look path this
+    network exists to serve, and exempting would let a genuinely wrong preview
+    network ship unchecked.
+    """
+    from pxr import Sdf, UsdShade
+
+    from .realitykit_preflight import (
+        _COLOR_INPUT_TERMS,
+        _DATA_TEXTURE_COLOR_SPACES,
+        _normalize_color_space,
+        _texture_color_space,
+    )
+
+    retagged = []
+    for prim in stage.Traverse():
+        shader = UsdShade.Shader(prim)
+        if not shader:
+            continue
+        shader_id = shader.GetShaderId() if hasattr(shader, "GetShaderId") else None
+        if str(shader_id or "") != "UsdUVTexture":
+            continue
+
+        file_input = shader.GetInput("file")
+        if not file_input:
+            continue
+        attr = file_input.GetAttr()
+        if not attr or attr.GetTypeName() != Sdf.ValueTypeNames.Asset:
+            continue
+
+        # Resolve exactly the way preflight does. Blender authors this through
+        # ColorSpaceAPI (`colorSpace:name`) on an ancestor prim rather than as
+        # metadata on the attribute, so reading GetColorSpace() alone sees
+        # nothing and every texture would be skipped.
+        resolved = _normalize_color_space(_texture_color_space(file_input, shader))
+        if resolved not in _DATA_TEXTURE_COLOR_SPACES:
+            continue
+
+        if not _feeds_perceptual_color_input(stage, shader, _COLOR_INPUT_TERMS):
+            continue
+
+        # Attribute metadata is the first thing preflight consults, so this
+        # overrides the inherited ColorSpaceAPI opinion for this texture only.
+        attr.SetColorSpace("lin_rec709")
+        retagged.append(str(prim.GetPath()))
+
+    if retagged and diagnostics:
+        diagnostics.add_warning(
+            "Retagged the retained preview network's colour textures as "
+            "lin_rec709 to match the MaterialX graph: "
+            + ", ".join(sorted(retagged))
+        )
+
+
+def _feeds_perceptual_color_input(stage, shader, color_terms) -> bool:
+    """Whether this texture shader drives a colour input on a surface shader."""
+    from pxr import UsdShade
+
+    source_path = shader.GetPath()
+    for prim in stage.Traverse():
+        consumer = UsdShade.Shader(prim)
+        if not consumer:
+            continue
+        for consumer_input in consumer.GetInputs():
+            name = consumer_input.GetBaseName().lower().replace("-", "_")
+            if not any(term in name for term in color_terms):
+                continue
+            for connection in consumer_input.GetAttr().GetConnections():
+                if connection.GetPrimPath() == source_path:
+                    return True
+    return False
