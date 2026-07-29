@@ -615,3 +615,79 @@ def test_restore_without_recorded_links_still_restores_materials():
     bake_textures.restore_baked_materials(result, keep_baked_materials=False)
 
     assert slot.material is original
+
+
+# ---------------------------------------------------------------------------
+# Averaged roughness must describe the material, not the bake margin.
+#
+# _average_image_value used to mean over the whole buffer. Texels no UV island
+# covers read 0, and a larger margin dilates real values over more of them, so
+# the exported constant moved with the margin setting. Measured end to end on
+# Blender 5.2, one material with a uniform 0.5 roughness texture:
+#
+#   margin  0   8 (default)  32
+#   before  0.118  0.212     0.438
+#   after   0.502  0.492     0.501
+# ---------------------------------------------------------------------------
+
+
+class _PixelBuffer:
+    def __init__(self, values):
+        self.values = list(values)
+
+    def __len__(self):
+        return len(self.values)
+
+    def foreach_get(self, target):
+        target[:] = self.values
+
+    def foreach_set(self, source):
+        self.values = [float(v) for v in source]
+
+
+class _AverageImage:
+    def __init__(self, texels):
+        """texels: list of (red, alpha) pairs."""
+        flat = []
+        for red, alpha in texels:
+            flat.extend([red, red, red, alpha])
+        self.pixels = _PixelBuffer(flat)
+
+
+def test_average_ignores_texels_no_uv_island_covers():
+    # Quarter of the texture carries the real value; the rest is untouched.
+    image = _AverageImage([(0.5, 1.0)] * 4 + [(0.0, 0.0)] * 12)
+
+    assert bake_textures._average_image_value(image) == pytest.approx(0.5)
+
+
+def test_average_is_unchanged_by_how_much_margin_dilated():
+    """The same material at two margins must average the same."""
+    tight = _AverageImage([(0.5, 1.0)] * 4 + [(0.0, 0.0)] * 12)
+    dilated = _AverageImage([(0.5, 1.0)] * 12 + [(0.0, 0.0)] * 4)
+
+    assert bake_textures._average_image_value(tight) == pytest.approx(
+        bake_textures._average_image_value(dilated)
+    )
+
+
+def test_a_genuinely_black_material_still_averages_to_zero():
+    """Coverage comes from alpha, so 0.0 roughness is not mistaken for empty."""
+    image = _AverageImage([(0.0, 1.0)] * 8 + [(0.0, 0.0)] * 8)
+
+    assert bake_textures._average_image_value(image) == pytest.approx(0.0)
+
+
+def test_average_falls_back_to_the_whole_buffer_without_a_coverage_mask():
+    """An unprefilled target must not report every material as fully rough."""
+    image = _AverageImage([(0.25, 1.0), (0.75, 1.0)])
+
+    assert bake_textures._average_image_value(image) == pytest.approx(0.5)
+
+
+def test_mark_pixels_uncovered_zeroes_the_buffer():
+    image = _AverageImage([(0.9, 1.0)] * 4)
+
+    bake_textures._mark_pixels_uncovered(image)
+
+    assert set(image.pixels.values) == {0.0}

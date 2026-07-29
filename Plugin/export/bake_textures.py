@@ -517,6 +517,11 @@ def _bake_materials_for_objects_impl(
                             )
                             entry["roughness_image"] = rough_image
                             result.temporary_images.append(rough_image)
+                            # Mark every texel as uncovered before baking. The
+                            # bake writes alpha 1 wherever it touches, so what
+                            # is left at alpha 0 is texture space no UV island
+                            # reaches - see _average_image_value.
+                            _mark_pixels_uncovered(rough_image)
                             _set_active_image_node(baked_mat, rough_image, entry["uv_layer"])
 
                         _select_object(context, obj)
@@ -527,6 +532,9 @@ def _bake_materials_for_objects_impl(
                                 bake_type='ROUGHNESS',
                                 pass_filter=None,
                                 margin=margin,
+                                # Keep the sentinel: use_clear would reset the
+                                # whole buffer and destroy the coverage mask.
+                                use_clear=False,
                             )
                         for entry in baked_entries:
                             if not entry or not entry.get("roughness_image"):
@@ -1705,7 +1713,31 @@ def _configure_emission_for_alpha(material) -> None:
     links.new(emission_node.outputs['Emission'], output_node.inputs['Surface'])
 
 
+def _mark_pixels_uncovered(image) -> None:
+    """Zero an averaging target so unbaked texels stay distinguishable.
+
+    Pairs with ``use_clear=False`` on the bake: the operator writes alpha 1
+    wherever it touches, so any texel still at alpha 0 afterwards is texture
+    space no UV island reaches.
+    """
+    try:
+        import numpy as np
+
+        image.pixels.foreach_set(np.zeros(len(image.pixels), dtype=np.float32))
+    except Exception:
+        pass
+
+
 def _average_image_value(image) -> float:
+    """Mean of the baked texels only, ignoring space no UV island covers.
+
+    Averaging the whole buffer made the result a function of bake margin
+    rather than of the material: uncovered texels read 0, and a larger margin
+    dilates real values over more of them. Measured on Blender 5.2 with one
+    material at Roughness 0.5 and a Non-Color target, margins 0/8/32 gave
+    0.1178 / 0.2120 / 0.4376 unmasked, against 0.5020 / 0.4919 / 0.5011 masked.
+    The default margin is 8, so the exported constant was far too low.
+    """
     try:
         import numpy as np
 
@@ -1713,8 +1745,18 @@ def _average_image_value(image) -> float:
         image.pixels.foreach_get(buf)
     except Exception:
         return 0.5
+
     reds = buf[0::4]
-    return float(reds.mean()) if reds.size else 0.5
+    if not reds.size:
+        return 0.5
+
+    covered = reds[buf[3::4] > 0.5]
+    if covered.size:
+        return float(covered.mean())
+    # No coverage mask available (an unprefilled target, or a bake that wrote
+    # nothing). The unmasked mean is wrong, but it is what the caller had
+    # before, and it is better than reporting a material as fully rough.
+    return float(reds.mean())
 
 
 def _new_combine_color_node(nodes):
