@@ -195,6 +195,8 @@ def prepare_animation_export(context, settings, diagnostics=None) -> dict:
     if not targets and diagnostics:
         diagnostics.add_warning("Export animation enabled but no animated targets were found.")
 
+    _warn_about_stashed_actions(actions, diagnostics)
+
     if not actions:
         if diagnostics:
             diagnostics.add_warning(
@@ -492,6 +494,53 @@ def _collect_targets(objects: list, settings) -> list[dict]:
                 })
 
     return targets
+
+
+def _warn_about_stashed_actions(exported_actions, diagnostics) -> None:
+    """Warn that stashed Actions exist and are not being exported.
+
+    _action_bindings_for_owner documents its ActionSlot scan as covering
+    "logical takes that are not the active Action and are not currently staged
+    as NLA strips". In Blender 5.2 ``ActionSlot.users()`` returns only *live*
+    users, so it is empty for exactly that case and the branch never fires for
+    the scenario its comment describes.
+
+    A stashed take - fake user set, not assigned, not staged - therefore
+    disappeared from the schedule and the clip list with no warning, and an
+    animator got a silently short export.
+
+    This cannot prove which object a stashed Action belongs to (that is the
+    information ``users()`` withholds), so it reports the count and names them
+    rather than guessing at ownership or trying to export them.
+    """
+    if diagnostics is None:
+        return
+    try:
+        all_actions = list(getattr(getattr(bpy, "data", None), "actions", []) or [])
+    except Exception:
+        return
+
+    exported = {_rna_identity(action) for action in (exported_actions or [])}
+    stashed = []
+    for action in all_actions:
+        if _rna_identity(action) in exported:
+            continue
+        if not getattr(action, "use_fake_user", False):
+            continue
+        try:
+            live = any(list(slot.users()) for slot in (getattr(action, "slots", []) or []))
+        except Exception:
+            live = False
+        if not live:
+            stashed.append(str(getattr(action, "name", "?")))
+
+    if stashed:
+        diagnostics.add_warning(
+            f"{len(stashed)} stashed Action(s) were not exported: "
+            + ", ".join(sorted(stashed))
+            + ". Only the active Action and Actions staged as NLA strips are "
+            "exported. Push a stashed take to an NLA strip to include it."
+        )
 
 
 def _action_bindings_for_owner(owner) -> list[tuple[Any, Any]]:

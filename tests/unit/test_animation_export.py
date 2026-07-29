@@ -603,3 +603,87 @@ def test_shape_key_data_path_escapes_quotes_in_the_name(monkeypatch):
 
     assert 'key_blocks["Eye \\"Blink\\""].value' in recorded
     assert 'key_blocks["Plain"].value' in recorded
+
+
+# ---------------------------------------------------------------------------
+# Stashed Actions are dropped, and the code comment claimed otherwise.
+#
+# _action_bindings_for_owner documents its ActionSlot scan as covering "logical
+# takes that are not the active Action and are not currently staged as NLA
+# strips". In Blender 5.2 ActionSlot.users() returns only *live* users, so it is
+# empty for exactly that case and the branch never fires for the scenario its
+# comment describes. Measured: three Actions on one object (active / NLA strip /
+# stashed with fake user) exported two takes and dropped the stashed one with no
+# warning.
+# ---------------------------------------------------------------------------
+
+
+class _StashSlot:
+    def __init__(self, live_users=()):
+        self._users = list(live_users)
+
+    def users(self):
+        return list(self._users)
+
+
+class _StashAction:
+    def __init__(self, name, *, use_fake_user=False, live_users=()):
+        self.name = name
+        self.use_fake_user = use_fake_user
+        self.slots = [_StashSlot(live_users)]
+
+
+def _stash_diag():
+    class _D:
+        def __init__(self):
+            self.warnings = []
+
+        def add_warning(self, message):
+            self.warnings.append(message)
+    return _D()
+
+
+def _with_actions(monkeypatch, actions):
+    monkeypatch.setattr(
+        animation_export.bpy, "data", SimpleNamespace(actions=actions), raising=False
+    )
+
+
+def test_stashed_action_is_reported(monkeypatch):
+    stashed = _StashAction("StashedTake", use_fake_user=True)
+    exported = _StashAction("ActiveTake", live_users=[object()])
+    _with_actions(monkeypatch, [exported, stashed])
+    diagnostics = _stash_diag()
+
+    animation_export._warn_about_stashed_actions([exported], diagnostics)
+
+    assert diagnostics.warnings
+    assert "StashedTake" in diagnostics.warnings[0]
+    assert "ActiveTake" not in diagnostics.warnings[0]
+
+
+def test_exported_actions_are_not_reported(monkeypatch):
+    exported = _StashAction("ActiveTake", use_fake_user=True, live_users=[object()])
+    _with_actions(monkeypatch, [exported])
+    diagnostics = _stash_diag()
+
+    animation_export._warn_about_stashed_actions([exported], diagnostics)
+
+    assert diagnostics.warnings == []
+
+
+def test_an_action_without_a_fake_user_is_not_reported(monkeypatch):
+    """No fake user means Blender will discard it; it is not a stashed take."""
+    orphan = _StashAction("Orphan", use_fake_user=False)
+    _with_actions(monkeypatch, [orphan])
+    diagnostics = _stash_diag()
+
+    animation_export._warn_about_stashed_actions([], diagnostics)
+
+    assert diagnostics.warnings == []
+
+
+def test_no_diagnostics_sink_is_not_an_error(monkeypatch):
+    _with_actions(monkeypatch, [_StashAction("StashedTake", use_fake_user=True)])
+
+    animation_export._warn_about_stashed_actions([], None)
