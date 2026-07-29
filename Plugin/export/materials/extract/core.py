@@ -2814,16 +2814,24 @@ def _extract_mapping_from_node(node) -> Optional[Dict[str, Any]]:
             # SRT implements rotate(uv / scale) - offset.
             place_scale = (1.0 / float(scale[0]), 1.0 / float(scale[1]))
             place_offset = (-float(translation[0]), -float(translation[1]))
+            place_rotate = float(rotation[2])
             operation_order = 0
         else:
-            # Blender TEXTURE: rotate(uv - location) / scale. MaterialX place2d
-            # TRS is the same operation order and sign convention.
+            # Blender TEXTURE applies the *inverse* transform:
+            # rotate(-r)(uv - location) / scale. Measured on Blender 5.2 by
+            # baking the mapped coordinate itself - at rotation Z=90 deg, POINT
+            # sends (0.9, 0.06) to (-0.06, 0.9) while TEXTURE sends it to
+            # (0.06, -0.9), which is rotate(-90). place2d TRS is
+            # rotate(theta)(uv - offset)/scale, so theta must be negated here.
+            # Only the offset sign used to flip between the two branches, which
+            # mirrored a tiled decal's rotation about its pivot.
             place_scale = (float(scale[0]), float(scale[1]))
             place_offset = (float(translation[0]), float(translation[1]))
+            place_rotate = -float(rotation[2])
             operation_order = 1
         return {
             'offset': place_offset,
-            'rotate': float(rotation[2]),
+            'rotate': place_rotate,
             'scale': place_scale,
             'pivot': (0.0, 0.0),
             'operationorder': operation_order,

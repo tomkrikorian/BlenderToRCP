@@ -1033,6 +1033,15 @@ def test_blender_52_mapping_reads_location_rotation_and_scale_sockets():
 
 
 def test_blender_52_texture_mapping_uses_materialx_trs_inverse_contract():
+    """TEXTURE mode applies the inverse transform, including the rotation.
+
+    Measured on Blender 5.2 by baking the mapped coordinate itself: at
+    rotation Z=90 deg, POINT sends (0.9, 0.06) to (-0.06, 0.9) while TEXTURE
+    sends it to (0.06, -0.9) - i.e. rotate(-90). place2d TRS is
+    rotate(theta)(uv - offset)/scale, so theta is negated. Previously only the
+    offset sign flipped between the branches, which mirrored a rotated tiled
+    decal about its pivot.
+    """
     node = _Node()
     node.type = "MAPPING"
     node.name = "Texture Mapping"
@@ -1044,7 +1053,7 @@ def test_blender_52_texture_mapping_uses_materialx_trs_inverse_contract():
     }
     assert core._extract_mapping_from_node(node) == {
         "offset": (0.2, 0.3),
-        "rotate": 0.5,
+        "rotate": -0.5,
         "scale": (2.0, 4.0),
         "pivot": (0.0, 0.0),
         "operationorder": 1,
@@ -1884,3 +1893,28 @@ def test_srgb_tagged_data_texture_now_fails_closed(monkeypatch):
     specs = _extract_group_texture_specs(monkeypatch, ["normal"])
     with pytest.raises(ValueError):
         mtlx_textures._materialx_file_colorspace(specs["normal"], "normal")
+
+
+def test_point_and_texture_mapping_rotate_in_opposite_directions():
+    """The two modes are inverses; a shared rotation sign cannot be right.
+
+    Guards the specific regression: both branches used to emit +rotation[2].
+    """
+    def mapping_for(vector_type):
+        node = _Node()
+        node.type = "MAPPING"
+        node.name = "Mapping"
+        node.vector_type = vector_type
+        node.inputs = {
+            "Location": _Socket((0.0, 0.0, 0.0)),
+            "Rotation": _Socket((0.0, 0.0, 0.75)),
+            "Scale": _Socket((1.0, 1.0, 1.0)),
+        }
+        return core._extract_mapping_from_node(node)
+
+    point = mapping_for("POINT")
+    texture = mapping_for("TEXTURE")
+
+    assert point["rotate"] == 0.75
+    assert texture["rotate"] == -0.75
+    assert point["rotate"] == -texture["rotate"]
