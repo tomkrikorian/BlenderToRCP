@@ -536,48 +536,6 @@ def _create_place2d_node(
     return place_shader.CreateOutput("out", Sdf.ValueTypeNames.Float2)
 
 
-def _apply_srgb_to_linear(
-    manifest: Dict[str, Any],
-    stage,
-    nodegraph_path: str,
-    input_name: str,
-    source_output,
-    output_type: str,
-):
-    """Apply an approximate sRGB-to-linear conversion using a power node."""
-    nodedef_name = select_nodedef_name_for_node(
-        manifest,
-        "power",
-        output_type=output_type,
-    )
-    if not nodedef_name:
-        return None
-
-    const_name = _sanitize_name(f"srgb_exp_{input_name}")
-    const_prim = stage.DefinePrim(f"{nodegraph_path}/{const_name}", "Shader")
-    const_shader = UsdShade.Shader(const_prim)
-    const_shader.CreateIdAttr(select_nodedef_name_for_node(manifest, "constant", output_type=output_type))
-
-    exponent = 2.2
-    if output_type == 'color4':
-        value = (exponent, exponent, exponent, exponent)
-    else:
-        value = (exponent, exponent, exponent)
-    const_shader.CreateInput("value", _map_mtlx_type_to_sdf(output_type)).Set(value)
-    const_output = const_shader.CreateOutput("out", _map_mtlx_type_to_sdf(output_type))
-
-    pow_name = _sanitize_name(f"srgb_to_linear_{input_name}")
-    pow_prim = stage.DefinePrim(f"{nodegraph_path}/{pow_name}", "Shader")
-    pow_shader = UsdShade.Shader(pow_prim)
-    pow_shader.CreateIdAttr(nodedef_name)
-
-    pow_in1 = pow_shader.CreateInput("in1", _map_mtlx_type_to_sdf(output_type))
-    pow_in1.ConnectToSource(source_output)
-    pow_in2 = pow_shader.CreateInput("in2", _map_mtlx_type_to_sdf(output_type))
-    pow_in2.ConnectToSource(const_output)
-    return pow_shader.CreateOutput("out", _map_mtlx_type_to_sdf(output_type))
-
-
 def _create_scale_output(
     manifest: Dict[str, Any],
     stage,

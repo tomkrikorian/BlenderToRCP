@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 
 from scripts._lib.rcp_import_contract import (
+    BUFFER_NAME_RE,
     ContractError,
     build_report,
     compare_reports,
@@ -353,3 +354,28 @@ def test_real_rcp_corpus_when_available() -> None:
             report["canonical_contract_sha256"]
             == fixture["captured"]["canonical_contract_sha256"]
         )
+
+
+def test_buffer_hash_accepts_the_measured_unpadded_range() -> None:
+    """RCP renders the 64-bit content hash without padding to 16 digits.
+
+    Measured across every RCP-authored asset under References/: 390 suffixes of
+    length 16, 21 of length 15 (one leading zero nibble, ~1/16 of values) and 1
+    of length 14 (~1/256). A {15,16} bound rejected the 14-digit case, so
+    bakeTest_02.import failed inspection against a name RCP itself wrote.
+    """
+    uuid = "11b56a38-a936-1245-8bd3-24faef70d52b"
+    for digits in (14, 15, 16):
+        name = f"{uuid}.{'a' * digits}"
+        assert BUFFER_NAME_RE.fullmatch(name), f"{digits}-digit hash must be accepted"
+
+
+def test_buffer_hash_still_rejects_an_over_long_suffix() -> None:
+    """17 digits cannot come from a 64-bit value."""
+    uuid = "11b56a38-a936-1245-8bd3-24faef70d52b"
+    assert BUFFER_NAME_RE.fullmatch(f"{uuid}.{'a' * 17}") is None
+
+
+def test_buffer_hash_still_rejects_non_hex() -> None:
+    uuid = "11b56a38-a936-1245-8bd3-24faef70d52b"
+    assert BUFFER_NAME_RE.fullmatch(f"{uuid}.zzzzzzzzzzzzzzzz") is None

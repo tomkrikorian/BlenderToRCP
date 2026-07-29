@@ -31,55 +31,6 @@ def test_reset_export_staging_dir_removes_stale_sidecars(tmp_path):
     assert list(staging_dir.iterdir()) == []
 
 
-def test_sidecar_cleanup_uses_exact_output_manifest_not_stem_prefix(tmp_path):
-    textures = tmp_path / "textures"
-    textures.mkdir()
-    chair_texture = textures / "chair-albedo.png"
-    chair_v2_texture = textures / "chair-v2-albedo.png"
-    chair_texture.write_bytes(b"chair")
-    chair_v2_texture.write_bytes(b"chair-v2")
-
-    chair_output = tmp_path / "chair.usda"
-    chair_v2_output = tmp_path / "chair-v2.usda"
-    blender_usd_export._write_output_sidecar_manifest(
-        chair_output,
-        [chair_texture],
-    )
-    blender_usd_export._write_output_sidecar_manifest(
-        chair_v2_output,
-        [chair_v2_texture],
-    )
-
-    blender_usd_export._remove_tracked_output_sidecars(chair_output)
-
-    assert not chair_texture.exists()
-    assert chair_v2_texture.exists()
-    assert not blender_usd_export._output_sidecar_manifest_path(chair_output).exists()
-    assert blender_usd_export._output_sidecar_manifest_path(chair_v2_output).exists()
-
-
-def test_sidecar_cleanup_preserves_file_owned_by_another_output(tmp_path):
-    textures = tmp_path / "textures"
-    textures.mkdir()
-    shared_texture = textures / "shared-albedo.png"
-    shared_texture.write_bytes(b"shared")
-
-    chair_output = tmp_path / "chair.usda"
-    chair_v2_output = tmp_path / "chair-v2.usda"
-    blender_usd_export._write_output_sidecar_manifest(
-        chair_output,
-        [shared_texture],
-    )
-    blender_usd_export._write_output_sidecar_manifest(
-        chair_v2_output,
-        [shared_texture],
-    )
-
-    blender_usd_export._remove_tracked_output_sidecars(chair_output)
-
-    assert shared_texture.exists()
-
-
 def test_blender_52_external_texture_contract_keeps_preview_without_native_copy():
     kwargs = blender_usd_export._build_export_kwargs(
         SimpleNamespace(),

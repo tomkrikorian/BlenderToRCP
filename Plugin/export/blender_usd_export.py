@@ -142,11 +142,6 @@ def create_export_staging_dir(
     ) from last_error
 
 
-def get_usdz_staging_dir(final_path: str | Path) -> Path:
-    """Return the per-export staging directory used for USDZ packaging."""
-    return get_export_staging_dir(final_path)
-
-
 def _portable_staging_output_name(name: str) -> str:
     normalized = unicodedata.normalize("NFC", str(name or "scene.usd"))
     portable = "".join(
@@ -869,17 +864,6 @@ def _write_manifest_entries(path: Path, final_path: Path, entries) -> None:
     )
 
 
-def _write_manifest_payload(path: Path, final_path: Path, sidecars: list[Path]) -> None:
-    _write_manifest_entries(
-        path,
-        final_path,
-        (
-            sidecar.relative_to(final_path.parent).as_posix()
-            for sidecar in sidecars
-        ),
-    )
-
-
 def _copy_publication_file(source: Path, destination: Path) -> None:
     if source.is_symlink() or not source.is_file():
         raise RuntimeError(f"Publication source is not a regular file: {source}")
@@ -1075,131 +1059,6 @@ def _cleanup_publication_transaction_dir(transaction_dir: Path, diagnostics=None
 def _output_sidecar_manifest_path(final_path: Path) -> Path:
     """Return a manifest path uniquely tied to the complete output filename."""
     return output_sidecar_manifest_path(final_path)
-
-
-def _write_output_sidecar_manifest(
-    final_path: Path,
-    sidecars: list[Path],
-    diagnostics=None,
-) -> None:
-    """Persist exact sidecar ownership for safe cleanup on the next export."""
-    manifest_path = _validate_manifest_destination(final_path)
-    relative_sidecars = []
-    for path in sidecars:
-        try:
-            relative = path.relative_to(final_path.parent)
-        except ValueError:
-            continue
-        if not relative.parts or relative.parts[0] not in _OWNED_SIDECAR_DIRECTORIES:
-            continue
-        relative_sidecars.append(relative.as_posix())
-
-    if not relative_sidecars:
-        try:
-            manifest_path.unlink(missing_ok=True)
-            manifest_path.parent.rmdir()
-        except OSError:
-            pass
-        return
-
-    payload = {
-        "schema_version": _SIDECAR_MANIFEST_SCHEMA_VERSION,
-        "output": _canonical_output_identity(final_path),
-        "sidecars": sorted(set(relative_sidecars)),
-    }
-    temporary_path = manifest_path.with_suffix(f"{manifest_path.suffix}.tmp")
-    try:
-        manifest_path.parent.mkdir(parents=True, exist_ok=True)
-        temporary_path.write_text(
-            json.dumps(payload, indent=2, sort_keys=True) + "\n",
-            encoding="utf-8",
-        )
-        temporary_path.replace(manifest_path)
-        if diagnostics:
-            diagnostics.add_generated_file("sidecar_manifest", str(manifest_path))
-    except Exception as exc:
-        try:
-            temporary_path.unlink(missing_ok=True)
-        except OSError:
-            pass
-        if diagnostics:
-            diagnostics.add_warning(
-                f"Failed to record sidecar ownership manifest '{manifest_path}': {exc}"
-            )
-
-
-def _remove_tracked_output_sidecars(final_path: Path, diagnostics=None) -> None:
-    """Delete only sidecars recorded as owned by this exact output file."""
-    try:
-        manifest_path = _validate_manifest_destination(final_path)
-    except RuntimeError as exc:
-        if diagnostics:
-            diagnostics.add_warning(str(exc))
-        return
-    if not manifest_path.is_file():
-        return
-
-    try:
-        payload = json.loads(manifest_path.read_text(encoding="utf-8"))
-    except Exception as exc:
-        if diagnostics:
-            diagnostics.add_warning(
-                f"Could not read sidecar ownership manifest '{manifest_path}': {exc}"
-            )
-        return
-
-    if (
-        payload.get("schema_version") != _SIDECAR_MANIFEST_SCHEMA_VERSION
-        or payload.get("output") != _canonical_output_identity(final_path)
-        or not isinstance(payload.get("sidecars"), list)
-    ):
-        if diagnostics:
-            diagnostics.add_warning(
-                f"Ignored invalid sidecar ownership manifest '{manifest_path}'."
-            )
-        return
-
-    shared_sidecars = _sidecars_owned_by_other_outputs(final_path)
-    for entry in payload["sidecars"]:
-        if not isinstance(entry, str):
-            continue
-        relative = Path(entry)
-        if (
-            relative.is_absolute()
-            or not relative.parts
-            or ".." in relative.parts
-            or relative.parts[0] not in _OWNED_SIDECAR_DIRECTORIES
-        ):
-            continue
-        if relative.as_posix() in shared_sidecars:
-            continue
-        path = final_path.parent / relative
-        owned_directory = final_path.parent / relative.parts[0]
-        if owned_directory.is_symlink():
-            continue
-        owned_root = final_path.parent.resolve() / relative.parts[0]
-        try:
-            # Resolve the complete path so a symlinked parent cannot redirect a
-            # manifest entry outside the owned textures/assets directory.
-            if not path.resolve().is_relative_to(owned_root):
-                continue
-            if not path.is_file() and not path.is_symlink():
-                continue
-            path.unlink()
-            if diagnostics:
-                diagnostics.add_generated_file(
-                    "removed_stale_sidecar",
-                    str(path),
-                )
-        except Exception as exc:
-            if diagnostics:
-                diagnostics.add_warning(f"Failed to remove stale sidecar '{path}': {exc}")
-
-    try:
-        manifest_path.unlink()
-        manifest_path.parent.rmdir()
-    except OSError:
-        pass
 
 
 def _sidecars_owned_by_other_outputs(final_path: Path) -> set[str]:

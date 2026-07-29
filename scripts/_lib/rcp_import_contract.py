@@ -23,7 +23,13 @@ REPORT_SCHEMA_VERSION = 1
 
 UUID_PATTERN = r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
 UUID_RE = re.compile(rf"\b({UUID_PATTERN})\b")
-BUFFER_NAME_RE = re.compile(rf"^({UUID_PATTERN})\.([0-9a-f]{{15,16}})(?:\..+)?$")
+# The suffix is a 64-bit content hash rendered as hex with leading zeros
+# stripped, so it is at most 16 characters and occasionally shorter. Measured
+# across every RCP-authored asset under References/: 390 of length 16, 21 of
+# length 15 (~1/16, one leading zero nibble) and 1 of length 14 (~1/256) - the
+# distribution an unpadded rendering produces. A {15,16} bound rejected RCP's
+# own output, which is how bakeTest_02 failed inspection.
+BUFFER_NAME_RE = re.compile(rf"^({UUID_PATTERN})\.([0-9a-f]{{1,16}})(?:\..+)?$")
 TOP_LEVEL_FIELD_RE = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*):(?:\s|$)")
 TYPE_LINE_RE = re.compile(r'^__type:\s*"([^"]+)"\s*$')
 UUID_LINE_RE = re.compile(rf'^__uuid:\s*"({UUID_PATTERN})"\s*$')
