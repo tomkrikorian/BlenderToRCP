@@ -221,6 +221,52 @@ def _validate_staging_matches_final(
     return _validate_export_staging_dir(staging_dir, create=False)
 
 
+#: Blender's USD exporter never rescales geometry to match the scene's unit
+#: scale - ``convert_scene_units`` only *declares* ``metersPerUnit``. Measured
+#: on Blender 5.2: a 2-unit cube exported from ``scale_length`` 1.0 and 0.01
+#: produced identical points (``max_x = 1.0``) under ``METERS``, under
+#: ``CUSTOM``/1.0, and under ``CENTIMETERS`` (which only changed the declared
+#: ``metersPerUnit`` to 0.01).
+#:
+#: The Apple spatial contract pins ``metersPerUnit`` to 1.0, so a scene at any
+#: other unit scale would export geometry whose numbers are Blender units while
+#: the stage claims they are metres. A centimetre-scale scene reads "2 cm" in
+#: the sidebar and lands in RealityKit 100x oversized, with nothing to indicate
+#: it happened.
+#:
+#: Refusing is the honest behaviour until the exporter can compensate. Baking
+#: the scale into a root transform is the real fix, but it has to be validated
+#: against the skeletal and animated fixtures before it can be trusted, so it
+#: is deliberately not attempted here.
+_SUPPORTED_SCENE_UNIT_SCALE = 1.0
+_SCENE_UNIT_SCALE_TOLERANCE = 1e-6
+
+
+def _require_supported_scene_unit_scale(context) -> None:
+    """Refuse a scene whose unit scale the Apple contract cannot represent."""
+    scene = getattr(context, "scene", None)
+    unit_settings = getattr(scene, "unit_settings", None)
+    scale_length = getattr(unit_settings, "scale_length", None)
+    if scale_length is None:
+        return
+    try:
+        scale_length = float(scale_length)
+    except (TypeError, ValueError):
+        return
+    if abs(scale_length - _SUPPORTED_SCENE_UNIT_SCALE) <= _SCENE_UNIT_SCALE_TOLERANCE:
+        return
+
+    raise RuntimeError(
+        "Scene unit scale is "
+        f"{scale_length:g}, but the RealityKit export contract fixes "
+        "metersPerUnit at 1.0 and Blender's USD exporter does not rescale "
+        "geometry to match. Exporting would author your Blender units as "
+        f"metres, making the asset {1.0 / scale_length:g}x the size you see in "
+        "Blender. Set Scene Properties > Units > Unit Scale to 1.0 (and apply "
+        "object scale where needed) before exporting."
+    )
+
+
 def export_blender_scene(
     context,
     settings,
@@ -247,6 +293,7 @@ def export_blender_scene(
         Path to exported USD file (temporary if USDZ is requested)
     """
     require_supported_blender_version()
+    _require_supported_scene_unit_scale(context)
 
     export_format = getattr(settings, "export_format", "USDA")
     if export_format == 'USD':

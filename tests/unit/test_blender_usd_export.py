@@ -294,3 +294,59 @@ def test_runtime_version_gate_fails_closed_when_bpy_has_no_app(monkeypatch):
 
     with pytest.raises(RuntimeError, match=r"detected Blender 0\.0\.0"):
         plugin_package.require_supported_blender_version()
+
+
+# ---------------------------------------------------------------------------
+# Scene unit scale
+#
+# Blender's USD exporter never rescales geometry to match scene unit scale;
+# convert_scene_units only declares metersPerUnit. Measured on Blender 5.2: a
+# 2-unit cube exported from scale_length 1.0 and 0.01 produced identical points
+# under METERS, under CUSTOM/1.0, and under CENTIMETERS (which changed only the
+# declared metersPerUnit). Since the Apple contract pins metersPerUnit to 1.0,
+# a centimetre-scale scene silently landed in RealityKit 100x oversized.
+# ---------------------------------------------------------------------------
+
+
+def _context_with_unit_scale(scale_length):
+    return SimpleNamespace(
+        scene=SimpleNamespace(unit_settings=SimpleNamespace(scale_length=scale_length))
+    )
+
+
+def test_unit_scale_of_one_is_accepted():
+    blender_usd_export._require_supported_scene_unit_scale(
+        _context_with_unit_scale(1.0)
+    )
+
+
+def test_float_noise_around_one_is_accepted():
+    blender_usd_export._require_supported_scene_unit_scale(
+        _context_with_unit_scale(1.0 + 1e-9)
+    )
+
+
+@pytest.mark.parametrize("scale_length", [0.01, 0.001, 100.0, 0.3048])
+def test_other_unit_scales_are_refused(scale_length):
+    with pytest.raises(RuntimeError, match="Scene unit scale"):
+        blender_usd_export._require_supported_scene_unit_scale(
+            _context_with_unit_scale(scale_length)
+        )
+
+
+def test_refusal_states_the_size_error_and_the_remedy():
+    with pytest.raises(RuntimeError) as caught:
+        blender_usd_export._require_supported_scene_unit_scale(
+            _context_with_unit_scale(0.01)
+        )
+    message = str(caught.value)
+    assert "100x" in message, "the user needs the magnitude, not just a rejection"
+    assert "Unit Scale" in message, "the user needs to know what to change"
+
+
+def test_a_context_without_unit_settings_is_not_refused():
+    """Test doubles and headless contexts must not be blocked by this gate."""
+    blender_usd_export._require_supported_scene_unit_scale(SimpleNamespace())
+    blender_usd_export._require_supported_scene_unit_scale(
+        SimpleNamespace(scene=SimpleNamespace())
+    )
