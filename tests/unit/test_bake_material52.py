@@ -691,3 +691,79 @@ def test_mark_pixels_uncovered_zeroes_the_buffer():
     bake_textures._mark_pixels_uncovered(image)
 
     assert set(image.pixels.values) == {0.0}
+
+
+# ---------------------------------------------------------------------------
+# Transparent materials: roughness is carried through, not baked.
+#
+# Cycles' ROUGHNESS pass returns 0 on an alpha-blended surface. Measured on
+# Blender 5.2 with two materials identical but for Alpha, both at roughness
+# 0.5: opaque baked R[0.0000, 0.5020], Alpha=0.4 baked R[0.0000, 0.0000]. Any
+# glass or foliage material exported a mirror finish. Normal and metallic are
+# already carried through for the same reason - the bake cannot represent them.
+# ---------------------------------------------------------------------------
+
+
+class _RoughSocket:
+    def __init__(self, default_value=0.5, links=()):
+        self.default_value = default_value
+        self.links = list(links)
+        self.is_linked = bool(links)
+
+
+def _principled_with_roughness(socket):
+    return types.SimpleNamespace(inputs={"Roughness": socket})
+
+
+def _material_with(principled):
+    return types.SimpleNamespace(use_nodes=True, node_tree=object())
+
+
+def test_constant_roughness_is_carried_through(monkeypatch):
+    principled = _principled_with_roughness(_RoughSocket(default_value=0.42))
+    monkeypatch.setattr(bake_textures, "_surface_principled_node", lambda m: principled)
+
+    captured = bake_textures._source_roughness_passthrough(_material_with(principled))
+
+    assert captured == {"value": 0.42}
+
+
+def test_wired_roughness_texture_is_carried_through(monkeypatch):
+    image = object()
+    from_node = types.SimpleNamespace(type='TEX_IMAGE', image=image, uv_map="RoughUV")
+    link = types.SimpleNamespace(
+        from_node=from_node, from_socket=types.SimpleNamespace(name="Color")
+    )
+    principled = _principled_with_roughness(_RoughSocket(links=[link]))
+    monkeypatch.setattr(bake_textures, "_surface_principled_node", lambda m: principled)
+
+    captured = bake_textures._source_roughness_passthrough(_material_with(principled))
+
+    assert captured == {"image": image, "uv_layer": "RoughUV"}
+
+
+def test_unreconstructable_roughness_chain_returns_none(monkeypatch):
+    """Falls back to baking rather than guessing at a procedural chain."""
+    from_node = types.SimpleNamespace(type='TEX_NOISE', image=None)
+    link = types.SimpleNamespace(
+        from_node=from_node, from_socket=types.SimpleNamespace(name="Fac")
+    )
+    principled = _principled_with_roughness(_RoughSocket(links=[link]))
+    monkeypatch.setattr(bake_textures, "_surface_principled_node", lambda m: principled)
+
+    assert bake_textures._source_roughness_passthrough(
+        _material_with(principled)
+    ) is None
+
+
+def test_non_color_output_socket_is_not_carried_through(monkeypatch):
+    from_node = types.SimpleNamespace(type='TEX_IMAGE', image=object(), uv_map=None)
+    link = types.SimpleNamespace(
+        from_node=from_node, from_socket=types.SimpleNamespace(name="Alpha")
+    )
+    principled = _principled_with_roughness(_RoughSocket(links=[link]))
+    monkeypatch.setattr(bake_textures, "_surface_principled_node", lambda m: principled)
+
+    assert bake_textures._source_roughness_passthrough(
+        _material_with(principled)
+    ) is None

@@ -192,6 +192,7 @@ def _bake_materials_for_objects_impl(
                 ),
                 "normal": passthrough.get("normal"),
                 "metallic": passthrough.get("metallic"),
+                "roughness_passthrough": passthrough.get("roughness_passthrough"),
             }
             material_analysis[mat] = info
         return info
@@ -411,6 +412,7 @@ def _bake_materials_for_objects_impl(
                     # material that uses it (Unlit output ignores normals).
                     "normal": info.get("normal"),
                     "metallic": info.get("metallic"),
+                    "roughness_passthrough": info.get("roughness_passthrough"),
                 }
 
                 if flat_constants is not None:
@@ -462,7 +464,10 @@ def _bake_materials_for_objects_impl(
             # an all-flat object would just render into throwaway targets. This
             # gate must stay aligned with _object_step_flags' pre-count.
             has_roughness_targets = any(
-                entry and not entry.get("flat") for entry in baked_entries
+                entry
+                and not entry.get("flat")
+                and not entry.get("roughness_passthrough")
+                for entry in baked_entries
             )
             isolate_meshes = bake_mode == "LIT_IBL" and isolate_meshes_lit
 
@@ -713,6 +718,7 @@ def _bake_materials_for_objects_impl(
                     uv_layer=entry.get("uv_layer"),
                     roughness_image=entry.get("roughness_image"),
                     roughness_value=entry.get("roughness_value"),
+                    roughness_passthrough=entry.get("roughness_passthrough"),
                     flat=entry.get("flat"),
                     normal=entry.get("normal"),
                     metallic=entry.get("metallic"),
@@ -1365,6 +1371,13 @@ def _validate_bake_material_contract(
             _validate_lit_albedo_principled_inputs(material, surface_node)
             result["normal"] = _source_normal_passthrough(material, principled=surface_node)
             result["metallic"] = _source_metallic_passthrough(material, principled=surface_node)
+            # The ROUGHNESS pass is unusable on an alpha-blended surface: it
+            # returns 0, so the export would claim a mirror finish. Carry the
+            # source through instead, exactly as normal and metallic are.
+            if _material_needs_opacity(material):
+                result["roughness_passthrough"] = _source_roughness_passthrough(
+                    material, principled=surface_node
+                )
         except RuntimeError as exc:
             if diagnostics:
                 diagnostics.add_error(str(exc))
@@ -1585,6 +1598,53 @@ def _source_metallic_passthrough(material, *, principled=None) -> Optional[Dict[
     )
 
 
+def _source_roughness_passthrough(material, *, principled=None) -> Optional[Dict[str, object]]:
+    """Capture the source material's roughness for transparent materials.
+
+    Cycles' ROUGHNESS pass returns 0 on an alpha-blended surface, so baking one
+    exports a mirror finish. Measured on Blender 5.2 with two materials
+    identical but for Alpha, both at roughness 0.5: opaque baked
+    R[0.0000, 0.5020], Alpha=0.4 baked R[0.0000, 0.0000]. Carrying the source
+    value through is the same treatment normal and metallic already get, for
+    the same reason - the bake cannot represent them.
+
+    Returns ``{"image", "uv_layer"}`` for a directly-wired roughness texture,
+    ``{"value"}`` for a constant, or ``None`` when the input is driven by a
+    chain we do not reconstruct (the caller then falls back to baking).
+    """
+    if not getattr(material, "use_nodes", False) or material.node_tree is None:
+        return None
+    principled = principled or _surface_principled_node(material)
+    if principled is None:
+        return None
+    roughness_socket = principled.inputs.get('Roughness')
+    if roughness_socket is None:
+        return None
+
+    if not roughness_socket.is_linked:
+        try:
+            return {"value": float(roughness_socket.default_value)}
+        except Exception:
+            return None
+
+    links = list(getattr(roughness_socket, "links", ()) or ())
+    if len(links) != 1:
+        return None
+    link = links[0]
+    from_node = link.from_node
+    if from_node.type == 'TEX_IMAGE' and getattr(from_node, "image", None) is not None:
+        output_name = str(
+            getattr(getattr(link, "from_socket", None), "name", "Color") or "Color"
+        )
+        if output_name != "Color":
+            return None
+        return {
+            "image": from_node.image,
+            "uv_layer": getattr(from_node, "uv_map", None) or None,
+        }
+    return None
+
+
 def _material_needs_opacity(material) -> bool:
     # Detect transparency from the active surface's real Alpha input. Render
     # method selects how transparency is displayed; it does not establish that
@@ -1773,6 +1833,7 @@ def _build_baked_material(
     uv_layer: Optional[str] = None,
     roughness_image=None,
     roughness_value=None,
+    roughness_passthrough: Optional[Dict[str, object]] = None,
     flat: Optional[Dict[str, object]] = None,
     normal: Optional[Dict[str, object]] = None,
     metallic: Optional[Dict[str, object]] = None,
@@ -1858,7 +1919,26 @@ def _build_baked_material(
             except Exception:
                 pass
 
-    if roughness_image is not None:
+    if roughness_passthrough is not None:
+        # Transparent material: the bake could not measure roughness, so the
+        # source is carried through untouched (see _source_roughness_passthrough).
+        if roughness_passthrough.get("image") is not None:
+            rough_node = nodes.new("ShaderNodeTexImage")
+            rough_node.image = roughness_passthrough["image"]
+            _bind_uv_layer(
+                node_tree,
+                rough_node,
+                roughness_passthrough.get("uv_layer") or uv_layer,
+            )
+            links.new(rough_node.outputs['Color'], principled.inputs['Roughness'])
+        elif roughness_passthrough.get("value") is not None:
+            try:
+                principled.inputs['Roughness'].default_value = float(
+                    roughness_passthrough["value"]
+                )
+            except Exception:
+                pass
+    elif roughness_image is not None:
         rough_node = nodes.new("ShaderNodeTexImage")
         rough_node.image = roughness_image
         _bind_uv_layer(node_tree, rough_node, uv_layer)
