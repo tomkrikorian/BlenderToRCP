@@ -62,6 +62,40 @@ def get_node_defs_for_node(manifest: Dict[str, Any], node_name: str) -> List[Dic
     return [manifest.get("nodes", {}).get(name) for name in names if name in manifest.get("nodes", {})]
 
 
+def _declared_types(node_def: Optional[Dict[str, Any]], key: str) -> set:
+    return {
+        _normalize_type(entry.get("type"))
+        for entry in ((node_def or {}).get(key) or [])
+        if entry.get("type")
+    }
+
+
+def _nodedef_satisfies(
+    manifest: Dict[str, Any],
+    nodedef_name: str,
+    input_type: Optional[str],
+    output_type: Optional[str],
+) -> bool:
+    """Return whether a nodedef can honour the types the caller asked for.
+
+    A nodedef with no declared inputs (or no declared outputs) is not rejected
+    on that axis: the manifest does not describe every node exhaustively, and
+    refusing on missing metadata would fail closed on nodes that are fine.
+    """
+    node_def = manifest.get("nodes", {}).get(nodedef_name)
+    if node_def is None:
+        return False
+    if input_type:
+        declared = _declared_types(node_def, "inputs")
+        if declared and _normalize_type(input_type) not in declared:
+            return False
+    if output_type:
+        declared = _declared_types(node_def, "outputs")
+        if declared and _normalize_type(output_type) not in declared:
+            return False
+    return True
+
+
 def select_nodedef_name_for_node(
     manifest: Dict[str, Any],
     node_name: str,
@@ -88,24 +122,32 @@ def select_nodedef_name_for_node(
         io_key = f"{_normalize_type(input_type)}->{_normalize_type(output_type)}"
         candidates = list(by_node_io.get(node_name, {}).get(io_key, []))
 
-    # A type the caller supplied is a constraint, not a hint. Falling through
-    # to a looser index silently returns a nodedef that cannot accept the value
-    # or cannot produce the requested one, and callers treat any non-None
-    # result as success - so the "no mapping" diagnostic never fires and invalid
-    # MaterialX reaches the stage.
-    #
-    # Measured before this guard: `convert` color3->float has no entry in
-    # by_node_io, and the output-only fallback returned ND_convert_boolean_float
-    # (input type boolean), which was authored with a color3f `in` and wired to
-    # inputs:roughness. Separately, `luminance` has no float output at all, and
-    # the by_node fallback returned ND_luminance_color3 for an output_type of
-    # float. Both shipped from `Image Texture -> RGB to BW -> Roughness` with
-    # ok: true and no diagnostics.
-    if not candidates and output_type and not input_type:
+    if not candidates and output_type:
         candidates = list(by_node_output.get(node_name, {}).get(_normalize_type(output_type), []))
 
-    if not candidates and not input_type and not output_type:
+    if not candidates:
         candidates = list(index.get("by_node", {}).get(node_name, []))
+
+    # A type the caller supplied is a constraint, not a hint. The looser
+    # indexes above are still consulted - many nodes carry only a by_node entry
+    # with type-suffixed variants, e.g. separate4 - but a candidate that cannot
+    # accept the value, or cannot produce the requested one, is dropped rather
+    # than returned. Callers treat any non-None result as success, so returning
+    # a mismatched nodedef means the "no mapping" diagnostic never fires and
+    # invalid MaterialX reaches the stage.
+    #
+    # Measured against the shipped manifest: `convert` has no color3->float
+    # entry in by_node_io, and the output-only fallback returned
+    # ND_convert_boolean_float (input type boolean), which was authored with a
+    # color3f `in` and wired to inputs:roughness. `luminance` has no float
+    # output at all, and the by_node fallback returned ND_luminance_color3 for
+    # an output_type of float. Both shipped from a plain
+    # `Image Texture -> RGB to BW -> Roughness` graph with ok: true.
+    candidates = [
+        name
+        for name in candidates
+        if _nodedef_satisfies(manifest, name, input_type, output_type)
+    ]
 
     if not candidates:
         return None

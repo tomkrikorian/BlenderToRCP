@@ -103,3 +103,48 @@ def test_a_returned_nodedef_always_honours_the_requested_output_type(manifest):
                 f"{node_name} -> {output_type} selected {selected}, which "
                 f"declares outputs {sorted(declared)}"
             )
+
+
+# ---------------------------------------------------------------------------
+# Regression: the constraint must filter candidates, not disable the fallback.
+#
+# The first attempt at the guard above skipped the looser indexes entirely
+# whenever the caller supplied a type. That broke every node whose manifest
+# entry has only a by_node list of type-suffixed variants and no io/output
+# index - separate4 among them - so exporting any transparent material failed
+# with "No separate4 nodedef found for color4 inputs". The fallback is
+# legitimate; returning a candidate that violates the constraint is not.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "input_type,expected",
+    [("color4", "ND_separate4_color4"), ("vector4", "ND_separate4_vector4")],
+)
+def test_by_node_fallback_still_resolves_type_suffixed_variants(
+    manifest, input_type, expected
+):
+    """separate4 has no by_node_io and no by_node_output entry at all."""
+    assert select_nodedef_name_for_node(
+        manifest, "separate4", input_type=input_type
+    ) == expected
+
+
+def test_a_returned_nodedef_always_accepts_the_requested_input_type(manifest):
+    """The mirror of the output-type property, on the input axis."""
+    for node_name in ("convert", "separate4", "separate3", "image", "mix"):
+        for input_type in ("float", "color3", "color4", "vector3", "vector4"):
+            selected = select_nodedef_name_for_node(
+                manifest, node_name, input_type=input_type
+            )
+            if selected is None:
+                continue
+            declared = {
+                entry.get("type")
+                for entry in manifest["nodes"][selected].get("inputs", [])
+                if entry.get("type")
+            }
+            assert not declared or input_type in declared, (
+                f"{node_name} with input {input_type} selected {selected}, "
+                f"which declares inputs {sorted(declared)}"
+            )
