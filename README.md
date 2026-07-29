@@ -401,5 +401,22 @@ cover only the Apple, MaterialX, and OpenPBR material redistributed by this
 repository. They preserve the upstream MIT and Apache-2.0 notices and do not
 make BlenderToRCP a dual-licensed project.
 
-## Architecture
-See `docs/ARCHITECTURE.MD`.
+## Documentation
+
+Full documentation index: [`docs/README.md`](docs/README.md).
+
+| Document | Covers |
+|---|---|
+| [`docs/ARCHITECTURE.MD`](docs/ARCHITECTURE.MD) | Codebase layout and module responsibilities |
+| [`docs/CLI.md`](docs/CLI.md) | Every command, flag, exit code, and the JSON envelope |
+| [`docs/SETTINGS.md`](docs/SETTINGS.md) | What every toggle changes, and which settings override each other |
+| [`docs/MATERIAL_TRANSLATION.md`](docs/MATERIAL_TRANSLATION.md) | Blender shader graph to RealityKit MaterialX ShaderGraph |
+| [`docs/BAKING.md`](docs/BAKING.md) | When a bake runs, what each mode captures, what scene state it overrides |
+| [`docs/EXPORT_PIPELINE.md`](docs/EXPORT_PIPELINE.md) | Geometry, units, animation, staging, USDZ packaging |
+
+The three pipeline documents each carry a section on the decisions the exporter
+makes **on your behalf**, and whether it tells you it made them. Start there if
+an export came out differently than you expected.
+
+Open defects are tracked in
+[`CODE_REVIEW_FINDINGS.md`](CODE_REVIEW_FINDINGS.md).
