@@ -200,3 +200,40 @@ def test_runner_error_boundary_serializes_command_error_metadata(monkeypatch, ca
     assert payload["error"]["code"] == "UNSUPPORTED_MATERIAL_NODES"
     assert payload["error"]["details"][0]["node"]["name"] == "Principled BSDF"
     assert payload["error"]["details"][0]["cycle"] == ["<cycle>"]
+
+
+# ---------------------------------------------------------------------------
+# Error envelopes must not leak the install layout.
+#
+# _error_response attached a full Python traceback to every failure, including
+# deliberate CommandErrors like a typo'd setting key, and never redacted it.
+# The support bundle has redacted $HOME since it was written; this envelope,
+# which is what users paste into public issues, did not.
+# ---------------------------------------------------------------------------
+
+
+def test_command_error_carries_no_traceback():
+    """A diagnosed user-facing condition is not an internal fault."""
+    error = runner._error_response(
+        "settings_set",
+        CommandError("Invalid setting key.", code="INVALID_SETTING_OVERRIDE"),
+        tb="Traceback (most recent call last):\n  File \"/Users/someone/x.py\"\n",
+    )
+    assert "traceback" not in error["error"]
+    assert error["error"]["code"] == "INVALID_SETTING_OVERRIDE"
+
+
+def test_unexpected_fault_keeps_a_redacted_traceback():
+    home = str(Path.home())
+    error = runner._error_response(
+        "export",
+        RuntimeError("boom"),
+        tb=f'Traceback:\n  File "{home}/Library/x/plugin.py", line 1\n',
+    )
+    traceback_text = error["error"]["traceback"]
+    assert home not in traceback_text
+    assert "$HOME/Library/x/plugin.py" in traceback_text
+
+
+def test_redaction_is_a_noop_without_a_home_match():
+    assert runner._redact_home("/opt/somewhere/else.py") == "/opt/somewhere/else.py"

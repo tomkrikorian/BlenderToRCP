@@ -22,6 +22,23 @@ from pathlib import Path
 from typing import Callable
 
 OUTPUT_MARKER = "---BLENDERTORCP_JSON---"
+
+
+def redact_home(text: str) -> str:
+    """Replace the user's home directory with ``$HOME``.
+
+    Deliberately duplicated from ``api.runner._redact_home`` rather than
+    imported: this module runs in the host interpreter and keeps no Plugin
+    imports, while the runner runs inside Blender. Same placeholder as the
+    support bundle so redacted output reads consistently.
+    """
+    if not text:
+        return text
+    try:
+        home = str(Path.home())
+    except Exception:
+        return text
+    return text.replace(home, "$HOME") if home else text
 # runner.py is at Plugin/api/runner.py — one level up from cli/
 RUNNER_PATH = str(Path(__file__).resolve().parent.parent / "api" / "runner.py")
 
@@ -246,10 +263,14 @@ class BridgeError(RuntimeError):
         })
         if self.stdout_tail or self.stderr_tail:
             payload.setdefault("process_output", {})
+            # Captured Blender output carries absolute install and repository
+            # paths, and this envelope is what users paste into public issues.
+            # The support bundle already redacts $HOME before writing anything;
+            # do the same here.
             if self.stdout_tail:
-                payload["process_output"]["stdout_tail"] = self.stdout_tail
+                payload["process_output"]["stdout_tail"] = redact_home(self.stdout_tail)
             if self.stderr_tail:
-                payload["process_output"]["stderr_tail"] = self.stderr_tail
+                payload["process_output"]["stderr_tail"] = redact_home(self.stderr_tail)
         return payload
 
 

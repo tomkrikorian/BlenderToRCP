@@ -64,6 +64,19 @@ def _output(data: dict) -> None:
     )
 
 
+def _redact_home(text: str) -> str:
+    """Replace the user's home directory with ``$HOME``.
+
+    Uses the same placeholder as the support bundle, which already redacts
+    before writing anything a user might attach to a public issue.
+    """
+    try:
+        home = str(Path.home())
+    except Exception:
+        return text
+    return text.replace(home, "$HOME") if home else text
+
+
 def _error_response(command: str | None, exc: Exception, tb: str | None = None) -> dict:
     if isinstance(exc, CommandError):
         error = exc.to_response_error()
@@ -77,8 +90,14 @@ def _error_response(command: str | None, exc: Exception, tb: str | None = None) 
         }
         artifacts = {}
         context = {}
-    if tb:
-        error["traceback"] = tb
+    # A CommandError is a diagnosed, user-facing condition - a bad setting key,
+    # a missing texture - not an internal fault, so a Python traceback adds
+    # nothing a caller can act on and leaks the install layout. Keep tracebacks
+    # for genuine faults only, and strip the home directory from those: this
+    # envelope is what users paste into public issues, and unlike the support
+    # bundle it was never redacted.
+    if tb and not isinstance(exc, CommandError):
+        error["traceback"] = _redact_home(tb)
     return json_safe({
         "ok": False,
         "schema_version": "1.0",

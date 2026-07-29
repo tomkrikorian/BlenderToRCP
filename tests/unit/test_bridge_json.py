@@ -248,3 +248,22 @@ class TestOutputMarker:
         """Marker should not appear in normal Blender output."""
         assert "BLENDERTORCP" in OUTPUT_MARKER
         assert len(OUTPUT_MARKER) > 10
+
+
+def test_process_output_tails_are_redacted():
+    """Captured Blender output carries absolute install and repo paths."""
+    from pathlib import Path as _Path
+
+    home = str(_Path.home())
+    error = BridgeError(
+        "Blender process failed.",
+        code="BLENDER_PROCESS_FAILED",
+        stdout_tail=f"reading {home}/scene.blend",
+        stderr_tail=f'  File "{home}/Library/plugin/runner.py", line 1',
+    )
+    payload = error.to_json()
+
+    assert home not in payload["process_output"]["stdout_tail"]
+    assert home not in payload["process_output"]["stderr_tail"]
+    assert "$HOME/scene.blend" in payload["process_output"]["stdout_tail"]
+    assert "$HOME/Library/plugin/runner.py" in payload["process_output"]["stderr_tail"]
