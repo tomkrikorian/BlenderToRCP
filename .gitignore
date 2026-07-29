@@ -18,6 +18,13 @@ dist/
 # Background bake/export jobs
 .blendertorcp_jobs/
 
+# Export publication transaction dirs (staging + per-output locks). Created
+# next to the output whenever an export publishes, including into a tracked
+# tree such as References/.
+.blendertorcp_publish/
+.blendertorcp_temp/
+.blendertorcp_generations/
+
 # Test output
 tests/tmp/
 .pytest_cache/
