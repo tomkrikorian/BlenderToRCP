@@ -215,6 +215,7 @@ class Inspection:
     source_path_kind: str | None = None
     resolved_source_path: Path | None = None
     all_uuid_definitions: set[str] = field(default_factory=set)
+    all_uuid_mentions: set[str] = field(default_factory=set)
     errors: list[str] = field(default_factory=list)
 
     def require_valid(self) -> None:
@@ -351,6 +352,7 @@ def _inspect_record(path: Path, relative_path: str, inspection: Inspection) -> N
             f"{relative_path}: duplicate UUID definition within record"
         )
     inspection.all_uuid_definitions.update(definitions)
+    inspection.all_uuid_mentions.update(UUID_RE.findall(text))
 
     source_match = SOURCE_PATH_RE.search(text)
     if source_match:
@@ -428,6 +430,20 @@ def inspect_import(
     root_marker = root / "__tm_directory.tm_dir"
     if not root_marker.is_file():
         inspection.errors.append("root lacks __tm_directory.tm_dir")
+
+    # Every RCP-authored asset measured for build 80.0.1.500.1 mentions each of
+    # its buffer payload ids from at least one record. A payload no record can
+    # name is unreachable, and is how a record silently overwritten by a name
+    # collision shows up on disk.
+    orphaned_buffers = sorted(
+        item["relative_path"]
+        for item in inspection.buffers
+        if item["id"] not in inspection.all_uuid_mentions
+    )
+    for relative_path in orphaned_buffers:
+        inspection.errors.append(
+            f"{relative_path}: buffer payload is referenced by no record"
+        )
 
     type_counts = Counter(record.record_type for record in inspection.records)
     if type_counts["tm_usd_asset"] != 1:

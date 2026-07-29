@@ -1122,6 +1122,32 @@ def _load_material_data(
                     )
                 roughness_texture = texture
 
+        # Both the texture record and its payload directory are keyed by name,
+        # and the name only derives from the source filename stem. Two files
+        # that share a stem would otherwise collapse into one record and leave
+        # the material pointing at a UUID that no record defines.
+        used_texture_names: set[str] = set()
+        if base_color_texture is not None:
+            base_color_texture = replace(
+                base_color_texture,
+                name=_unique_record_name(
+                    base_color_texture.name,
+                    used=used_texture_names,
+                    fallback="BaseColorTexture",
+                    max_bytes=120,
+                ),
+            )
+        if roughness_texture is not None:
+            roughness_texture = replace(
+                roughness_texture,
+                name=_unique_record_name(
+                    roughness_texture.name,
+                    used=used_texture_names,
+                    fallback="RoughnessTexture",
+                    max_bytes=120,
+                ),
+            )
+
         if roughness_texture is not None and base_color_texture is None:
             raise ImportGenerationError(
                 "roughness texture requires a measured base-color texture graph"
@@ -1308,12 +1334,18 @@ def _unique_record_name(
     *,
     used: set[str],
     fallback: str,
+    max_bytes: int = 160,
 ) -> str:
-    base = _bounded_safe_name(candidate, fallback, max_bytes=160)
-    name = base
+    # The suffixed candidate is re-bounded rather than appended to an already
+    # bounded name so a disambiguated record still fits its filename budget.
+    name = _bounded_safe_name(candidate, fallback, max_bytes=max_bytes)
     suffix = 2
     while name in used:
-        name = f"{base}_{suffix}"
+        name = _bounded_safe_name(
+            f"{candidate}_{suffix}",
+            fallback,
+            max_bytes=max_bytes,
+        )
         suffix += 1
     used.add(name)
     return name
@@ -1402,6 +1434,7 @@ def load_static_asset(
     root_translation, root_rotation, root_scale = _local_transform(root_prim)
     used_mesh_names: set[str] = set()
     used_material_names: set[str] = set()
+    used_texture_names: set[str] = set()
     materials_by_key: dict[str, MaterialData] = {}
     meshes: list[StaticMesh] = []
     canonical_skinning: SkinningData | None = None
@@ -1427,12 +1460,16 @@ def load_static_asset(
         )
         loaded = replace(
             loaded,
+            # The material-name prefix keeps most textures apart, but it is not
+            # a guarantee on its own: names are truncated to a byte budget and
+            # a prefix boundary can be ambiguous. Reserve every emitted name.
             base_color_texture=(
                 replace(
                     loaded.base_color_texture,
-                    name=_bounded_safe_name(
+                    name=_unique_record_name(
                         f"{loaded.name}_{loaded.base_color_texture.name}",
-                        "BaseColorTexture",
+                        used=used_texture_names,
+                        fallback="BaseColorTexture",
                         max_bytes=120,
                     ),
                 )
@@ -1442,9 +1479,10 @@ def load_static_asset(
             roughness_texture=(
                 replace(
                     loaded.roughness_texture,
-                    name=_bounded_safe_name(
+                    name=_unique_record_name(
                         f"{loaded.name}_{loaded.roughness_texture.name}",
-                        "RoughnessTexture",
+                        used=used_texture_names,
+                        fallback="RoughnessTexture",
                         max_bytes=120,
                     ),
                 )

@@ -63,10 +63,15 @@ def _fixture(tmp_path: Path, profile: str) -> Path:
         "output_geometry: {\n}\n"
         f'__asset_uuid: "{_uuid()}"\n',
     )
+    # RCP-authored assets always name their payload ids from a record, so the
+    # controlled fixture does too.
+    buffer_id = _uuid()
     _record(
         root / "mesh_descriptors" / "Mesh.tm_mesh_descriptor",
         "tm_mesh_descriptor",
-        f'vertex_count: 3\nattributes: [\n]\n__asset_uuid: "{_uuid()}"\n',
+        "vertex_count: 3\nattributes: [\n\t{\n"
+        f'\t\t__uuid: "{_uuid()}"\n\t\tdata: "{buffer_id}"\n\t}}\n]\n'
+        f'__asset_uuid: "{_uuid()}"\n',
     )
     _record(
         root / "meshes" / "Mesh.tm_mesh_resource",
@@ -75,7 +80,7 @@ def _fixture(tmp_path: Path, profile: str) -> Path:
     )
     buffer_dir = root / "geometry" / "Mesh.tm_buffers"
     buffer_dir.mkdir()
-    (buffer_dir / f"{_uuid()}.0123456789abcde").write_bytes(b"opaque")
+    (buffer_dir / f"{buffer_id}.0123456789abcde").write_bytes(b"opaque")
 
     if profile in {"transform", "skeletal"}:
         _directory(root / "animations", "animations")
@@ -151,6 +156,15 @@ def test_unknown_record_suffix_fails_closed(tmp_path: Path) -> None:
     (root / "future.tm_magic").write_text("opaque", encoding="utf-8")
 
     with pytest.raises(ContractError, match="unsupported record suffix"):
+        build_report(inspect_import(root, expected_profile="static"))
+
+
+def test_unreferenced_buffer_payload_fails_closed(tmp_path: Path) -> None:
+    root = _fixture(tmp_path, "static")
+    buffer_dir = next(root.rglob("*.tm_buffers"))
+    (buffer_dir / f"{_uuid()}.0123456789abcde").write_bytes(b"orphan")
+
+    with pytest.raises(ContractError, match="referenced by no record"):
         build_report(inspect_import(root, expected_profile="static"))
 
 

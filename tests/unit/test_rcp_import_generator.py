@@ -994,6 +994,100 @@ def test_generate_static_import_copies_measured_baked_texture_payload(
     assert 'resource__type: "tm_texture"' in material
 
 
+def _colliding_texture_stem_source(tmp_path: Path) -> Path:
+    """Two different texture files that happen to share one filename stem."""
+
+    for directory in ("a", "b"):
+        (tmp_path / directory).mkdir()
+        (tmp_path / directory / "foo.png").write_bytes(
+            b"\x89PNG\r\n\x1a\n" + directory.encode() * 8
+        )
+    source = tmp_path / "Colliding.usda"
+    source.write_text(
+        """#usda 1.0
+(
+    defaultPrim = "root"
+    metersPerUnit = 1
+    upAxis = "Y"
+)
+def Xform "root"
+{
+    def Mesh "Cube" (
+        prepend apiSchemas = ["MaterialBindingAPI"]
+    )
+    {
+        int[] faceVertexCounts = [3]
+        int[] faceVertexIndices = [0, 1, 2]
+        point3f[] points = [(0, 0, 0), (1, 0, 0), (0, 1, 0)]
+        texCoord2f[] primvars:st = [(0, 0), (1, 0), (0, 1)] (
+            interpolation = "vertex"
+        )
+        rel material:binding = </root/_materials/M>
+    }
+    def Scope "_materials"
+    {
+        def Material "M"
+        {
+            token outputs:mtlx:surface.connect = </root/_materials/M/Surface.outputs:out>
+            def Shader "Surface"
+            {
+                uniform token info:id = "ND_realitykit_pbr_surfaceshader"
+                color3f inputs:baseColor.connect = </root/_materials/M/BaseImage.outputs:out>
+                float inputs:roughness.connect = </root/_materials/M/RoughImage.outputs:out>
+                token outputs:out
+            }
+            def Shader "BaseImage"
+            {
+                uniform token info:id = "ND_image_color3"
+                asset inputs:file = @a/foo.png@
+                color3f outputs:out
+            }
+            def Shader "RoughImage"
+            {
+                uniform token info:id = "ND_image_float"
+                asset inputs:file = @b/foo.png@
+                float outputs:out
+            }
+        }
+    }
+}
+""",
+        encoding="utf-8",
+    )
+    return source
+
+
+def test_generate_static_import_separates_colliding_texture_stems(
+    tmp_path: Path,
+) -> None:
+    source = _colliding_texture_stem_source(tmp_path)
+
+    destination = generate_static_import(source, tmp_path / "Colliding.import")
+
+    textures = destination / "textures"
+    assert len(list(textures.glob("*.tm_texture"))) == 2
+    assert len(list(textures.glob("*.tm_buffers"))) == 2
+    payloads = {
+        path.parent.name: path.read_bytes()
+        for path in textures.glob("*.tm_buffers/*")
+    }
+    assert sorted(payloads.values()) == [
+        b"\x89PNG\r\n\x1a\n" + b"a" * 8,
+        b"\x89PNG\r\n\x1a\n" + b"b" * 8,
+    ]
+
+    defined = set()
+    for record in textures.glob("*.tm_texture"):
+        defined.update(re.findall(r'__uuid: "([0-9a-f-]{36})"', record.read_text()))
+    material = (destination / "materials" / "M.tm_material").read_text()
+    referenced = set(re.findall(r'resource: "([0-9a-f-]{36})"', material))
+    assert len(referenced) == 2
+    assert referenced <= defined
+
+    report = build_report(inspect_import(destination), rcp_build="80.0.1.500.1")
+    assert report["record_types"]["tm_texture"] == 2
+
+
 def test_generate_static_import_rejects_unmeasured_texture_role(
     tmp_path: Path,
 ) -> None:
