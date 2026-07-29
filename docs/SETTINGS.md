@@ -987,12 +987,10 @@ These are on the same PropertyGroup but excluded from `settings list`, `settings
 | Key | Type | Default | Prefs UI | CLI | Read by export? |
 |---|---|---|---|---|---|
 | `usdzip_path` | string (`FILE_PATH`) | `""` | yes (`Plugin/prefs.py:96`) | `preferences get`/`set` | **yes** |
-| `materialx_library_path` | string (`DIR_PATH`) | `""` | yes (`Plugin/prefs.py:102`) | `preferences get`/`set` | **no — inert** |
-| `enforcement_mode` | enum, single value `BLOCK_EXPORT` | `BLOCK_EXPORT` | no (`HIDDEN`, not drawn) | no | **no — dead** |
 | `last_export_settings_json` | string | `""` | no (`HIDDEN`) | no | internal persistence |
 | `last_export_paths_json` | string | `""` | no (`HIDDEN`) | no | internal persistence |
 
-`preferences set` only accepts `usdzip_path` and `materialx_library_path`
+`preferences set` only accepts `usdzip_path`
 (`Plugin/api/commands/preferences_set.py:5`); it calls `wm.save_userpref()` because each CLI
 invocation is a throwaway Blender process (`:35`).
 
@@ -1007,28 +1005,15 @@ performs structural validation.
 
 Only consulted for `USDZ` output.
 
-### `materialx_library_path` — inert
+## Fixed export policy (not settings)
 
-Presented as "Path to MaterialX library directory (optional, uses bundled if empty)" and drawn
-in the preferences UI (`Plugin/prefs.py:57`, `:102`), but **nothing in the export pipeline reads
-it**. Its only other appearances are the CLI preference key lists and the support bundle, which
-merely records the configured value (`Plugin/export/support_bundle.py:150`). Setting it changes
-no export behaviour; MaterialX definitions always come from the bundled manifest.
-
-### `enforcement_mode` — dead
-
-Declared with a single enum item and `options={'HIDDEN'}`, and `BlenderToRCPPreferences.draw()`
-never draws it (`Plugin/prefs.py:65`, `:89`). No code reads it. The strict "block export on
-unsupported nodes" behaviour it describes is unconditional, not configurable.
-
----
-
-## Settings the exporter reads that do not exist
-
-`_build_export_kwargs()` reads five names off the settings object that the PropertyGroup never
-declares. Each therefore always resolves to its `getattr` fallback — they are effectively
-hard-coded constants wearing a setting's clothes, and adding a property with any of these names
-would silently make it live.
+A few values passed to Blender's USD exporter are fixed policy rather than user
+settings: `incremental_frames` (0), `export_mesh_colors` (true),
+`accessibility_label` and `accessibility_description` (empty), and mesh object
+export (always on). These used to be read through `getattr` from PropertyGroup
+names that do not exist, so they always resolved to their fallback while reading
+as though a setting governed them; they are now stated as literals at the call
+site.
 
 | Name read | Fallback used | Site |
 |---|---|---|

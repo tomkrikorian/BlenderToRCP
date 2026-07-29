@@ -1172,14 +1172,20 @@ def _build_export_kwargs(settings, *, output_path: str, root_prim_path: str) -> 
         'filter_glob': '*.usd;*.usda;*.usdc',
         'selected_objects_only': bool(getattr(settings, "selected_objects_only", False)),
         'export_animation': bool(getattr(settings, "export_animation", False)),
-        'incremental_frames': int(getattr(settings, "incremental_frames", 0)),
+        # Fixed policy, not a user setting. These four read through getattr
+        # from PropertyGroup names that do not exist, so they always resolved
+        # to the fallback while reading as though the user could change them.
+        # Stated as literals so the contract is visible; declaring a property
+        # with any of these names would otherwise have made it live by
+        # accident.
+        'incremental_frames': 0,
         # RealityKit/RCP3 do not import Blender's raw curve, point-cloud, or
         # hair schemas. These are policy constants, not user settings: keeping
         # them false prevents a doomed export before composed-stage preflight.
         'export_hair': False,
         'export_uvmaps': True,
         'rename_uvmaps': True,
-        'export_mesh_colors': bool(getattr(settings, "export_mesh_colors", True)),
+        'export_mesh_colors': True,
         'export_normals': True,
         'export_materials': True,
         'export_subdivision': getattr(settings, "export_subdivision", 'BEST_MATCH'),
@@ -1202,8 +1208,8 @@ def _build_export_kwargs(settings, *, output_path: str, root_prim_path: str) -> 
         'custom_properties_namespace': getattr(settings, "custom_properties_namespace", "userProperties")
         if export_custom_properties
         else "",
-        'accessibility_label': str(getattr(settings, "accessibility_label", "")),
-        'accessibility_description': str(getattr(settings, "accessibility_description", "")),
+        'accessibility_label': "",
+        'accessibility_description': "",
         'author_blender_name': bool(getattr(settings, "author_blender_name", True))
         if export_custom_properties
         else False,

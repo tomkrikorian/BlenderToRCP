@@ -11,6 +11,7 @@ import time
 import tempfile
 import errno
 import re
+import shutil
 import signal
 from pathlib import Path
 
@@ -784,12 +785,53 @@ def _serialize_settings(
     return data
 
 
+#: How many finished job directories to keep beside an export. Each holds a
+#: status file, a log and any diagnostics, which are worth having for the last
+#: few runs; every bake used to leave one behind forever, so the directory grew
+#: without bound next to the asset the user ships.
+_KEPT_FINISHED_JOB_DIRS = 5
+
+
 def _create_job_dir(export_dir: Path) -> Path:
     root = export_dir / ".blendertorcp_jobs"
     root.mkdir(parents=True, exist_ok=True)
+    _prune_finished_job_dirs(root)
     stamp = time.strftime("%Y%m%d_%H%M%S")
     job_dir = Path(tempfile.mkdtemp(prefix=f"bake_export_{stamp}_", dir=root))
     return job_dir
+
+
+def _prune_finished_job_dirs(root: Path) -> None:
+    """Delete all but the newest few *finished* job directories.
+
+    Only directories whose status.json reports a terminal state are eligible; a
+    queued or running job, or one whose status cannot be read, is always kept,
+    so this can never delete the tree a live runner is writing into.
+    """
+    try:
+        candidates = [entry for entry in root.iterdir() if entry.is_dir()]
+    except OSError:
+        return
+
+    finished = []
+    for entry in candidates:
+        status = _read_job_status(str(entry))
+        if not status:
+            # Unreadable or still being set up: not ours to remove.
+            continue
+        if status.get("state") in _ACTIVE_JOB_STATES:
+            continue
+        try:
+            finished.append((entry.stat().st_mtime, entry))
+        except OSError:
+            continue
+
+    finished.sort(reverse=True)
+    for _mtime, entry in finished[_KEPT_FINISHED_JOB_DIRS:]:
+        try:
+            shutil.rmtree(entry)
+        except Exception:
+            pass
 
 
 _SCENE_SNAPSHOT_NAME = "scene_snapshot.blend"

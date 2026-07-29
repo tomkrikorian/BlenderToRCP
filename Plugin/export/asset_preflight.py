@@ -712,18 +712,14 @@ def _object_content_enabled(obj, settings) -> bool:
         return False
     if settings is None:
         return True
-    flags = {
-        "MESH": "export_meshes",
-        "ARMATURE": "export_armatures",
-    }
-    setting_name = flags.get(object_type)
-    if setting_name is None:
+    # Meshes are always exported: there is no export_meshes property on the
+    # PropertyGroup, so the old getattr lookup could only ever return its
+    # fallback while reading as though a user setting governed it.
+    if object_type == "MESH":
         return True
-    defaults = {
-        "export_meshes": True,
-        "export_armatures": True,
-    }
-    return bool(getattr(settings, setting_name, defaults.get(setting_name, False)))
+    if object_type == "ARMATURE":
+        return bool(getattr(settings, "export_armatures", True))
+    return True
 
 
 def _world_affects_output(settings) -> bool:

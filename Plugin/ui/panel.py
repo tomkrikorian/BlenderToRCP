@@ -1129,10 +1129,33 @@ def _clear_missing_background_job_status() -> None:
 
 @persistent
 def _clear_background_job_state_on_load(_dummy) -> None:
+    """Reset per-scene job state when a new file is opened.
+
+    Opening a file used to clear this silently. A background bake belongs to
+    the Blender session, not to the .blend, so a runner launched before the
+    load keeps going - but the UI has just forgotten its job directory and pid,
+    leaving no way to watch or cancel it. Name it on the console before
+    dropping the handle, so the user can find the process and its log.
+    """
     for scene in getattr(bpy.data, "scenes", []):
         settings = getattr(scene, "blender_to_rcp_export_settings", None)
-        if settings is not None:
-            _clear_background_job_state(settings)
+        if settings is None:
+            continue
+        _warn_about_orphaned_background_job(settings)
+        _clear_background_job_state(settings)
+
+
+def _warn_about_orphaned_background_job(settings) -> None:
+    job_dir = str(getattr(settings, "background_job_dir", "") or "")
+    pid = _safe_int(getattr(settings, "background_job_pid", 0)) or 0
+    if not job_dir or pid <= 0 or not _pid_is_running(pid):
+        return
+    print(
+        "BlenderToRCP: a background bake job (pid "
+        f"{pid}) is still running after loading a new file. The UI can no "
+        "longer watch or cancel it. Its log and status are in: "
+        f"{job_dir}"
+    )
 
 
 def _remove_background_job_load_handlers() -> None:

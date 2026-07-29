@@ -103,8 +103,6 @@ Important behaviors:
 
 Preferences live in `Plugin/prefs.py`:
 - `usdzip_path` — optional external `usdzip`; the built-in packager is used when empty.
-- `materialx_library_path` — drawn in the preferences UI and settable through `preferences set`, but **never read by the export pipeline**. It is recorded in support bundles and otherwise inert.
-- `enforcement_mode` — a single-item enum, hidden, and read by nothing. Strict mode is unconditional.
 - `last_export_settings_json` / `last_export_paths_json` — internal persistence for sticky settings and per-`.blend` output paths.
 
 Note that persisted export settings live in *preferences*, not in the scene, so they follow the user across `.blend` files. See [SETTINGS.md](SETTINGS.md).

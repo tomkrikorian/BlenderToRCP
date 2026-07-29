@@ -53,25 +53,6 @@ class BlenderToRCPPreferences(AddonPreferences):
         maxlen=1024
     )
     
-    # MaterialX library path
-    materialx_library_path: StringProperty(
-        name="MaterialX Library Path",
-        description="Path to MaterialX library directory (optional, uses bundled if empty)",
-        default="",
-        subtype='DIR_PATH',
-        maxlen=1024
-    )
-    
-    enforcement_mode: EnumProperty(
-        name="RealityKit Enforcement",
-        description="Strict export mode (always blocks on unsupported nodes)",
-        items=[
-            ('BLOCK_EXPORT', "Strict (Block Export)", "Prevent export when unsupported nodes are found"),
-        ],
-        default='BLOCK_EXPORT',
-        options={'HIDDEN'},
-    )
-
     last_export_settings_json: StringProperty(
         name="Last Export Settings",
         description="Serialized last used export settings",
@@ -96,11 +77,6 @@ class BlenderToRCPPreferences(AddonPreferences):
         box.prop(self, "usdzip_path")
         box.label(text="Leave empty to use built-in Python packager", icon='INFO')
         
-        # MaterialX
-        box = layout.box()
-        box.label(text="MaterialX Library", icon='MATERIAL')
-        box.prop(self, "materialx_library_path")
-        box.label(text="Leave empty to use bundled MaterialX definitions", icon='INFO')
 
 
 def get_preferences(context=None):

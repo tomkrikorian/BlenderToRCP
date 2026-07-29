@@ -50,7 +50,6 @@ _PATH_KEYS = {
     "export_path",
     "log_path",
     "diagnostics_path",
-    "materialx_library_path",
     "usdzip_path",
     "bake_ibl_filepath",
     "background_job_dir",
@@ -147,7 +146,6 @@ def collect_environment(context=None) -> dict:
         if prefs is not None:
             info["preferences"] = {
                 "usdzip_path": getattr(prefs, "usdzip_path", ""),
-                "materialx_library_path": getattr(prefs, "materialx_library_path", ""),
                 "last_export_settings_json_valid": _json_is_valid(
                     getattr(prefs, "last_export_settings_json", "")
                 ),

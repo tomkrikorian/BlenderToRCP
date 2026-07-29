@@ -1096,8 +1096,7 @@ blendertorcp preferences get
 
 ```json
 {
-  "usdzip_path": "",
-  "materialx_library_path": ""
+  "usdzip_path": ""
 }
 ```
 
@@ -1116,7 +1115,6 @@ blendertorcp preferences set <key>=<value> [...]
 | Key | Type | Description |
 |-----|------|-------------|
 | `usdzip_path` | string | Path to the usdzip tool (leave empty for Python fallback) |
-| `materialx_library_path` | string | Path to MaterialX library directory (leave empty for bundled) |
 
 **Examples:**
 
@@ -1147,7 +1145,7 @@ generic `VALUEERROR` code:
 
 ```bash
 $ blendertorcp preferences set bogus_key=1
-Error: Unknown preference key: 'bogus_key'. Available: ['materialx_library_path', 'usdzip_path']
+Error: Unknown preference key: 'bogus_key'. Available: ['usdzip_path']
 ```
 
 ---
