@@ -796,7 +796,14 @@ def test_generate_skeletal_material_subsets_split_faces_and_keep_skinning(
     assert all(mesh.face_counts == (3,) for mesh in left_partitions)
     assert sum(len(mesh.face_indices) for mesh in left_partitions) == 6
     assert all(mesh.skinning is not None for mesh in asset.meshes)
-    assert all(len(mesh.skinning.joint_indices) == 4 for mesh in left_partitions)
+    # Left has 4 points across 2 faces; each partition keeps only the 3 it
+    # references, and its per-point skinning follows the same re-indexing.
+    assert all(len(mesh.points) == 3 for mesh in left_partitions)
+    assert all(
+        len(mesh.skinning.joint_indices) == len(mesh.points)
+        and len(mesh.skinning.joint_weights) == len(mesh.points)
+        for mesh in asset.meshes
+    )
 
     destination = generate_static_import(
         source,
@@ -820,6 +827,307 @@ def test_generate_skeletal_material_subsets_split_faces_and_keep_skinning(
     assert source_entity.count('__type: "tm_skinning_component"') == expected_meshes
     assert source_entity.count('__type: "tm_model_component"') == expected_meshes
     assert optimized_entity.count('__type: "tm_model_component"') == 1
+
+
+def _split_bounds_source(tmp_path: Path) -> Path:
+    """Two far-apart triangles on one mesh, one material subset each."""
+
+    source = tmp_path / "Split.usda"
+    source.write_text(
+        """#usda 1.0
+(
+    defaultPrim = "root"
+    metersPerUnit = 1
+    upAxis = "Y"
+)
+def Xform "root"
+{
+    def Mesh "Plate"
+    {
+        int[] faceVertexCounts = [3, 3]
+        int[] faceVertexIndices = [0, 1, 2, 3, 4, 5]
+        point3f[] points = [
+            (0, 0, 0), (1, 0, 0), (0, 1, 0),
+            (100, 0, 0), (101, 0, 0), (100, 1, 0)
+        ]
+        def GeomSubset "NearFaces" (
+            prepend apiSchemas = ["MaterialBindingAPI"]
+        )
+        {
+            uniform token elementType = "face"
+            uniform token familyName = "materialBind"
+            int[] indices = [0]
+            rel material:binding = </root/Materials/Red>
+        }
+        def GeomSubset "FarFaces" (
+            prepend apiSchemas = ["MaterialBindingAPI"]
+        )
+        {
+            uniform token elementType = "face"
+            uniform token familyName = "materialBind"
+            int[] indices = [1]
+            rel material:binding = </root/Materials/Blue>
+        }
+    }
+    def Scope "Materials"
+    {
+        def Material "Red"
+        {
+            token outputs:surface.connect = </root/Materials/Red/Preview.outputs:surface>
+            def Shader "Preview"
+            {
+                uniform token info:id = "UsdPreviewSurface"
+                token outputs:surface
+            }
+        }
+        def Material "Blue"
+        {
+            token outputs:surface.connect = </root/Materials/Blue/Preview.outputs:surface>
+            def Shader "Preview"
+            {
+                uniform token info:id = "UsdPreviewSurface"
+                token outputs:surface
+            }
+        }
+    }
+}
+""",
+        encoding="utf-8",
+    )
+    return source
+
+
+def _descriptor_points(destination: Path, mesh_name: str) -> list[tuple[float, ...]]:
+    """Decode the points buffer a mesh descriptor actually points at."""
+
+    descriptor = (
+        destination / "mesh_descriptors" / f"{mesh_name}.tm_mesh_descriptor"
+    ).read_text()
+    buffer_id = re.search(
+        r'name: "points".*?data: "([0-9a-f-]{36})"', descriptor, re.S
+    ).group(1)
+    payload = next(
+        (destination / "mesh_descriptors" / f"{mesh_name}.tm_buffers").glob(
+            f"{buffer_id}.*"
+        )
+    ).read_bytes()
+    floats = struct.unpack(f"<{len(payload) // 4}f", payload)
+    return [tuple(floats[index : index + 3]) for index in range(0, len(floats), 3)]
+
+
+def _resource_bounds(destination: Path, mesh_name: str) -> dict[str, dict[str, float]]:
+    text = (destination / "meshes" / f"{mesh_name}.tm_mesh_resource").read_text()
+    bounds = {}
+    for key in ("bounds_min", "bounds_max"):
+        block = re.search(rf"{key}: \{{(.*?)\n\t\t\}}", text, re.S).group(1)
+        bounds[key] = {
+            axis: float(value)
+            for axis, value in re.findall(r"(\w): (-?[\d.e+-]+)", block)
+        }
+    return bounds
+
+
+def test_generate_static_import_reindexes_subset_points_and_bounds(
+    tmp_path: Path,
+) -> None:
+    source = _split_bounds_source(tmp_path)
+
+    destination = generate_static_import(source, tmp_path / "Split.import")
+
+    for mesh_name in ("Plate_Red", "Plate_Blue"):
+        descriptor = (
+            destination / "mesh_descriptors" / f"{mesh_name}.tm_mesh_descriptor"
+        ).read_text()
+        assert "vertex_count: 3" in descriptor
+
+    assert _descriptor_points(destination, "Plate_Red") == [
+        (0.0, 0.0, 0.0),
+        (1.0, 0.0, 0.0),
+        (0.0, 1.0, 0.0),
+    ]
+    assert _descriptor_points(destination, "Plate_Blue") == [
+        (100.0, 0.0, 0.0),
+        (101.0, 0.0, 0.0),
+        (100.0, 1.0, 0.0),
+    ]
+
+    # Each entity must claim only its own extent, not the parent mesh's.
+    near = _resource_bounds(destination, "Plate_Red")
+    far = _resource_bounds(destination, "Plate_Blue")
+    assert near["bounds_max"].get("x", 0.0) == 1.0
+    assert near["bounds_min"].get("x", 0.0) == 0.0
+    assert far["bounds_max"].get("x", 0.0) == 101.0
+    assert far["bounds_min"].get("x", 0.0) == 100.0
+
+    assert inspect_import(destination).errors == []
+
+
+def test_generate_static_import_reindexes_unsplit_mesh_to_itself(
+    tmp_path: Path,
+) -> None:
+    """A mesh that is not split must keep the source point order byte for byte."""
+
+    source = _multi_mesh_source(tmp_path)
+
+    destination = generate_static_import(source, tmp_path / "TwoMeshes.import")
+
+    assert _descriptor_points(destination, "Left") == [
+        (0.0, 0.0, 0.0),
+        (1.0, 0.0, 0.0),
+        (0.0, 1.0, 0.0),
+    ]
+
+
+def test_generate_static_import_reindexes_subset_skinning_in_lockstep(
+    tmp_path: Path,
+) -> None:
+    source = _skinned_multi_material_source(tmp_path)
+    # Move each of Left's 4 points' weight into a different influence slot so a
+    # mis-mapped influence cannot pass unnoticed. The skeleton has one joint, so
+    # the slot is the only thing free to vary while every vertex still sums to 1.
+    text = source.read_text(encoding="utf-8")
+    text = text.replace(
+        "float[] primvars:skel:jointWeights = "
+        "[1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0] (",
+        "float[] primvars:skel:jointWeights = "
+        "[1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1] (",
+        1,
+    )
+    source.write_text(text, encoding="utf-8")
+
+    asset = load_static_asset(source)
+
+    partitions = {
+        mesh.material_name: mesh
+        for mesh in asset.meshes
+        if mesh.source_prim_path.endswith("/Left")
+    }
+    # Left's faces are [0, 1, 2] and [1, 3, 2]: Red keeps points 0/1/2 and
+    # Blue keeps 1/2/3, each with that point's own influences.
+    assert partitions["Red"].skinning.joint_weights == (
+        (1.0, 0.0, 0.0, 0.0),
+        (0.0, 1.0, 0.0, 0.0),
+        (0.0, 0.0, 1.0, 0.0),
+    )
+    assert partitions["Blue"].skinning.joint_weights == (
+        (0.0, 1.0, 0.0, 0.0),
+        (0.0, 0.0, 1.0, 0.0),
+        (0.0, 0.0, 0.0, 1.0),
+    )
+
+    destination = generate_static_import(source, tmp_path / "Skinned.import")
+    for mesh in partitions.values():
+        descriptor = (
+            destination / "mesh_descriptors" / f"{mesh.mesh_name}.tm_mesh_descriptor"
+        ).read_text()
+        # skinning_data.vertex_count must agree with the re-indexed points, or
+        # RCP reads influences past the end of the array.
+        assert descriptor.count("vertex_count: 3") == 2
+    assert inspect_import(destination).errors == []
+
+
+def _reskinned_source(tmp_path: Path, *, indices: str, weights: str) -> Path:
+    """The measured single-joint skeletal fixture with Left's influences rewritten."""
+
+    source = _multi_skeletal_source(tmp_path)
+    text = source.read_text(encoding="utf-8")
+    text = text.replace(
+        "int[] primvars:skel:jointIndices = "
+        "[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0] (",
+        f"int[] primvars:skel:jointIndices = [{indices}] (",
+        1,
+    )
+    text = text.replace(
+        "float[] primvars:skel:jointWeights = "
+        "[1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0] (",
+        f"float[] primvars:skel:jointWeights = [{weights}] (",
+        1,
+    )
+    source.write_text(text, encoding="utf-8")
+    return source
+
+
+_VALID_INFLUENCES = ("0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0", "1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0")
+
+
+@pytest.mark.parametrize(
+    ("indices", "weights", "message"),
+    [
+        pytest.param(
+            "7, 0, 0, 0, 9, 0, 0, 0, 0, 0, 0, 0",
+            "3, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0",
+            "outside the 1-joint skeleton",
+            id="joint-index-past-palette",
+        ),
+        pytest.param(
+            "-1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0",
+            _VALID_INFLUENCES[1],
+            "outside the 1-joint skeleton",
+            id="negative-joint-index",
+        ),
+        pytest.param(
+            _VALID_INFLUENCES[0],
+            "0, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0",
+            "summing to 0.0, not 1",
+            id="unweighted-vertex",
+        ),
+        pytest.param(
+            _VALID_INFLUENCES[0],
+            "0.5, 0.9, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0",
+            "summing to 1.39",
+            id="unnormalized-weights",
+        ),
+        pytest.param(
+            _VALID_INFLUENCES[0],
+            "1.5, -0.5, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0",
+            "negative or non-finite skin weight",
+            id="negative-weight",
+        ),
+        pytest.param(
+            "0, 0, 0, 0, 0, 0, 0, 0",
+            "1, 0, 0, 0, 1, 0, 0, 0",
+            "cover 2 vertices but",
+            id="influences-shorter-than-points",
+        ),
+    ],
+)
+def test_load_skinning_rejects_unusable_influences(
+    tmp_path: Path,
+    indices: str,
+    weights: str,
+    message: str,
+) -> None:
+    source = _reskinned_source(tmp_path, indices=indices, weights=weights)
+
+    with pytest.raises(ImportGenerationError, match=re.escape(message)):
+        generate_static_import(source, tmp_path / "Skinned.import")
+
+
+def test_load_skinning_accepts_measured_influences(tmp_path: Path) -> None:
+    indices, weights = _VALID_INFLUENCES
+    source = _reskinned_source(tmp_path, indices=indices, weights=weights)
+
+    destination = generate_static_import(source, tmp_path / "Skinned.import")
+
+    assert inspect_import(destination).errors == []
+
+
+def test_load_skinning_tolerates_float32_weight_rounding(tmp_path: Path) -> None:
+    """Thirds cannot sum to exactly 1 in float32; that must still import."""
+
+    source = _reskinned_source(
+        tmp_path,
+        indices="0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0",
+        weights=(
+            "0.3333333, 0.3333333, 0.3333333, 0, "
+            "1, 0, 0, 0, "
+            "1, 0, 0, 0"
+        ),
+    )
+
+    destination = generate_static_import(source, tmp_path / "Skinned.import")
+
+    assert inspect_import(destination).errors == []
 
 
 def test_generate_skeletal_material_subsets_reject_overlap(
@@ -992,6 +1300,100 @@ def test_generate_static_import_copies_measured_baked_texture_payload(
     material = (destination / "materials" / "Material_Baked.tm_material").read_text()
     assert 'type: "ND_realitykit_unlit_surfaceshader"' in material
     assert 'resource__type: "tm_texture"' in material
+
+
+def _colliding_texture_stem_source(tmp_path: Path) -> Path:
+    """Two different texture files that happen to share one filename stem."""
+
+    for directory in ("a", "b"):
+        (tmp_path / directory).mkdir()
+        (tmp_path / directory / "foo.png").write_bytes(
+            b"\x89PNG\r\n\x1a\n" + directory.encode() * 8
+        )
+    source = tmp_path / "Colliding.usda"
+    source.write_text(
+        """#usda 1.0
+(
+    defaultPrim = "root"
+    metersPerUnit = 1
+    upAxis = "Y"
+)
+def Xform "root"
+{
+    def Mesh "Cube" (
+        prepend apiSchemas = ["MaterialBindingAPI"]
+    )
+    {
+        int[] faceVertexCounts = [3]
+        int[] faceVertexIndices = [0, 1, 2]
+        point3f[] points = [(0, 0, 0), (1, 0, 0), (0, 1, 0)]
+        texCoord2f[] primvars:st = [(0, 0), (1, 0), (0, 1)] (
+            interpolation = "vertex"
+        )
+        rel material:binding = </root/_materials/M>
+    }
+    def Scope "_materials"
+    {
+        def Material "M"
+        {
+            token outputs:mtlx:surface.connect = </root/_materials/M/Surface.outputs:out>
+            def Shader "Surface"
+            {
+                uniform token info:id = "ND_realitykit_pbr_surfaceshader"
+                color3f inputs:baseColor.connect = </root/_materials/M/BaseImage.outputs:out>
+                float inputs:roughness.connect = </root/_materials/M/RoughImage.outputs:out>
+                token outputs:out
+            }
+            def Shader "BaseImage"
+            {
+                uniform token info:id = "ND_image_color3"
+                asset inputs:file = @a/foo.png@
+                color3f outputs:out
+            }
+            def Shader "RoughImage"
+            {
+                uniform token info:id = "ND_image_float"
+                asset inputs:file = @b/foo.png@
+                float outputs:out
+            }
+        }
+    }
+}
+""",
+        encoding="utf-8",
+    )
+    return source
+
+
+def test_generate_static_import_separates_colliding_texture_stems(
+    tmp_path: Path,
+) -> None:
+    source = _colliding_texture_stem_source(tmp_path)
+
+    destination = generate_static_import(source, tmp_path / "Colliding.import")
+
+    textures = destination / "textures"
+    assert len(list(textures.glob("*.tm_texture"))) == 2
+    assert len(list(textures.glob("*.tm_buffers"))) == 2
+    payloads = {
+        path.parent.name: path.read_bytes()
+        for path in textures.glob("*.tm_buffers/*")
+    }
+    assert sorted(payloads.values()) == [
+        b"\x89PNG\r\n\x1a\n" + b"a" * 8,
+        b"\x89PNG\r\n\x1a\n" + b"b" * 8,
+    ]
+
+    defined = set()
+    for record in textures.glob("*.tm_texture"):
+        defined.update(re.findall(r'__uuid: "([0-9a-f-]{36})"', record.read_text()))
+    material = (destination / "materials" / "M.tm_material").read_text()
+    referenced = set(re.findall(r'resource: "([0-9a-f-]{36})"', material))
+    assert len(referenced) == 2
+    assert referenced <= defined
+
+    report = build_report(inspect_import(destination), rcp_build="80.0.1.500.1")
+    assert report["record_types"]["tm_texture"] == 2
 
 
 def test_generate_static_import_rejects_unmeasured_texture_role(

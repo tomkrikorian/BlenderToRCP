@@ -27,6 +27,11 @@ _U64_MASK = (1 << 64) - 1
 _SAFE_NAME = re.compile(r"[^A-Za-z0-9_.-]+")
 _BOOTSTRAP_GEOMETRY_VALIDITY_HASH = "2cfcf0b4ccf2dcd8"
 _SKINNED_VERTEX_ID_BASE = 396600484
+# Skin weights are float32 in USD and some exporters quantize them, so an
+# exactly-1.0 sum is not reachable. This is wide enough to absorb that and far
+# tighter than the failures it has to catch: an unweighted vertex is off by 1
+# and an unnormalized set by whole multiples.
+_SKIN_WEIGHT_TOLERANCE = 1e-3
 _SUPPORTED_MATERIAL_COLOR_SPACES = frozenset(
     {
         "lin_ap0_scene",
@@ -778,7 +783,7 @@ def _load_clip_contract(
 
 
 def _load_skinning(stage, mesh_prim, *, asset_name: str) -> SkinningData:
-    from pxr import Usd, UsdSkel
+    from pxr import Usd, UsdGeom, UsdSkel
 
     binding = UsdSkel.BindingAPI(mesh_prim)
     indices_primvar = binding.GetJointIndicesPrimvar()
@@ -827,6 +832,40 @@ def _load_skinning(stage, mesh_prim, *, asset_name: str) -> SkinningData:
         or len(joint_names) != len(bind_transforms)
     ):
         raise ImportGenerationError("skeleton joint/rest/bind arrays are inconsistent")
+
+    # Nothing downstream range-checks an influence: _write_mesh_buffers packs
+    # the palette index straight into the geometry buffer, so an index past the
+    # skeleton becomes an out-of-range palette lookup at load time and a weight
+    # set that does not blend to one silently rescales the vertex. Reject both
+    # rather than clamping or renormalizing - what the pinned build does with a
+    # degenerate influence set has not been measured, and guessing would put
+    # quietly altered skin data into the artifact.
+    point_count = len(UsdGeom.Mesh(mesh_prim).GetPointsAttr().Get() or ())
+    if len(joint_indices) != point_count:
+        raise ImportGenerationError(
+            f"skin influences cover {len(joint_indices)} vertices but "
+            f"{mesh_prim.GetPath()} has {point_count} points"
+        )
+    for vertex, (indices, weights) in enumerate(zip(joint_indices, joint_weights)):
+        for index in indices:
+            if not 0 <= index < len(joint_names):
+                raise ImportGenerationError(
+                    f"joint index {index} on vertex {vertex} of "
+                    f"{mesh_prim.GetPath()} is outside the "
+                    f"{len(joint_names)}-joint skeleton"
+                )
+        if not all(math.isfinite(weight) and weight >= 0.0 for weight in weights):
+            raise ImportGenerationError(
+                f"vertex {vertex} of {mesh_prim.GetPath()} has a negative or "
+                "non-finite skin weight"
+            )
+        total = math.fsum(weights)
+        if abs(total - 1.0) > _SKIN_WEIGHT_TOLERANCE:
+            raise ImportGenerationError(
+                f"vertex {vertex} of {mesh_prim.GetPath()} has skin weights "
+                f"summing to {total}, not 1"
+            )
+
     joint_index_by_name = {name: index for index, name in enumerate(joint_names)}
     joints: list[SkeletonJoint] = []
     for index, (name, rest, bind) in enumerate(
@@ -1122,6 +1161,32 @@ def _load_material_data(
                     )
                 roughness_texture = texture
 
+        # Both the texture record and its payload directory are keyed by name,
+        # and the name only derives from the source filename stem. Two files
+        # that share a stem would otherwise collapse into one record and leave
+        # the material pointing at a UUID that no record defines.
+        used_texture_names: set[str] = set()
+        if base_color_texture is not None:
+            base_color_texture = replace(
+                base_color_texture,
+                name=_unique_record_name(
+                    base_color_texture.name,
+                    used=used_texture_names,
+                    fallback="BaseColorTexture",
+                    max_bytes=120,
+                ),
+            )
+        if roughness_texture is not None:
+            roughness_texture = replace(
+                roughness_texture,
+                name=_unique_record_name(
+                    roughness_texture.name,
+                    used=used_texture_names,
+                    fallback="RoughnessTexture",
+                    max_bytes=120,
+                ),
+            )
+
         if roughness_texture is not None and base_color_texture is None:
             raise ImportGenerationError(
                 "roughness texture requires a measured base-color texture graph"
@@ -1308,12 +1373,18 @@ def _unique_record_name(
     *,
     used: set[str],
     fallback: str,
+    max_bytes: int = 160,
 ) -> str:
-    base = _bounded_safe_name(candidate, fallback, max_bytes=160)
-    name = base
+    # The suffixed candidate is re-bounded rather than appended to an already
+    # bounded name so a disambiguated record still fits its filename budget.
+    name = _bounded_safe_name(candidate, fallback, max_bytes=max_bytes)
     suffix = 2
     while name in used:
-        name = f"{base}_{suffix}"
+        name = _bounded_safe_name(
+            f"{candidate}_{suffix}",
+            fallback,
+            max_bytes=max_bytes,
+        )
         suffix += 1
     used.add(name)
     return name
@@ -1402,6 +1473,7 @@ def load_static_asset(
     root_translation, root_rotation, root_scale = _local_transform(root_prim)
     used_mesh_names: set[str] = set()
     used_material_names: set[str] = set()
+    used_texture_names: set[str] = set()
     materials_by_key: dict[str, MaterialData] = {}
     meshes: list[StaticMesh] = []
     canonical_skinning: SkinningData | None = None
@@ -1427,12 +1499,16 @@ def load_static_asset(
         )
         loaded = replace(
             loaded,
+            # The material-name prefix keeps most textures apart, but it is not
+            # a guarantee on its own: names are truncated to a byte budget and
+            # a prefix boundary can be ambiguous. Reserve every emitted name.
             base_color_texture=(
                 replace(
                     loaded.base_color_texture,
-                    name=_bounded_safe_name(
+                    name=_unique_record_name(
                         f"{loaded.name}_{loaded.base_color_texture.name}",
-                        "BaseColorTexture",
+                        used=used_texture_names,
+                        fallback="BaseColorTexture",
                         max_bytes=120,
                     ),
                 )
@@ -1442,9 +1518,10 @@ def load_static_asset(
             roughness_texture=(
                 replace(
                     loaded.roughness_texture,
-                    name=_bounded_safe_name(
+                    name=_unique_record_name(
                         f"{loaded.name}_{loaded.roughness_texture.name}",
-                        "RoughnessTexture",
+                        used=used_texture_names,
+                        fallback="RoughnessTexture",
                         max_bytes=120,
                     ),
                 )
@@ -1662,6 +1739,40 @@ def load_static_asset(
                 for face_index in selected_faces
                 for corner in range(*corner_slices[face_index])
             )
+            # A split group only references part of the parent's points. Left
+            # unmapped, every submesh would carry the whole array and report
+            # the whole mesh's bounds, which is what RealityKit reads back as
+            # visualBounds. Keep the parent's point order so an unsplit mesh
+            # re-indexes to itself and its buffers stay byte-identical.
+            referenced_points = sorted(set(selected_indices))
+            if referenced_points == list(range(len(points))):
+                selected_points = points
+                selected_skinning = skinning
+            else:
+                remapped = {
+                    old: new for new, old in enumerate(referenced_points)
+                }
+                selected_points = tuple(points[old] for old in referenced_points)
+                selected_indices = tuple(
+                    remapped[index] for index in selected_indices
+                )
+                # Skinning is authored per point, so it has to follow the same
+                # map or every influence lands on the wrong vertex.
+                selected_skinning = (
+                    replace(
+                        skinning,
+                        joint_indices=tuple(
+                            skinning.joint_indices[old]
+                            for old in referenced_points
+                        ),
+                        joint_weights=tuple(
+                            skinning.joint_weights[old]
+                            for old in referenced_points
+                        ),
+                    )
+                    if skinning is not None
+                    else None
+                )
             candidate_name = (
                 f"{model_base_name}_{assigned_material.name}"
                 if split_materials
@@ -1678,7 +1789,7 @@ def load_static_asset(
                     root_name=_safe_name(root_prim.GetName(), "root"),
                     mesh_name=mesh_name,
                     material_name=assigned_material.name,
-                    points=points,
+                    points=selected_points,
                     face_counts=selected_counts,
                     face_indices=selected_indices,
                     face_uvs=selected_uvs,
@@ -1696,7 +1807,7 @@ def load_static_asset(
                     material_profile=assigned_material.profile,
                     base_color_texture=assigned_material.base_color_texture,
                     roughness_texture=assigned_material.roughness_texture,
-                    skinning=skinning,
+                    skinning=selected_skinning,
                     material_key=assigned_material.key,
                     source_prim_path=str(mesh_prim.GetPath()),
                 )
