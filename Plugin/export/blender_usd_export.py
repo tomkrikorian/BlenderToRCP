@@ -1107,19 +1107,6 @@ def _sidecars_owned_by_other_outputs(final_path: Path) -> set[str]:
     return protected
 
 
-def get_export_settings(context, settings) -> dict:
-    """Return the strict Blender 5.2 USD operator arguments for ``settings``."""
-    del context  # Kept in the public signature for existing internal callers.
-    output_path = str(settings.filepath)
-    root_prim_name = getattr(settings, "root_prim_name", "") or "Scene"
-    root_prim_path = root_prim_name if root_prim_name.startswith("/") else f"/{root_prim_name}"
-    return _build_export_kwargs(
-        settings,
-        output_path=output_path,
-        root_prim_path=root_prim_path,
-    )
-
-
 def _build_export_kwargs(settings, *, output_path: str, root_prim_path: str) -> dict:
     """Build arguments using only the Blender 5.2 ``wm.usd_export`` API.
 

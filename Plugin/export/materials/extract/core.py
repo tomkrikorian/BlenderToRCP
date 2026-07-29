@@ -808,20 +808,6 @@ def _dedupe_warnings(warnings: List[str]) -> List[str]:
     return deduped
 
 
-def _find_rk_group_node(material):
-    """Find a RealityKit-authored node group in the material."""
-    for node in material.node_tree.nodes:
-        if node.type != 'GROUP' or not node.node_tree:
-            continue
-        node_id = node.node_tree.get("rk_node_id")
-        if node_id:
-            return node
-        name = node.node_tree.name or ""
-        if name.startswith("RK_"):
-            return node
-    return None
-
-
 def _extract_rk_group_material_data(group_node, base_data: Dict[str, Any]) -> Dict[str, Any]:
     """Extract inputs from a RealityKit node group."""
     data = dict(base_data)
