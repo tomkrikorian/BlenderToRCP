@@ -982,14 +982,15 @@ def test_generate_static_import_reindexes_subset_skinning_in_lockstep(
     tmp_path: Path,
 ) -> None:
     source = _skinned_multi_material_source(tmp_path)
-    # Give each of Left's 4 points a distinguishable primary weight so a
-    # mis-mapped influence cannot pass unnoticed.
+    # Move each of Left's 4 points' weight into a different influence slot so a
+    # mis-mapped influence cannot pass unnoticed. The skeleton has one joint, so
+    # the slot is the only thing free to vary while every vertex still sums to 1.
     text = source.read_text(encoding="utf-8")
     text = text.replace(
         "float[] primvars:skel:jointWeights = "
         "[1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0] (",
         "float[] primvars:skel:jointWeights = "
-        "[0.1, 0, 0, 0, 0.2, 0, 0, 0, 0.3, 0, 0, 0, 0.4, 0, 0, 0] (",
+        "[1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1] (",
         1,
     )
     source.write_text(text, encoding="utf-8")
@@ -1002,13 +1003,17 @@ def test_generate_static_import_reindexes_subset_skinning_in_lockstep(
         if mesh.source_prim_path.endswith("/Left")
     }
     # Left's faces are [0, 1, 2] and [1, 3, 2]: Red keeps points 0/1/2 and
-    # Blue keeps 1/2/3, each with that point's own weight.
-    assert [
-        weights[0] for weights in partitions["Red"].skinning.joint_weights
-    ] == pytest.approx([0.1, 0.2, 0.3])
-    assert [
-        weights[0] for weights in partitions["Blue"].skinning.joint_weights
-    ] == pytest.approx([0.2, 0.3, 0.4])
+    # Blue keeps 1/2/3, each with that point's own influences.
+    assert partitions["Red"].skinning.joint_weights == (
+        (1.0, 0.0, 0.0, 0.0),
+        (0.0, 1.0, 0.0, 0.0),
+        (0.0, 0.0, 1.0, 0.0),
+    )
+    assert partitions["Blue"].skinning.joint_weights == (
+        (0.0, 1.0, 0.0, 0.0),
+        (0.0, 0.0, 1.0, 0.0),
+        (0.0, 0.0, 0.0, 1.0),
+    )
 
     destination = generate_static_import(source, tmp_path / "Skinned.import")
     for mesh in partitions.values():
@@ -1018,6 +1023,110 @@ def test_generate_static_import_reindexes_subset_skinning_in_lockstep(
         # skinning_data.vertex_count must agree with the re-indexed points, or
         # RCP reads influences past the end of the array.
         assert descriptor.count("vertex_count: 3") == 2
+    assert inspect_import(destination).errors == []
+
+
+def _reskinned_source(tmp_path: Path, *, indices: str, weights: str) -> Path:
+    """The measured single-joint skeletal fixture with Left's influences rewritten."""
+
+    source = _multi_skeletal_source(tmp_path)
+    text = source.read_text(encoding="utf-8")
+    text = text.replace(
+        "int[] primvars:skel:jointIndices = "
+        "[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0] (",
+        f"int[] primvars:skel:jointIndices = [{indices}] (",
+        1,
+    )
+    text = text.replace(
+        "float[] primvars:skel:jointWeights = "
+        "[1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0] (",
+        f"float[] primvars:skel:jointWeights = [{weights}] (",
+        1,
+    )
+    source.write_text(text, encoding="utf-8")
+    return source
+
+
+_VALID_INFLUENCES = ("0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0", "1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0")
+
+
+@pytest.mark.parametrize(
+    ("indices", "weights", "message"),
+    [
+        pytest.param(
+            "7, 0, 0, 0, 9, 0, 0, 0, 0, 0, 0, 0",
+            "3, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0",
+            "outside the 1-joint skeleton",
+            id="joint-index-past-palette",
+        ),
+        pytest.param(
+            "-1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0",
+            _VALID_INFLUENCES[1],
+            "outside the 1-joint skeleton",
+            id="negative-joint-index",
+        ),
+        pytest.param(
+            _VALID_INFLUENCES[0],
+            "0, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0",
+            "summing to 0.0, not 1",
+            id="unweighted-vertex",
+        ),
+        pytest.param(
+            _VALID_INFLUENCES[0],
+            "0.5, 0.9, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0",
+            "summing to 1.39",
+            id="unnormalized-weights",
+        ),
+        pytest.param(
+            _VALID_INFLUENCES[0],
+            "1.5, -0.5, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0",
+            "negative or non-finite skin weight",
+            id="negative-weight",
+        ),
+        pytest.param(
+            "0, 0, 0, 0, 0, 0, 0, 0",
+            "1, 0, 0, 0, 1, 0, 0, 0",
+            "cover 2 vertices but",
+            id="influences-shorter-than-points",
+        ),
+    ],
+)
+def test_load_skinning_rejects_unusable_influences(
+    tmp_path: Path,
+    indices: str,
+    weights: str,
+    message: str,
+) -> None:
+    source = _reskinned_source(tmp_path, indices=indices, weights=weights)
+
+    with pytest.raises(ImportGenerationError, match=re.escape(message)):
+        generate_static_import(source, tmp_path / "Skinned.import")
+
+
+def test_load_skinning_accepts_measured_influences(tmp_path: Path) -> None:
+    indices, weights = _VALID_INFLUENCES
+    source = _reskinned_source(tmp_path, indices=indices, weights=weights)
+
+    destination = generate_static_import(source, tmp_path / "Skinned.import")
+
+    assert inspect_import(destination).errors == []
+
+
+def test_load_skinning_tolerates_float32_weight_rounding(tmp_path: Path) -> None:
+    """Thirds cannot sum to exactly 1 in float32; that must still import."""
+
+    source = _reskinned_source(
+        tmp_path,
+        indices="0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0",
+        weights=(
+            "0.3333333, 0.3333333, 0.3333333, 0, "
+            "1, 0, 0, 0, "
+            "1, 0, 0, 0"
+        ),
+    )
+
+    destination = generate_static_import(source, tmp_path / "Skinned.import")
+
     assert inspect_import(destination).errors == []
 
 

@@ -27,6 +27,11 @@ _U64_MASK = (1 << 64) - 1
 _SAFE_NAME = re.compile(r"[^A-Za-z0-9_.-]+")
 _BOOTSTRAP_GEOMETRY_VALIDITY_HASH = "2cfcf0b4ccf2dcd8"
 _SKINNED_VERTEX_ID_BASE = 396600484
+# Skin weights are float32 in USD and some exporters quantize them, so an
+# exactly-1.0 sum is not reachable. This is wide enough to absorb that and far
+# tighter than the failures it has to catch: an unweighted vertex is off by 1
+# and an unnormalized set by whole multiples.
+_SKIN_WEIGHT_TOLERANCE = 1e-3
 _SUPPORTED_MATERIAL_COLOR_SPACES = frozenset(
     {
         "lin_ap0_scene",
@@ -778,7 +783,7 @@ def _load_clip_contract(
 
 
 def _load_skinning(stage, mesh_prim, *, asset_name: str) -> SkinningData:
-    from pxr import Usd, UsdSkel
+    from pxr import Usd, UsdGeom, UsdSkel
 
     binding = UsdSkel.BindingAPI(mesh_prim)
     indices_primvar = binding.GetJointIndicesPrimvar()
@@ -827,6 +832,40 @@ def _load_skinning(stage, mesh_prim, *, asset_name: str) -> SkinningData:
         or len(joint_names) != len(bind_transforms)
     ):
         raise ImportGenerationError("skeleton joint/rest/bind arrays are inconsistent")
+
+    # Nothing downstream range-checks an influence: _write_mesh_buffers packs
+    # the palette index straight into the geometry buffer, so an index past the
+    # skeleton becomes an out-of-range palette lookup at load time and a weight
+    # set that does not blend to one silently rescales the vertex. Reject both
+    # rather than clamping or renormalizing - what the pinned build does with a
+    # degenerate influence set has not been measured, and guessing would put
+    # quietly altered skin data into the artifact.
+    point_count = len(UsdGeom.Mesh(mesh_prim).GetPointsAttr().Get() or ())
+    if len(joint_indices) != point_count:
+        raise ImportGenerationError(
+            f"skin influences cover {len(joint_indices)} vertices but "
+            f"{mesh_prim.GetPath()} has {point_count} points"
+        )
+    for vertex, (indices, weights) in enumerate(zip(joint_indices, joint_weights)):
+        for index in indices:
+            if not 0 <= index < len(joint_names):
+                raise ImportGenerationError(
+                    f"joint index {index} on vertex {vertex} of "
+                    f"{mesh_prim.GetPath()} is outside the "
+                    f"{len(joint_names)}-joint skeleton"
+                )
+        if not all(math.isfinite(weight) and weight >= 0.0 for weight in weights):
+            raise ImportGenerationError(
+                f"vertex {vertex} of {mesh_prim.GetPath()} has a negative or "
+                "non-finite skin weight"
+            )
+        total = math.fsum(weights)
+        if abs(total - 1.0) > _SKIN_WEIGHT_TOLERANCE:
+            raise ImportGenerationError(
+                f"vertex {vertex} of {mesh_prim.GetPath()} has skin weights "
+                f"summing to {total}, not 1"
+            )
+
     joint_index_by_name = {name: index for index, name in enumerate(joint_names)}
     joints: list[SkeletonJoint] = []
     for index, (name, rest, bind) in enumerate(
