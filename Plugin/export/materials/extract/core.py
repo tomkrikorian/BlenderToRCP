@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Set
 
 from ....manifest.materialx_nodes import load_manifest, select_nodedef_name_for_node
+from ..graph import texture_colorspace_role
 
 _MANIFEST_CACHE: Optional[Dict[str, Any]] = None
 _STAGED_IMAGE_CACHE: Dict[Any, str] = {}
@@ -997,6 +998,12 @@ def _build_rk_node_graph(surface_node) -> Optional[Dict[str, Any]]:
                         'type': 'texture',
                         'path': texture_path,
                         'output_type': output_type,
+                        # Without a role this texture skips the data-texture
+                        # colour-space guard, so a normal or roughness image
+                        # left at Blender's default sRGB is authored
+                        # srgb_texture and silently decoded. The Principled
+                        # path fails closed on exactly this.
+                        'colorspace_role': texture_colorspace_role(input_name),
                     }
                     uv_map = _extract_uv_map_from_socket(socket)
                     if uv_map:
@@ -1070,6 +1077,9 @@ def _extract_group_inputs(group_node) -> Dict[str, Any]:
                     'type': tex_type,
                     'path': texture_path,
                     'output_type': output_type,
+                    # See _build_rk_node_graph: an untagged texture bypasses
+                    # the data-texture colour-space guard.
+                    'colorspace_role': texture_colorspace_role(input_name),
                 }
                 uv_map = _extract_uv_map_from_socket(socket)
                 if uv_map:

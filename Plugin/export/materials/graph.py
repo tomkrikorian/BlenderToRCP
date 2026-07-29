@@ -38,6 +38,18 @@ _COLOR_TEXTURE_INPUTS = {
 }
 
 
+def texture_colorspace_role(input_name: str) -> str:
+    """Return the color-space role a texture feeding ``input_name`` must use.
+
+    Shared so every extraction path tags its textures the same way. A spec with
+    no role bypasses the data-texture guard in
+    ``textures._materialx_file_colorspace``, which is the check that stops a
+    normal or roughness image left at Blender's default sRGB from being
+    authored ``srgb_texture`` and silently decoded.
+    """
+    return "color" if input_name in _COLOR_TEXTURE_INPUTS else "data"
+
+
 def material_profile_runtime_warnings(surface_profile: str) -> tuple[str, ...]:
     """Return user-facing compatibility warnings for an explicit profile."""
     requested = (surface_profile or _PROFILE_PORTABLE).strip().lower()
@@ -299,7 +311,7 @@ class MaterialXGraphBuilder:
             None,
         )
         for input_name, expr in graph_inputs.items():
-            texture_role = "color" if input_name in _COLOR_TEXTURE_INPUTS else "data"
+            texture_role = texture_colorspace_role(input_name)
             if isinstance(expr, dict) and expr.get("kind") in {"constant", "texture"}:
                 value = self._expression_to_value(expr, texture_role=texture_role)
                 if target is not None and value is not None:

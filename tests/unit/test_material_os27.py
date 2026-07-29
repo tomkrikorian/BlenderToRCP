@@ -1832,3 +1832,55 @@ def test_openpbr_surface_never_receives_undeclared_linked_inputs():
         f"OpenPBR surface authored inputs its nodedef does not declare: {sorted(unknown)}"
     )
     assert any("specularAnisotropyAngle" in message for message in diagnostics.warnings)
+
+
+# ---------------------------------------------------------------------------
+# RealityKit node-group textures must declare a colour-space role.
+#
+# textures._materialx_file_colorspace only enforces "data textures must be
+# Non-Color/raw" when the spec carries colorspace_role == "data". Neither RK
+# extraction path set it, so a normal or roughness image left at Blender's
+# default sRGB was authored srgb_texture and silently sRGB-decoded by
+# RealityKit - while the Principled path fails closed on exactly that input.
+# ---------------------------------------------------------------------------
+
+
+class _RKSocket:
+    def __init__(self, name):
+        self.name = name
+        self.is_linked = True
+
+
+def _extract_group_texture_specs(monkeypatch, socket_names):
+    """Drive the real _extract_group_inputs with linked image sockets."""
+    monkeypatch.setattr(core, "_extract_image_path_from_socket", lambda s: "/tmp/t.png")
+    monkeypatch.setattr(core, "_socket_output_type", lambda s: "color3")
+    monkeypatch.setattr(core, "_extract_uv_map_from_socket", lambda s: None)
+    monkeypatch.setattr(core, "_extract_mapping_from_socket", lambda s: None)
+    monkeypatch.setattr(core, "_extract_colorspace_from_socket", lambda s: "sRGB")
+    monkeypatch.setattr(core, "_extract_alpha_mode_from_socket", lambda s: None)
+    group = SimpleNamespace(inputs=[_RKSocket(name) for name in socket_names])
+    return core._extract_group_inputs(group)
+
+
+def test_rk_group_data_textures_are_tagged_as_data(monkeypatch):
+    specs = _extract_group_texture_specs(monkeypatch, ["normal", "roughness"])
+
+    assert specs["normal"]["colorspace_role"] == "data"
+    assert specs["roughness"]["colorspace_role"] == "data"
+
+
+def test_rk_group_colour_textures_are_tagged_as_colour(monkeypatch):
+    specs = _extract_group_texture_specs(monkeypatch, ["baseColor", "emissiveColor"])
+
+    assert specs["baseColor"]["colorspace_role"] == "color"
+    assert specs["emissiveColor"]["colorspace_role"] == "color"
+
+
+def test_srgb_tagged_data_texture_now_fails_closed(monkeypatch):
+    """The guard the missing role used to bypass."""
+    from Plugin.export.materials import textures as mtlx_textures
+
+    specs = _extract_group_texture_specs(monkeypatch, ["normal"])
+    with pytest.raises(ValueError):
+        mtlx_textures._materialx_file_colorspace(specs["normal"], "normal")
