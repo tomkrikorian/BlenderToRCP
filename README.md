@@ -108,7 +108,7 @@ For the full command reference see [`docs/CLI.md`](docs/CLI.md).
 
 ## AI agent skills
 
-This repo ships two [OpenAI-format skills](https://skills.sh) that let AI agents (Claude, ChatGPT, Copilot, etc.) drive BlenderToRCP from natural language.
+This repo ships two [Agent Skills](https://skills.sh) — `SKILL.md` files with YAML frontmatter — that let AI agents (Claude, ChatGPT, Copilot, etc.) drive BlenderToRCP from natural language.
 
 ### Install skills
 

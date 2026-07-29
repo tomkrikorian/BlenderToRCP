@@ -14,9 +14,169 @@ claim was checked by running something rather than reading code, the
 measurement is included, because several findings in the original list turned
 out to be wrong in exactly the cases where nobody had measured.
 
+A second pass on 2026-07-29 — a documentation audit that produced
+`docs/MATERIAL_TRANSLATION.md`, `docs/BAKING.md`, `docs/EXPORT_PIPELINE.md` and
+`docs/SETTINGS.md` — added the "silently wrong output" and "surprising but
+loud" sections below. Those findings came out of writing down what the exporter
+actually does, which is a more effective way to find defects than looking for
+them directly: the worst ones are all cases where the code does something
+reasonable-looking that nobody had ever stated in prose.
+
 ---
 
 ## Still open
+
+### Silently wrong output (found by the 2026-07-29 documentation audit)
+
+These produce a plausible-looking asset that is wrong. Every one was measured,
+and the measurement is quoted so it can be re-run.
+
+- **`LIT_IBL` gives every mesh-sharing instance the last instance's lighting.**
+  `LIT_IBL` disables the bake reuse cache so each instance bakes its own texture
+  ([bake_textures.py:256](Plugin/export/bake_textures.py:256)), but the baked
+  material is assigned to a `DATA`-linked slot
+  ([bake_textures.py:355](Plugin/export/bake_textures.py:355)) — i.e. onto the
+  shared *mesh datablock*. Last write wins. The comment at
+  [bake_textures.py:149](Plugin/export/bake_textures.py:149) documents this exact
+  hazard and guards the read side; the write side is unguarded and `slot.link`
+  is never set to `'OBJECT'` anywhere.
+  *Measured:* two objects sharing one mesh (Alt+D), sun light, a slab occluding
+  only the second. Both export bound to `</root/_materials/Shared_Baked_1>`,
+  whose texture measures `R[0.0000, 0.2275]`, mean `0.0003`. **The fully lit
+  cube exports black.** Three `COMBINED` bakes run and two outputs are discarded.
+  `LIT_IBL` is the default bake mode and linked duplicates are the standard
+  Blender instancing idiom.
+
+- **Invalid MaterialX ships for a textbook graph.** The nodedef selector falls
+  back signature → input/output → output-only → *any nodedef of that name*
+  ([materialx_nodes.py:91](Plugin/manifest/materialx_nodes.py:91)).
+  `luminance→float` returns a `color3`-output nodedef, and the resulting
+  `color3→float` convert resolves to **`ND_convert_boolean_float`**. Because that
+  is truthy, the `missing_mappings` diagnostic at
+  [conversions.py:265](Plugin/export/materials/conversions.py:265) never fires.
+  *Measured:* `Image Texture → RGB to BW → Roughness` exports `"ok": true` with
+  no diagnostics, and the USD contains a `ND_convert_boolean_float` shader whose
+  `in` is declared `color3f`, wired to `inputs:roughness`. RealityKit cannot
+  bind that.
+
+- **Blender's scene unit scale is ignored.**
+  [blender_usd_export.py:1175](Plugin/export/blender_usd_export.py:1175) pins
+  `convert_scene_units='METERS'` / `meters_per_unit=1.0`. Nothing in the export
+  path reads `scene.unit_settings.scale_length` — it is read only for reporting
+  (`scene_info.py`, `support_bundle.py`). Blender's enum *declares*
+  `metersPerUnit` rather than rescaling points, so the declared unit and the
+  authored geometry diverge whenever the scene is not at 1.0.
+  *Measured:* an identical 2-unit cube exported from `scale_length=1.0` and
+  `scale_length=0.01` produced byte-identical `metersPerUnit = 1` and
+  `extent = [(-1,-1,-1),(1,1,1)]`. A user modelling in centimetres reads "2 cm"
+  in the sidebar and gets a 2 m object, 100x oversized, with no warning. Pinning
+  `metersPerUnit=1` is correct for the Apple contract; the gap is that a
+  non-1.0 `scale_length` should be compensated or refused.
+
+- **Averaged roughness is a function of bake margin, not of the material.**
+  `_average_image_value`
+  ([bake_textures.py:1674](Plugin/export/bake_textures.py:1674)) means over the
+  whole buffer including texels no UV island covers, which are `0`.
+  *Measured:* one material at `Roughness = 0.5` → margin `0`: **0.3373**;
+  margin `8` (the default): **0.4074**; margin `32`: **0.5011**. At the shipped
+  default the exported constant is 18.5% low. A UV-coverage mask would fix it.
+
+- **Transparent materials export roughness `0` and darker RGB.** Cycles'
+  `ROUGHNESS` pass returns `0` on alpha-blended surfaces and nothing detects or
+  compensates.
+  *Measured:* two materials identical but for `Alpha`, both `Roughness = 0.5` →
+  opaque `R[0.0000, 0.5020]`, `Alpha=0.4` `R[0.0000, 0.0000]`. Isolated from the
+  opacity pass. Any glass or foliage material baked with `LIT_ALBEDO` gets a
+  mirror finish. Separately, the same material's RGB bakes darker (opaque peak
+  `R = 0.4941` vs `0.3176`), and RealityKit then applies alpha again on top.
+
+- **Nested unresolved sub-expressions vanish without a warning.**
+  [extract/core.py:402](Plugin/export/materials/extract/core.py:402) checks only
+  the top-level `kind`, and `_expr_from_socket` returns the unresolved dict
+  rather than `None`, so a surrounding node is built and the graph builder drops
+  the unresolved child — the input silently falls back to a nodedef default.
+  Every multi-input resolver branch has this shape.
+
+- **Stashed Actions are dropped silently, and the comment says otherwise.**
+  [animation_export.py:529](Plugin/export/animation_export.py:529) documents its
+  `slot.users()` scan as covering "logical takes that are not the active Action
+  and are not currently staged as NLA strips", but in Blender 5.2 `users()`
+  returns only *live* users, so it is empty for exactly that case.
+  *Measured:* three Actions on one object (active / NLA strip / stashed with
+  fake user) exported two takes; the stashed one was absent from both the
+  schedule and the clip list, with no warning.
+
+- **`LIT_IBL` with no world and no lights exports black and reports success.**
+  `_temporary_ibl_world` returns early for `SCENE_WORLD`
+  ([bake_textures.py:718](Plugin/export/bake_textures.py:718)) and nothing checks
+  that any light exists. *Measured:* `scene.world = None`, no lights → `ok: true`,
+  one 2048x2048 texture, mean `0.0000`, no warning anywhere.
+
+- **Emission is rejected in `LIT_ALBEDO` but silently dropped in
+  `UNLIT_ALBEDO`.** The validator is gated on `bake_mode == "LIT_ALBEDO"`
+  ([bake_textures.py:1321](Plugin/export/bake_textures.py:1321)).
+  *Measured:* a material with `Emission Strength = 2.0` fails under
+  `LIT_ALBEDO` with a precise message and exports `ok: true` under
+  `UNLIT_ALBEDO` with a baked texture byte-identical to the same material with
+  emission removed.
+
+- **A legal material cannot be exported at all.** A Non-Color image on Base
+  Color fails with `TEXTURE_COLOR_SPACE_MISMATCH`. The MaterialX graph is
+  correct (`lin_rec709`); the failure comes from the retained native
+  `UsdPreviewSurface` network, which Blender's own exporter tags
+  `colorSpace:name = "data"`. `_remove_stale_preview_network`
+  ([rewrite.py:681](Plugin/export/materials/rewrite.py:681)) only runs when a
+  texture came from dirty or generated pixels, and `validate` reports OK first.
+  *Measured:* export fails on `/root/_materials/M/Image_Texture`.
+
+### Surprising but loud
+
+- **`-o` extension is silently rewritten and the format comes from the
+  `.blend`.** [export.py:117](Plugin/api/commands/export.py:117). `-o out.usdz`
+  on a scene whose saved `export_format` is `USDA` writes `out.usda` and exits 0.
+  `with_suffix` also mangles dotted stems: `-o /tmp/my.scene.v2` becomes
+  `/tmp/my.scene.usda`.
+- **`--json --verbose` leaks unredacted absolute paths to stderr.**
+  [bridge.py:374](Plugin/cli/bridge.py:374) forwards `proc.stderr` raw; only the
+  copy *inside* the envelope is `$HOME`-redacted. `--verbose` is what the docs
+  tell users to pass when capturing output for a support issue.
+- **User-facing conditions raised as bare `ValueError`** in `validate.py:67`,
+  `settings_get.py:19`/`:26`, `preferences_set.py:26`/`:32` — bypassing
+  `CommandError`, so `error.code` is `VALUEERROR` and a traceback is attached,
+  defeating the policy in `runner.py`.
+- **Actionable error detail is invisible without `--json`.**
+  [cli/__main__.py:633](Plugin/cli/__main__.py:633) prints only `str(exc)`;
+  which key, which value and which tokens were allowed all live in
+  `error.details` and are dropped.
+- **`preferences set` writes global user preferences with no `--save` and no
+  `--dry-run`** ([preferences_set.py:36](Plugin/api/commands/preferences_set.py:36))
+  — the opposite of `settings set`'s contract, in a sibling subcommand.
+- **UI and CLI disagree on default bake resolution.** The operator forces
+  `export_texture_settings_enabled = True` into the worker payload
+  ([bake_export_operator.py:730](Plugin/ops/bake_export_operator.py:730)); the
+  CLI leaves it `False`. *Measured:* same scene, 256 px source → sidebar bakes
+  2048x2048, CLI bakes 512x512.
+- **Packed ORM textures get two samplers.** `_texture_cache_key` includes
+  `channel` ([textures.py:40](Plugin/export/materials/textures.py:40)), so one
+  ORM file read for roughness (G) and metallic (B) authors two
+  `ND_image_vector4` prims. Doubles sampler cost for the standard packing
+  workflow.
+- **UDIM is unsupported with a misleading error** — a tile set fails with
+  `Texture file not found: .../tile.<UDIM>.png`. It does fail closed.
+- **Validator/exporter drift, both directions.** `validate` says OK and export
+  dies for sRGB-tagged data textures, `COMBINE_COLOR` in HSV/HSL, `VALTORGB`
+  with <2 stops, `TEX_ENVIRONMENT` with no image, and materials with no active
+  surface shader. Conversely `CURVE_RGB` is in `BAKE_TYPES`
+  ([validate.py:91](Plugin/nodes/validate.py:91)) despite a complete resolver
+  implementation, making that code unreachable.
+- **The extractor's warning table is 11 node types behind the validator**
+  ([extract/core.py:575](Plugin/export/materials/extract/core.py:575)) — 15
+  supported types vs the validator's 29, so `TEX_NOISE`, `CLAMP`, `MAP_RANGE`
+  and others export correctly while emitting "is unrecognized".
+- **`bake_keep_materials` is a no-op from the UI** (the bake runs in a
+  subprocess against a scene copy) **and leaves dangling paths from the CLI** —
+  retained images' `filepath_raw` point into a staging directory that has been
+  deleted.
 
 ### Correctness
 

@@ -11,6 +11,20 @@ Core design constraints:
 - Responsive baking. The single Blender Export action routes bake-backed profiles through a second Blender process so the foreground UI stays interactive.
 - Built artifacts stay built. Runtime loads the prebuilt MaterialX manifest and nodegroup library; it does not regenerate them inside Blender.
 
+## Further reading
+
+This file describes *structure* — which module owns what. For behaviour, and
+in particular for the decisions the exporter makes on the user's behalf:
+
+- [MATERIAL_TRANSLATION.md](MATERIAL_TRANSLATION.md) — Blender shader graph to MaterialX ShaderGraph
+- [BAKING.md](BAKING.md) — when a bake runs and what each mode captures
+- [EXPORT_PIPELINE.md](EXPORT_PIPELINE.md) — geometry, units, animation, staging, packaging
+- [SETTINGS.md](SETTINGS.md) — every toggle and what it actually changes
+- [CLI.md](CLI.md) — commands, flags, exit codes, JSON envelope
+
+Known defects, including several that produce silently wrong output, are in
+[../CODE_REVIEW_FINDINGS.md](../CODE_REVIEW_FINDINGS.md).
+
 ## Supported platform contract
 
 The release-2.x validation baseline is:
@@ -42,9 +56,15 @@ The mandatory shipping material profile is `realitykit_portable`, based on the e
 - `Plugin/core/paths.py`: shared path resolution for manifests, assets, and bundled resources.
 - `Plugin/core/version.py`: runtime access to `blender_manifest.toml` (single source of version metadata).
 - `Plugin/export/usd_hook.py`: scoped USDHook that captures the exporter's prim map during export.
+- `Plugin/export/realitykit_preflight.py`: post-authoring gate that inspects the composed stage against the RealityKit OS 27 contract (colour spaces, texture transforms, UV sets) and fails the export on violation.
+- `Plugin/export/staging_namespace.py`: per-attempt sidecar generation namespaces, plus the record of textures Blender's own exporter wrote, used to decide which staged copies may be deleted.
+- `Plugin/export/sidecar_manifest.py`: the ownership manifest that makes re-export to an existing directory safe.
+- `Plugin/export/rcp_import_generator.py`: experimental Reality Composer Pro 3 `.import` package generation (see below).
+- `Plugin/export_profile.py`: maps the UI's artist-facing material controls onto a pipeline and a `bake_mode`.
+- `Plugin/material_policies.py` and `Plugin/apple_contract.py`: fixed policy constants, including the Apple spatial contract (Y-up, `metersPerUnit` 1.0) that is deliberately not user-configurable.
 - `scripts/`: developer tooling for packaging, manifest generation, nodegroup generation, and validation.
 - `References/MaterialX-definitions/`: Apple MaterialX definition sources used to build the runtime manifest.
-- `References/RealityComposerProProject/`: legacy Reality Composer Pro 2 reference material; it is not an RCP3/Apple 27 validation fixture until manually migrated.
+- `References/RealityComposerProProject/`: disposable Reality Composer Pro 3 research corpus used to measure the private `.import` format. Not a validation fixture, and not shipped. The `.import` capture directories themselves are gitignored (`*.import/`) because their opaque buffer payloads are unsuitable for version control; regenerate them locally from RCP.
 - `References/Doc/` and `References/Blender/`: supporting reference documentation and sample Blender scenes.
 - `.github/workflows/ci.yml`: portable unit, archive-smoke, and pinned Blender 5.2 integration gates.
 - `.github/workflows/apple-platform-validation.yml`: protected self-hosted Apple 27 validation lane.
@@ -82,8 +102,12 @@ Important behaviors:
 - Export paths are remembered per `.blend` file through add-on preferences.
 
 Preferences live in `Plugin/prefs.py`:
-- `usdzip_path`
-- `materialx_library_path`
+- `usdzip_path` — optional external `usdzip`; the built-in packager is used when empty.
+- `materialx_library_path` — drawn in the preferences UI and settable through `preferences set`, but **never read by the export pipeline**. It is recorded in support bundles and otherwise inert.
+- `enforcement_mode` — a single-item enum, hidden, and read by nothing. Strict mode is unconditional.
+- `last_export_settings_json` / `last_export_paths_json` — internal persistence for sticky settings and per-`.blend` output paths.
+
+Note that persisted export settings live in *preferences*, not in the scene, so they follow the user across `.blend` files. See [SETTINGS.md](SETTINGS.md).
 
 Diagnostics are an export setting on `BlenderToRCPExportSettings`, not an add-on preference. Failures always write `.diagnostics.json`; `diagnostics_enabled` controls only successful-export sidecars.
 
@@ -119,12 +143,12 @@ Pipeline entry point: `Plugin/export/postprocess_usd.py`
 Sub-steps:
 - `normalize_scene(stage, settings)` from `Plugin/export/usd_scene.py`
 - `rewrite_materials(stage, settings, context, diagnostics)` from `Plugin/export/materials/rewrite.py`
-- `author_animation_library(stage, settings, diagnostics)` from `Plugin/export/usd_animation_library.py`; this is opt-in via `author_animation_library=true` because RealityKit runtime exports should usually play or trim imported animation resources directly.
+- `author_animation_library(stage, settings, diagnostics)` from `Plugin/export/usd_animation_library.py`; opt-in via `author_animation_library=true` because RealityKit runtime exports should usually play or trim imported animation resources directly. When it is `false` the step is **not** a no-op: it actively removes any pre-existing AnimationLibrary from the stage.
 - `prepare_textures(stage, usd_path, settings, diagnostics)` from `Plugin/export/usd_textures.py`
 - `prepare_assets(stage, usd_path, diagnostics)` from `Plugin/export/usd_assets.py`
 
 This stage is where Blender-authored USD is converted into the RealityKit and Reality Composer Pro contract the rest of the toolchain expects.
-Texture staging prefixes generated texture filenames with the export output stem, for example `badge-streak-7-extracted_image_0.avif`, before applying hash suffixes for any remaining same-name collisions.
+Textures are staged into a per-attempt generation namespace, `textures/<output-name>/<generation>/`, under content-addressed filenames of the form `<output-stem>-<source-name>-<sha256>.<ext>`. The generation token is unique per export attempt, which is what lets a crashed export leave either the old or the new tree coherent rather than a mixture. See [EXPORT_PIPELINE.md](EXPORT_PIPELINE.md).
 
 ### 4. USDZ packaging
 Packager: `Plugin/export/pack_usdz.py`
@@ -132,6 +156,29 @@ Packager: `Plugin/export/pack_usdz.py`
 - Otherwise uses the built-in uncompressed packager, which writes the root layer first and aligns every payload to the USDZ-required 64-byte boundary.
 - Packages the staged dependency tree, validates archive safety/alignment/CRC before publication, and additionally runs strict `usdchecker` when that tool is available.
 - Publishes atomically. A failed package or validation does not replace the requested output, and its staging tree is retained for diagnostics.
+
+### 4b. Experimental Reality Composer Pro `.import` generation
+
+Generator: `Plugin/export/rcp_import_generator.py`
+
+`RCP_IMPORT` is a fourth export format, selectable in the UI and as
+`--format RCP_IMPORT`. It is an *outer packaging mode*: the native Blender USD
+export still runs and an adjacent `.usda` is written, then the generator emits a
+Reality Composer Pro `.import` package beside it.
+
+This lane is experimental and pinned to RCP 3.0 build `80.0.1.500.1`. The
+`.import` container is a private Apple format that this repository documents by
+measurement, not from a specification, so the module's discipline is that no
+field is written unless it was observed in RCP-authored output. Supported today:
+static multi-mesh assets, single-mesh transform animation, and single- or
+multi-mesh skeletal assets sharing one skeleton. Multiple face materials use a
+temporary split-resource representation that opens and renders but fails the
+second-reimport idempotence gate.
+
+Structural acceptance is checked by `scripts/_lib/rcp_import_contract.py` via
+`scripts/inspect_rcp_import.py`. See
+[RCP_IMPORT_EXPERIMENT.md](RCP_IMPORT_EXPERIMENT.md) for the measured contract
+and the exact fail-closed boundaries before relying on any of it.
 
 ### 5. Diagnostics
 Collector: `Plugin/export/diagnostics.py`
