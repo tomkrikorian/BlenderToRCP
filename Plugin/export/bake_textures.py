@@ -52,6 +52,9 @@ class BakeResult:
         self.baked_materials: List[object] = []
         self.baked_images: List[object] = []
         self.temporary_images: List[object] = []
+        # Slot link modes captured before baking. A slot switched to 'OBJECT'
+        # so a shared mesh could hold per-instance bakes must be switched back.
+        self.original_slot_links: Dict[object, List[str]] = {}
 
 
 def _forget_image(result: BakeResult, image) -> None:
@@ -269,6 +272,9 @@ def _bake_materials_for_objects_impl(
 
             original_mats = original_slot_materials[obj]
             result.original_materials[obj] = original_mats
+            result.original_slot_links[obj] = [
+                getattr(slot, "link", 'DATA') for slot in obj.material_slots
+            ]
 
             # Identity (not name) of the mesh datablock: a baked texture is tied
             # to a specific UV layout, and distinct datablocks can share a name
@@ -352,6 +358,23 @@ def _bake_materials_for_objects_impl(
                 )
                 if not source_mat.use_nodes:
                     _initialize_simple_material(baked_mat, source_mat)
+                # Material slots are DATA-linked by default, so assigning here
+                # writes onto the *shared mesh datablock*. With a shared mesh
+                # that means the last instance to bake overwrites every earlier
+                # instance's material - and in LIT_IBL, where the cache is
+                # deliberately disabled so each instance captures its own
+                # lighting, every instance ends up bound to the last one's bake.
+                # A cube in full sun exported black because its linked duplicate
+                # sat under an occluder. Switch the slot to OBJECT so the baked
+                # material lands on this object; restore_baked_materials puts
+                # the link back, which also restores the untouched mesh-level
+                # material. Only for shared meshes: for a single-user mesh the
+                # two are equivalent and DATA keeps the scene as the user left it.
+                if getattr(getattr(obj, "data", None), "users", 1) > 1:
+                    try:
+                        slot.link = 'OBJECT'
+                    except Exception:
+                        pass
                 slot.material = baked_mat
                 result.baked_materials.append(baked_mat)
 
@@ -935,11 +958,22 @@ def restore_baked_materials(result: BakeResult, keep_baked_materials: bool) -> N
         return
 
     for obj, materials in result.original_materials.items():
+        links = result.original_slot_links.get(obj) or []
         for idx, mat in enumerate(materials):
             try:
                 if idx >= len(obj.material_slots):
                     continue
-                obj.material_slots[idx].material = mat
+                slot = obj.material_slots[idx]
+                # Link first: a slot switched to OBJECT for a shared mesh must
+                # go back to DATA before the material is written, otherwise the
+                # original is restored onto the object while the baked material
+                # stays on the mesh.
+                if idx < len(links):
+                    try:
+                        slot.link = links[idx]
+                    except Exception:
+                        pass
+                slot.material = mat
             except (ReferenceError, Exception):
                 pass
 

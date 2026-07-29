@@ -547,3 +547,71 @@ def test_an_existing_vector_link_is_not_overwritten():
     bake_textures._bind_uv_layer(tree, image_node, "BakeUV")
 
     assert list(tree.nodes) == [], "a caller-authored Vector graph must win"
+
+
+# ---------------------------------------------------------------------------
+# Shared mesh datablocks: per-object material slots
+#
+# Material slots are DATA-linked by default, so assigning a baked material
+# writes it onto the shared mesh datablock. With a linked duplicate (Alt+D)
+# the last instance to bake overwrote every earlier one - and in LIT_IBL,
+# where the reuse cache is deliberately disabled so each instance captures its
+# own lighting, every instance ended up bound to the last instance's bake. A
+# cube in full sun exported black because its duplicate sat under an occluder.
+# ---------------------------------------------------------------------------
+
+
+class _Slot:
+    def __init__(self, material=None, link='DATA'):
+        self.material = material
+        self.link = link
+
+
+class _SlotObject:
+    def __init__(self, slots):
+        self.material_slots = slots
+
+
+def test_restore_puts_slot_link_back_before_the_material():
+    """Restoring the material first would leave the bake on the mesh."""
+    original = object()
+    slot = _Slot(material=object(), link='OBJECT')
+    obj = _SlotObject([slot])
+
+    result = bake_textures.BakeResult()
+    result.original_materials[obj] = [original]
+    result.original_slot_links[obj] = ['DATA']
+
+    bake_textures.restore_baked_materials(result, keep_baked_materials=False)
+
+    assert slot.link == 'DATA'
+    assert slot.material is original
+
+
+def test_restore_leaves_untouched_slots_on_their_original_link():
+    original = object()
+    slot = _Slot(material=object(), link='DATA')
+    obj = _SlotObject([slot])
+
+    result = bake_textures.BakeResult()
+    result.original_materials[obj] = [original]
+    result.original_slot_links[obj] = ['DATA']
+
+    bake_textures.restore_baked_materials(result, keep_baked_materials=False)
+
+    assert slot.link == 'DATA'
+    assert slot.material is original
+
+
+def test_restore_without_recorded_links_still_restores_materials():
+    """Older results, and objects whose links were never captured."""
+    original = object()
+    slot = _Slot(material=object(), link='DATA')
+    obj = _SlotObject([slot])
+
+    result = bake_textures.BakeResult()
+    result.original_materials[obj] = [original]
+
+    bake_textures.restore_baked_materials(result, keep_baked_materials=False)
+
+    assert slot.material is original
