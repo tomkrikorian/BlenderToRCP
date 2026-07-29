@@ -1688,3 +1688,147 @@ def test_unlit_omitted_graph_inputs_are_reported():
     assert any("roughness" in message for message in diagnostics.warnings), (
         "dropping a linked input silently is how the PBR2 profile bugs hid"
     )
+
+
+class _CollectingDiagnostics:
+    def __init__(self):
+        self.warnings = []
+
+    def add_warning(self, message):
+        self.warnings.append(message)
+
+
+def _openpbr_declared_inputs(manifest):
+    return {entry["name"] for entry in manifest["nodes"][OPENPBR_1_1_NODEDEF]["inputs"]}
+
+
+def test_openpbr_refuses_an_explicit_alpha_cutout_threshold():
+    """OpenPBR 1.1 has no clip, so a cutout must not degrade into a blend.
+
+    alpha_threshold only ever exists because the scene set
+    blender_to_rcp_alpha_cutout_threshold - the exporter deliberately refuses
+    to infer one from Blender 5.2's render methods. Dropping it silently
+    swapped the rendering model the author explicitly asked for.
+    """
+    data = {
+        "base_color": [0.8, 0.2, 0.1],
+        "alpha": 0.5,
+        "is_transparent": True,
+        "alpha_threshold": 0.35,
+    }
+
+    with pytest.raises(ValueError, match="no alpha-cutout input"):
+        MaterialXGraphBuilder(
+            _manifest(),
+            surface_profile="openpbr_1_1",
+        ).build_pbr_material(dict(data))
+
+    # The RealityKit surfaces declare opacityThreshold and must keep honouring it.
+    for profile in ("realitykit_portable", "realitykit_pbr2"):
+        graph = MaterialXGraphBuilder(
+            _manifest(),
+            surface_profile=profile,
+        ).build_pbr_material(dict(data))
+        assert graph["nodes"][0]["inputs"]["opacityThreshold"] == 0.35
+
+
+def test_openpbr_reports_inputs_the_surface_cannot_express():
+    """Nothing OpenPBR 1.1 lacks may vanish without a diagnostic.
+
+    hasPremultipliedAlpha is the costly one: rewrite.py lets a premultiplied
+    base color through on the strength of the material carrying that flag, so
+    dropping it renders the texture with dark fringes and no warning.
+    """
+    manifest = _manifest()
+    diagnostics = _CollectingDiagnostics()
+
+    graph = MaterialXGraphBuilder(
+        manifest,
+        diagnostics=diagnostics,
+        surface_profile="openpbr_1_1",
+    ).build_pbr_material(
+        {
+            "base_color": [0.8, 0.2, 0.1],
+            "alpha": 0.5,
+            "is_transparent": True,
+            "has_premultiplied_alpha": True,
+            "ao_texture": "textures/ao.png",
+            "anisotropic_rotation": 0.25,
+        }
+    )
+
+    assert not set(graph["nodes"][0]["inputs"]) - _openpbr_declared_inputs(manifest)
+    reported = " ".join(diagnostics.warnings)
+    for lost in ("hasPremultipliedAlpha", "ambientOcclusion", "specularAnisotropyAngle"):
+        assert lost in reported, f"{lost} was dropped without a diagnostic"
+
+
+def test_openpbr_carries_specular_and_sheen_without_claiming_a_loss():
+    """The substitutes must be confirmed, not assumed.
+
+    specular and sheenColor are missing from the rename table yet reach the
+    surface as specular_weight and the fuzz_* trio, so reporting them would be
+    noise - but only while the substitute is actually authored.
+    """
+    manifest = _manifest()
+    diagnostics = _CollectingDiagnostics()
+
+    MaterialXGraphBuilder(
+        manifest,
+        diagnostics=diagnostics,
+        surface_profile="openpbr_1_1",
+    ).build_pbr_material(
+        {
+            "base_color": [0.2, 0.3, 0.4],
+            "specular": 0.5,
+            "specular_weight": 1.0,
+            "sheen_color": [0.4, 0.4, 0.4],
+            "sheen_weight": 0.4,
+            "sheen_tint": [1.0, 1.0, 1.0],
+        }
+    )
+
+    assert diagnostics.warnings == []
+
+    # Without its substitute the same input is a real loss and must be reported.
+    orphaned = _CollectingDiagnostics()
+    MaterialXGraphBuilder(
+        manifest,
+        diagnostics=orphaned,
+        surface_profile="openpbr_1_1",
+    ).build_pbr_material({"base_color": [0.2, 0.3, 0.4], "specular": 0.5})
+
+    assert any("specular" in message for message in orphaned.warnings)
+
+
+def test_openpbr_surface_never_receives_undeclared_linked_inputs():
+    """The graph-input rename table passes unknown keys through verbatim.
+
+    A linked Anisotropic Rotation resolves to specularAnisotropyAngle, which
+    OpenPBR 1.1 does not declare at all. Authoring it anyway reproduced the
+    undeclared-input failure the unlit surface used to hit.
+    """
+    manifest = _manifest()
+    diagnostics = _CollectingDiagnostics()
+
+    graph = MaterialXGraphBuilder(
+        manifest,
+        diagnostics=diagnostics,
+        surface_profile="openpbr_1_1",
+    ).build_pbr_material(
+        {
+            "base_color": [0.2, 0.3, 0.4],
+            "input_graphs": {
+                "baseColor": _color_node([0.7, 0.6, 0.5]),
+                "specularAnisotropyAngle": _float_node(0.25),
+            },
+        }
+    )
+
+    authored = set(graph["nodes"][0]["inputs"])
+    connected = {connection["to_input"] for connection in graph["connections"]}
+    unknown = (authored | connected) - _openpbr_declared_inputs(manifest)
+    assert not unknown, (
+        f"OpenPBR surface authored inputs its nodedef does not declare: {sorted(unknown)}"
+    )
+    assert any("specularAnisotropyAngle" in message for message in diagnostics.warnings)

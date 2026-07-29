@@ -234,6 +234,14 @@ class MaterialXGraphBuilder:
             node_def = self.manifest.get("nodes", {}).get(node_id)
         return node_def
 
+    def _declared_input_names(self, node_def: Optional[Dict[str, Any]]) -> set:
+        """Return the input names a nodedef actually declares."""
+        return {
+            entry.get('name')
+            for entry in ((node_def or {}).get('inputs') or [])
+            if entry.get('name')
+        }
+
     def _select_surface_profile(self):
         """Select an explicit, versioned surface contract.
 
@@ -647,7 +655,55 @@ class MaterialXGraphBuilder:
             result['fuzz_roughness'] = material_data['sheen_roughness']
         if 'clearcoat_tint' in material_data:
             result['coat_color'] = self._convert_color(material_data['clearcoat_tint'])
+
+        self._report_openpbr_omissions(pbr2, rename, result)
         return result
+
+    def _report_openpbr_omissions(
+        self,
+        pbr2: Dict[str, Any],
+        rename: Dict[str, str],
+        result: Dict[str, Any],
+    ) -> None:
+        """Refuse or report every PBR2 input OpenPBR 1.1 cannot carry.
+
+        The rename table is a whitelist, so anything missing from it used to
+        disappear without a trace. What survives the surface is decided by the
+        nodedef rather than a second hard-coded list so the two cannot drift.
+        """
+        # A cutout threshold only exists because the scene set
+        # blender_to_rcp_alpha_cutout_threshold; the exporter never infers one.
+        # OpenPBR has no clip, so carrying on would quietly ship alpha blending
+        # in place of the rendering model that was explicitly asked for.
+        if 'opacityThreshold' in pbr2:
+            raise ValueError(
+                "OpenPBR 1.1 has no alpha-cutout input; clear "
+                "blender_to_rcp_alpha_cutout_threshold or export this material "
+                "with a RealityKit PBR profile"
+            )
+
+        # specular and sheenColor are absent from the rename table but are not
+        # lost: extraction always pairs them with the values this method routes
+        # to specular_weight and the fuzz_* trio. Confirm the substitute was
+        # actually authored rather than trusting that pairing.
+        carried_under_another_name = {
+            'specular': 'specular_weight',
+            'sheenColor': 'fuzz_weight',
+        }
+        declared = self._declared_input_names(
+            self._find_node_def(OPENPBR_1_1_NODEDEF)
+        )
+        omitted = sorted(
+            name
+            for name in pbr2
+            if carried_under_another_name.get(name) not in result
+            and rename.get(name, name) not in declared
+        )
+        if omitted and self.diagnostics:
+            self.diagnostics.add_warning(
+                "OpenPBR 1.1 material profile omitted inputs the OpenPBR surface "
+                "does not expose: " + ", ".join(omitted)
+            )
 
     def _profile_input_graphs(
         self,
@@ -769,7 +825,27 @@ class MaterialXGraphBuilder:
             'subsurfaceScatterAnisotropy': 'subsurface_scatter_anisotropy',
             'emissiveColor': 'emission_color',
         }
-        mapped = {rename.get(name, name): expr for name, expr in graph_inputs.items()}
+        # Filter against the nodedef for the same reason the unlit surface
+        # does: a rename table that misses a key passes it through verbatim, and
+        # authoring an input OpenPBR does not declare only surfaces later as an
+        # opaque diagnostics-gate failure. A linked Anisotropic Rotation is one
+        # such key - OpenPBR 1.1 has no anisotropy angle at all.
+        declared = self._declared_input_names(
+            self._find_node_def(OPENPBR_1_1_NODEDEF)
+        )
+        mapped: Dict[str, Any] = {}
+        omitted = []
+        for name, expr in graph_inputs.items():
+            target = rename.get(name, name)
+            if target in declared:
+                mapped[target] = expr
+            else:
+                omitted.append(name)
+        if omitted and self.diagnostics:
+            self.diagnostics.add_warning(
+                "OpenPBR 1.1 material profile omitted linked inputs the OpenPBR "
+                "surface does not expose: " + ", ".join(sorted(omitted))
+            )
         for normal_name in ('geometry_normal', 'geometry_coat_normal'):
             if normal_name in mapped:
                 mapped[normal_name] = self._with_normal_decode(
@@ -886,11 +962,7 @@ class MaterialXGraphBuilder:
         if not input_graphs:
             return {}
 
-        supported = {
-            entry.get('name')
-            for entry in (unlit_node_def.get('inputs') or [])
-            if entry.get('name')
-        }
+        supported = self._declared_input_names(unlit_node_def)
         rename = {'baseColor': 'color'}
 
         kept: Dict[str, Any] = {}
