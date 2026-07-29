@@ -158,7 +158,7 @@ def _create_texture_connection(
 
     file_input = texture_shader.CreateInput("file", Sdf.ValueTypeNames.Asset)
     file_input.Set(texture_path)
-    file_colorspace = _materialx_file_colorspace(texture_spec, input_name)
+    file_colorspace = _materialx_file_colorspace(texture_spec, input_name, diagnostics)
     if file_colorspace:
         file_input.GetAttr().SetColorSpace(file_colorspace)
 
@@ -351,7 +351,11 @@ def _postprocess_texture_output(
     return texture_output
 
 
-def _materialx_file_colorspace(texture_spec: Dict[str, Any], input_name: str) -> str:
+def _materialx_file_colorspace(
+    texture_spec: Dict[str, Any],
+    input_name: str,
+    diagnostics=None,
+) -> str:
     """Return a verified MaterialX file color-space token or fail closed."""
     role = (texture_spec.get("colorspace_role") or "").strip().lower()
     source = (texture_spec.get("colorspace") or "").strip().lower()
@@ -391,6 +395,19 @@ def _materialx_file_colorspace(texture_spec: Dict[str, Any], input_name: str) ->
             )
         return "raw"
     if role == "color":
+        if normalized == "raw":
+            # Blender applies no transfer function to a Non-Color image, so a
+            # perceptual color input reads its texels as scene-linear values.
+            # MaterialX has no "raw" contract for color, and RealityKit rejects
+            # the token outright, so name the pass-through Blender actually
+            # performs. Telling the user to retag the image sRGB instead would
+            # introduce a decode Blender never applied and shift the render.
+            if diagnostics:
+                diagnostics.add_warning(
+                    f"Non-Color image on perceptual color input '{input_name}' "
+                    "exported as lin_rec709 (already-linear scene color)."
+                )
+            return "lin_rec709"
         return normalized or "srgb_texture"
     return normalized or ""
 

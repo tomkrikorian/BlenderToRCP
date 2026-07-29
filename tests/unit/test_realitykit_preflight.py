@@ -12,7 +12,12 @@ from pxr import Gf, Sdf, Usd, UsdGeom, UsdShade  # noqa: E402
 from Plugin.export.diagnostics import ExportDiagnostics  # noqa: E402
 from Plugin.export.postprocess_usd import _require_realitykit_preflight  # noqa: E402
 from Plugin.export import postprocess_usd, realitykit_preflight  # noqa: E402
+from Plugin.export.materials.textures import (  # noqa: E402
+    _create_texture_connection,
+    _materialx_file_colorspace,
+)
 from Plugin.export.realitykit_preflight import validate_stage  # noqa: E402
+from Plugin.manifest.materialx_nodes import load_manifest  # noqa: E402
 
 
 def _stage_with_mesh():
@@ -84,6 +89,57 @@ def _author_materialx_texture(
     output = texture.CreateOutput("out", output_type)
     surface.CreateInput(consumer_name, consumer_type).ConnectToSource(output)
     return texture, surface
+
+
+def _author_exported_color_texture(
+    stage,
+    *,
+    texture_filename,
+    colorspace,
+    diagnostics=None,
+):
+    """Author a base-color texture through the real exporter authoring path.
+
+    Uses ``_create_texture_connection`` rather than a hand-written network so
+    the color-space token under test is the one the exporter actually emits.
+    """
+    material = UsdShade.Material.Define(stage, "/Root/Material")
+    material_prim = material.GetPrim()
+    material_prim.AddAppliedSchema("MaterialXConfigAPI")
+    Usd.ColorSpaceAPI.Apply(material_prim).CreateColorSpaceNameAttr(
+        "lin_rec709_scene"
+    )
+    material_prim.CreateAttribute(
+        "config:mtlx:version", Sdf.ValueTypeNames.String
+    ).Set("1.39")
+
+    surface = UsdShade.Shader.Define(stage, "/Root/Material/Surface")
+    surface.CreateIdAttr("ND_standard_surface_surfaceshader")
+    material.CreateSurfaceOutput("mtlx").ConnectToSource(
+        surface.ConnectableAPI(), "surface"
+    )
+
+    texture_output = _create_texture_connection(
+        stage,
+        "/Root/Material",
+        "base_color",
+        {
+            "path": texture_filename,
+            "output_type": "color3",
+            "type": "texture",
+            "channel": "rgb",
+            "colorspace_role": "color",
+            "colorspace": colorspace,
+        },
+        load_manifest(),
+        "Material",
+        diagnostics=diagnostics,
+    )
+    if texture_output:
+        surface.CreateInput(
+            "base_color", Sdf.ValueTypeNames.Color3f
+        ).ConnectToSource(texture_output)
+    return texture_output
 
 
 def _author_bound_place2d_material(
@@ -432,6 +488,73 @@ def test_materialx_linear_rec709_is_valid_for_perceptual_color(tmp_path):
 
     assert report.ok
     assert "TEXTURE_COLOR_SPACE_MISMATCH" not in _codes(report)
+
+
+def test_non_color_image_on_base_color_survives_the_exporters_own_preflight(tmp_path):
+    """A Non-Color albedo must not be authored into a token preflight rejects.
+
+    Blender reads a Non-Color image with no transfer function, so a perceptual
+    color input consumes its texels as scene-linear values. Authoring ``raw``
+    made the exporter fail its own postprocess gate on a material the strict
+    validator had already accepted.
+    """
+
+    stage, _mesh = _stage_with_mesh()
+    (tmp_path / "albedo.exr").write_bytes(b"texture")
+    surface = _author_exported_color_texture(
+        stage,
+        texture_filename="albedo.exr",
+        colorspace="Non-Color",
+    )
+    assert surface is not None
+
+    authored = stage.GetRootLayer().ExportToString()
+    assert 'colorSpace = "lin_rec709"' in authored
+    assert 'colorSpace = "raw"' not in authored
+
+    report = validate_stage(
+        stage,
+        tmp_path / "scene.usdc",
+        SimpleNamespace(export_format="USDC"),
+    )
+
+    assert "TEXTURE_COLOR_SPACE_MISMATCH" not in _codes(report)
+    assert report.ok
+    _require_realitykit_preflight(
+        stage,
+        tmp_path / "scene.usdc",
+        SimpleNamespace(export_format="USDC"),
+        ExportDiagnostics(),
+    )
+
+
+def test_non_color_translation_is_reported_and_confined_to_color_inputs(tmp_path):
+    """Only perceptual color inputs are relabelled, and never silently."""
+
+    stage, _mesh = _stage_with_mesh()
+    diagnostics = ExportDiagnostics()
+    _author_exported_color_texture(
+        stage,
+        texture_filename="albedo.exr",
+        colorspace="Non-Color",
+        diagnostics=diagnostics,
+    )
+    assert any(
+        "lin_rec709" in warning for warning in diagnostics.data["warnings"]
+    )
+
+    # Genuinely raw data keeps its raw contract, and an sRGB-tagged data
+    # texture still fails closed at authoring time.
+    assert (
+        _materialx_file_colorspace(
+            {"colorspace_role": "data", "colorspace": "Non-Color"}, "roughness"
+        )
+        == "raw"
+    )
+    with pytest.raises(ValueError, match="must use Blender Non-Color/raw"):
+        _materialx_file_colorspace(
+            {"colorspace_role": "data", "colorspace": "sRGB"}, "roughness"
+        )
 
 
 def test_blender_52_colorspace_api_opinion_is_resolved(tmp_path):
