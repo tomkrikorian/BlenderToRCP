@@ -833,7 +833,7 @@ def _extract_rk_group_material_data(group_node, base_data: Dict[str, Any]) -> Di
 
     data['type'] = 'rk_group'
     data['rk_node_id'] = node_id
-    data['rk_inputs'] = _extract_group_inputs(group_node)
+    data['rk_inputs'] = _extract_group_inputs(group_node, node_id)
     base_color_inputs = [
         value
         for name, value in data['rk_inputs'].items()
@@ -981,7 +981,11 @@ def _build_rk_node_graph(surface_node) -> Optional[Dict[str, Any]]:
                     mtlx_type = _input_mtlx_type(node_id, input_name)
                     output_type = _mtlx_type_to_output_type(mtlx_type) or _socket_output_type(socket)
                     texture_spec = {
-                        'type': 'texture',
+                        'type': (
+                            'normal_texture'
+                            if _input_expects_decoded_normal(node_id, input_name)
+                            else 'texture'
+                        ),
                         'path': texture_path,
                         'output_type': output_type,
                         # Without a role this texture skips the data-texture
@@ -1049,7 +1053,7 @@ def _build_rk_node_graph(surface_node) -> Optional[Dict[str, Any]]:
     return result
 
 
-def _extract_group_inputs(group_node) -> Dict[str, Any]:
+def _extract_group_inputs(group_node, rk_node_id: Optional[str] = None) -> Dict[str, Any]:
     """Extract group input values and texture references."""
     inputs = {}
     for socket in group_node.inputs:
@@ -1058,7 +1062,11 @@ def _extract_group_inputs(group_node) -> Dict[str, Any]:
             texture_path = _extract_image_path_from_socket(socket)
             if texture_path:
                 output_type = _socket_output_type(socket)
-                tex_type = 'normal_texture' if _is_normal_socket(socket) else 'texture'
+                tex_type = (
+                    'normal_texture'
+                    if _input_expects_decoded_normal(rk_node_id, input_name)
+                    else 'texture'
+                )
                 texture_spec = {
                     'type': tex_type,
                     'path': texture_path,
@@ -1169,6 +1177,60 @@ def _is_normal_socket(socket) -> bool:
     """Return True when a socket represents a normal input."""
     name = (socket.name or "").lower()
     return "normal" in name
+
+
+#: A MaterialX vector3 input whose declared default is the unit Z vector is a
+#: tangent-space normal: the surface receives a decoded direction, while an
+#: image supplies 0-1 encoded RGB, so a texture wired there must pass through
+#: ND_normalmap. Measured across the shipped manifest, this is exact - all 5
+#: vector3 inputs defaulting to "0, 0, 1" carry "normal" in their name, and no
+#: other vector3 input has that default.
+_DECODED_NORMAL_DEFAULT = "0,0,1"
+
+
+def _input_expects_decoded_normal(node_id: Optional[str], input_name: str) -> bool:
+    """Whether ``input_name`` on ``node_id`` receives a decoded normal.
+
+    Answered from the nodedef rather than the socket name so both RK
+    extraction paths reach the same conclusion. _extract_group_inputs decided
+    this by name and got a normal_map_decode; _build_rk_node_graph never
+    decided it at all and authored a raw colour->vector convert, so the same RK
+    PBR Surface group produced different normals depending on which path ran.
+
+    Falls back to the name when the nodedef cannot be resolved - a user node
+    group with no manifest entry - which is the only signal available there.
+    """
+    if not input_name:
+        return False
+    declared_type = _input_mtlx_type(node_id, input_name)
+    if declared_type == "vector3":
+        default = _input_mtlx_default(node_id, input_name)
+        if default is not None:
+            return str(default).replace(" ", "") == _DECODED_NORMAL_DEFAULT
+    if declared_type is not None:
+        # The nodedef resolved and this is not a decoded-normal input.
+        return False
+    return "normal" in input_name.lower()
+
+
+def _input_mtlx_default(node_id: Optional[str], input_name: str):
+    """Return the declared default for a nodedef input, or None."""
+    if not node_id:
+        return None
+    manifest = _get_manifest()
+    try:
+        from ....manifest.materialx_nodes import select_node_def_for_node
+        node_def = select_node_def_for_node(manifest, node_id)
+    except Exception:
+        node_def = None
+    if not node_def and isinstance(node_id, str) and node_id.startswith("ND_"):
+        node_def = manifest.get("nodes", {}).get(node_id)
+    if not node_def:
+        return None
+    for entry in node_def.get("inputs", []) or []:
+        if entry.get("name") == input_name:
+            return entry.get("value")
+    return None
 
 
 def _extract_image_path_from_socket(socket) -> Optional[str]:
@@ -2598,6 +2660,23 @@ def _nodedef_for(node_name: str, output_type: Optional[str] = None) -> str:
 
 
 def _make_node_expr(node_id: str, inputs: Dict[str, Any], output: str = "out") -> Dict[str, Any]:
+    """Build a node expression, propagating any unresolved child.
+
+    A node whose input could not be resolved cannot itself be authored
+    faithfully. The caller used to receive a node expression regardless, and
+    only the *top-level* kind was checked for "unresolved"
+    (see the resolver loop's unresolved branch), so a nested failure produced
+    a graph the builder then quietly dropped the bad child from - the input
+    falling back to a nodedef default with no warning anywhere. Every
+    multi-input resolver branch had this shape.
+
+    Surfacing the child's own unresolved expression keeps its provenance
+    chain, so the warning names the node that actually failed rather than the
+    one that happened to wrap it.
+    """
+    for value in (inputs or {}).values():
+        if isinstance(value, dict) and value.get("kind") == "unresolved":
+            return value
     return {
         "kind": "node",
         "node_id": node_id,
