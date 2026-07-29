@@ -117,7 +117,7 @@ Three further derived values are never user-editable:
 | `only_deform_bones` | bool | `false` | rigging | Advanced USD ▸ Rigging | both |
 | `export_shapekeys` | bool | `true` | rigging | Advanced USD ▸ Rigging | both |
 | `export_texture_settings_enabled` | bool | `false` | texture | Optimization *(direct route only)* | both |
-| `bake_resolution` | enum | `2048` | texture | Optimization | both |
+| `bake_resolution` | enum | `ORIGINAL` | texture | Optimization | both |
 | `bake_resolution_custom` | int ≥32 | `2048` | texture | Optimization *(needs `bake_resolution=CUSTOM`)* | both |
 | `bake_image_format` | enum | `AVIF` | texture | Optimization | both |
 | `bake_margin` | int ≥0 | `8` | texture | Optimization *(bake route only)* | bake |

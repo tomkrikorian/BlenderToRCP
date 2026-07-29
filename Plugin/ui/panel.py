@@ -448,16 +448,35 @@ class BlenderToRCPExportSettings(PropertyGroup):
 
     bake_resolution: EnumProperty(
         name="Texture Resolution",
-        description="Resolution for baked textures and opt-in exported texture overrides",
+        description=(
+            "Resolution for baked textures and opt-in exported texture "
+            "overrides. Keep Original sizes each material from its own source "
+            "textures instead of forcing one resolution"
+        ),
         items=[
-            ('ORIGINAL', "Keep Original", "Do not resize existing exported textures"),
+            (
+                'ORIGINAL',
+                "Keep Original",
+                "Size each material from its own source textures; do not resize "
+                "existing exported textures",
+            ),
             ('512', "512", "512 px"),
             ('1024', "1024", "1024 px"),
             ('2048', "2048", "2048 px"),
             ('4096', "4096", "4096 px"),
             ('CUSTOM', "Custom", "Use a custom resolution"),
         ],
-        default='2048',
+        # Source-keyed by default so the sidebar and the CLI agree. The Blender
+        # Export button forces export_texture_settings_enabled on, which
+        # activates this setting, while the CLI leaves it off unless
+        # --resolution/--image-format/--margin is passed. With a fixed default
+        # the same scene baked 2048x2048 from the sidebar and 512x512 from the
+        # CLI - an 8x upscale of a 256px source in one front end and not the
+        # other. _resolve_bake_resolution already treats ORIGINAL and the
+        # disabled gate identically, so this makes the two paths converge on
+        # the behaviour the code comment there argues for: a 1K material stays
+        # 1K rather than being upscaled.
+        default='ORIGINAL',
         update=_on_settings_changed,
     )
 

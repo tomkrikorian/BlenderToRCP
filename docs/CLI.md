@@ -825,7 +825,7 @@ blendertorcp bake-export <file.blend> -o <output_path> [options]
 |------|---------|-------------|
 | `--format <FORMAT>` | from settings | Export format: `USDA`, `USDC`, `USDZ`, or experimental `RCP_IMPORT` |
 | `--bake-mode <MODE>` | from settings (`LIT_IBL` for fresh scenes) | `UNLIT_ALBEDO` for Material Color Only - Unlit, `LIT_ALBEDO` for Material Color Only - Lit PBR, `LIT_IBL` for Lighting & Shadows |
-| `--resolution <RES>` | `2048` | Enables texture overrides for this run and sets bake/export texture resolution: `ORIGINAL`, `512`, `1024`, `2048`, `4096`, or any integer for custom |
+| `--resolution <RES>` | setting (`ORIGINAL`) | Enables texture overrides for this run and sets bake/export texture resolution: `ORIGINAL`, `512`, `1024`, `2048`, `4096`, or any integer for custom. `ORIGINAL` sizes each material from its own source textures, floored at 512 |
 | `--image-format <FMT>` | `AVIF` | Enables texture overrides for this run and sets baked/exported texture format: `ORIGINAL`, `AVIF`, or `PNG`. AVIF is encoded natively by Blender; no external tools required |
 | `--margin <PX>` | `8` | Enables texture overrides for this run and sets bake padding in pixels |
 | `--selected-only` | off | Only bake and export selected objects |
