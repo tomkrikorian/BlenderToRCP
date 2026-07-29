@@ -662,6 +662,38 @@ print({RESULT_MARKER!r} + json.dumps({{
 """
 
 
+#: Validation stages that need Apple tooling. Each one degrades to
+#: ``{"available": False}`` when its tool is absent, which used to be recorded
+#: in the result blob and otherwise ignored - so a lane without the tools
+#: reported the same success as one that had checked every artifact.
+APPLE_VALIDATION_STAGES = ("usdchecker", "realitytool")
+
+
+def unavailable_validation_stages(strict_checker: dict, realitytool: dict) -> list[str]:
+    """Return the Apple validation stages that did not run."""
+    return sorted(
+        stage
+        for stage, result in (
+            ("usdchecker", strict_checker),
+            ("realitytool", realitytool),
+        )
+        if not result.get("available")
+    )
+
+
+def undeclared_validation_gaps(
+    skipped: list[str],
+    allow_missing: frozenset[str],
+) -> list[str]:
+    """Return skipped stages the caller did not declare it would skip.
+
+    Callers must name the stages their lane cannot perform, so a lane that
+    stops validating exported artifacts is a workflow diff rather than an
+    invisible change in what CI actually proves.
+    """
+    return sorted(stage for stage in skipped if stage not in allow_missing)
+
+
 def smoke_archive(archive: Path, blender: str) -> dict:
     archive = archive.resolve()
     if not archive.is_file():
@@ -978,8 +1010,15 @@ def smoke_archive(archive: Path, blender: str) -> dict:
                 f"{export_context}"
             )
 
+        skipped_validations = unavailable_validation_stages(
+            strict_checker, realitytool
+        )
+
         return {
             **install_result,
+            # Names the artifact validation this run did NOT perform. An empty
+            # list is the only value that means "everything was checked".
+            "skipped_validations": skipped_validations,
             "cli_version": version_result,
             "setting_count": len(settings_result),
             "installed_cli_exports": sorted(export_results),
@@ -1003,10 +1042,44 @@ def main() -> int:
         "--blender",
         default=os.environ.get("BLENDERTORCP_BLENDER", "blender"),
     )
+    parser.add_argument(
+        "--allow-missing",
+        default="",
+        help=(
+            "Comma-separated Apple validation stages this lane cannot perform "
+            f"({', '.join(APPLE_VALIDATION_STAGES)}). Anything skipped without "
+            "being named here fails the run, so a lane that stops validating "
+            "exported artifacts has to say so in its workflow."
+        ),
+    )
     args = parser.parse_args()
 
+    allow_missing = frozenset(
+        stage.strip() for stage in args.allow_missing.split(",") if stage.strip()
+    )
+    unknown = sorted(allow_missing - set(APPLE_VALIDATION_STAGES))
+    if unknown:
+        parser.error(
+            f"--allow-missing does not know these stages: {', '.join(unknown)}. "
+            f"Valid stages: {', '.join(APPLE_VALIDATION_STAGES)}"
+        )
+
     result = smoke_archive(args.archive, args.blender)
+    # Print before failing: the blob says which artifacts were checked and is
+    # the only diagnostic when a stage unexpectedly went missing.
     print(RESULT_MARKER + json.dumps(result, sort_keys=True))
+
+    gaps = undeclared_validation_gaps(result["skipped_validations"], allow_missing)
+    if gaps:
+        print(
+            "ERROR: Apple validation stages could not run: "
+            + ", ".join(gaps)
+            + ". Install the tooling for this lane, or pass --allow-missing "
+            + ",".join(gaps)
+            + " to declare that this lane does not validate exported artifacts.",
+            file=sys.stderr,
+        )
+        return 1
     return 0
 
 

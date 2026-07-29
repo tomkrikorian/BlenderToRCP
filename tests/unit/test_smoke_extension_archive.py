@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import struct
+from pathlib import Path
 from types import SimpleNamespace
 import zipfile
 
@@ -140,3 +141,64 @@ def test_apple_installed_smoke_runs_generic_and_arkit_strict_profiles(
         ["/usr/bin/xcrun", "usdchecker", "--strict", str(assets[1])],
         ["/usr/bin/xcrun", "usdchecker", "--arkit", "--strict", str(assets[1])],
     ]
+
+
+# ---------------------------------------------------------------------------
+# Apple validation stages must not go missing silently.
+#
+# _run_strict_usdchecker and _compile_with_realitytool degrade to
+# {"available": False} when their tool is absent. That result was recorded in
+# the JSON blob and otherwise ignored, so a lane without the Apple toolchain
+# reported exactly the same success as one that had validated every exported
+# artifact - and the only lane that runs this script is ubuntu-24.04, where
+# neither tool exists. A USDZ regression that usdchecker --arkit --strict or
+# realitytool would reject could therefore ship green.
+# ---------------------------------------------------------------------------
+
+
+def test_unavailable_stages_are_reported_as_skipped():
+    skipped = smoke.unavailable_validation_stages(
+        {"available": False}, {"available": False, "reason": "realitytool not found"}
+    )
+    assert skipped == ["realitytool", "usdchecker"]
+
+
+def test_available_stages_are_not_reported_as_skipped():
+    skipped = smoke.unavailable_validation_stages(
+        {"available": True, "validated": []}, {"available": True, "compiled": []}
+    )
+    assert skipped == []
+
+
+def test_undeclared_gap_is_a_failure():
+    gaps = smoke.undeclared_validation_gaps(
+        ["realitytool", "usdchecker"], frozenset()
+    )
+    assert gaps == ["realitytool", "usdchecker"]
+
+
+def test_declared_gap_is_accepted():
+    """A lane may opt out, but only by naming the stage in its workflow."""
+    gaps = smoke.undeclared_validation_gaps(
+        ["realitytool", "usdchecker"], frozenset({"realitytool", "usdchecker"})
+    )
+    assert gaps == []
+
+
+def test_partially_declared_gap_still_fails():
+    gaps = smoke.undeclared_validation_gaps(
+        ["realitytool", "usdchecker"], frozenset({"usdchecker"})
+    )
+    assert gaps == ["realitytool"]
+
+
+def test_ci_declares_its_missing_apple_stages_explicitly():
+    """The ubuntu lane's gap must be visible in the workflow, not the script."""
+    workflow = (
+        Path(__file__).resolve().parents[2] / ".github" / "workflows" / "ci.yml"
+    ).read_text()
+    assert "smoke_extension_archive.py" in workflow
+    assert "--allow-missing usdchecker,realitytool" in workflow, (
+        "the lane that runs the archive smoke has no Apple toolchain; it must "
+        "declare that, so wiring up a lane that does is a one-line diff"
+    )

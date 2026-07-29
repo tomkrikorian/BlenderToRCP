@@ -254,9 +254,16 @@ jobs:
       - name: Install and execute the packaged extension
         run: |
           set -o pipefail
+          # This lane is ubuntu-24.04: usdchecker and realitytool do not exist
+          # here, so the exported USD/USDZ artifacts are NOT validated by this
+          # job. It has to say so - anything skipped without being declared
+          # fails the run, rather than reporting the same success as a lane
+          # that checked every artifact. Removing this flag is how you find
+          # out whether a lane with the Apple toolchain is actually wired up.
           xvfb-run -a python3 scripts/smoke_extension_archive.py \
             --archive "$BLENDER_EXTENSION_ARCHIVE" \
             --blender "$BLENDERTORCP_BLENDER" \
+            --allow-missing usdchecker,realitytool \
             | tee installed-extension-smoke.log
           grep -q '^BLENDERTORCP_ARCHIVE_SMOKE=' installed-extension-smoke.log
 
