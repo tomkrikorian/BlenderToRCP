@@ -1700,6 +1700,40 @@ def load_static_asset(
                 for face_index in selected_faces
                 for corner in range(*corner_slices[face_index])
             )
+            # A split group only references part of the parent's points. Left
+            # unmapped, every submesh would carry the whole array and report
+            # the whole mesh's bounds, which is what RealityKit reads back as
+            # visualBounds. Keep the parent's point order so an unsplit mesh
+            # re-indexes to itself and its buffers stay byte-identical.
+            referenced_points = sorted(set(selected_indices))
+            if referenced_points == list(range(len(points))):
+                selected_points = points
+                selected_skinning = skinning
+            else:
+                remapped = {
+                    old: new for new, old in enumerate(referenced_points)
+                }
+                selected_points = tuple(points[old] for old in referenced_points)
+                selected_indices = tuple(
+                    remapped[index] for index in selected_indices
+                )
+                # Skinning is authored per point, so it has to follow the same
+                # map or every influence lands on the wrong vertex.
+                selected_skinning = (
+                    replace(
+                        skinning,
+                        joint_indices=tuple(
+                            skinning.joint_indices[old]
+                            for old in referenced_points
+                        ),
+                        joint_weights=tuple(
+                            skinning.joint_weights[old]
+                            for old in referenced_points
+                        ),
+                    )
+                    if skinning is not None
+                    else None
+                )
             candidate_name = (
                 f"{model_base_name}_{assigned_material.name}"
                 if split_materials
@@ -1716,7 +1750,7 @@ def load_static_asset(
                     root_name=_safe_name(root_prim.GetName(), "root"),
                     mesh_name=mesh_name,
                     material_name=assigned_material.name,
-                    points=points,
+                    points=selected_points,
                     face_counts=selected_counts,
                     face_indices=selected_indices,
                     face_uvs=selected_uvs,
@@ -1734,7 +1768,7 @@ def load_static_asset(
                     material_profile=assigned_material.profile,
                     base_color_texture=assigned_material.base_color_texture,
                     roughness_texture=assigned_material.roughness_texture,
-                    skinning=skinning,
+                    skinning=selected_skinning,
                     material_key=assigned_material.key,
                     source_prim_path=str(mesh_prim.GetPath()),
                 )
