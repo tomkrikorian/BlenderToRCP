@@ -436,3 +436,114 @@ def test_forget_image_drops_datablock_before_it_is_freed():
 
     assert result.baked_images == [keep]
     assert result.temporary_images == []
+
+
+# ---------------------------------------------------------------------------
+# UV binding on baked materials
+#
+# ShaderNodeTexImage has no uv_map property - only ShaderNodeNormalMap and
+# ShaderNodeUVMap do (verified against Blender 5.2) - so every
+# `hasattr(node, "uv_map")` guard around an image node was a silent no-op and
+# the baked textures were never bound to a UV map at all. An image node with an
+# unconnected Vector samples whatever map the renderer defaults to, which need
+# not be the one the bake wrote into. On a mesh with two UV maps that is a
+# texture sampled through the wrong layout.
+# ---------------------------------------------------------------------------
+
+
+class _UVSocket:
+    def __init__(self):
+        self.is_linked = False
+
+
+class _FakeNode:
+    """An image node: no uv_map property, one Vector input."""
+
+    def __init__(self, node_type='TEX_IMAGE'):
+        self.type = node_type
+        self.inputs = {"Vector": _UVSocket()}
+        self.outputs = {"UV": object()}
+
+
+class _FakeUVMapNode(_FakeNode):
+    def __init__(self):
+        super().__init__(node_type='UVMAP')
+        self.uv_map = ""
+
+
+class _FakeNodes(list):
+    def new(self, node_type):
+        node = _FakeUVMapNode() if node_type == "ShaderNodeUVMap" else _FakeNode()
+        self.append(node)
+        return node
+
+
+class _FakeLinks:
+    def __init__(self):
+        self.created = []
+
+    def new(self, output, socket):
+        socket.is_linked = True
+        self.created.append((output, socket))
+
+
+class _FakeTree:
+    def __init__(self):
+        self.nodes = _FakeNodes()
+        self.links = _FakeLinks()
+
+
+def test_image_node_gets_a_real_uv_map_source():
+    tree = _FakeTree()
+    image_node = _FakeNode()
+
+    bake_textures._bind_uv_layer(tree, image_node, "BakeUV")
+
+    uv_nodes = [node for node in tree.nodes if node.type == 'UVMAP']
+    assert len(uv_nodes) == 1
+    assert uv_nodes[0].uv_map == "BakeUV"
+    assert image_node.inputs["Vector"].is_linked
+
+
+def test_one_uv_source_is_shared_by_every_baked_texture():
+    tree = _FakeTree()
+    first, second = _FakeNode(), _FakeNode()
+
+    bake_textures._bind_uv_layer(tree, first, "BakeUV")
+    bake_textures._bind_uv_layer(tree, second, "BakeUV")
+
+    assert len([node for node in tree.nodes if node.type == 'UVMAP']) == 1
+    assert first.inputs["Vector"].is_linked
+    assert second.inputs["Vector"].is_linked
+
+
+def test_node_with_a_real_uv_map_property_is_set_directly():
+    """ShaderNodeNormalMap takes the layer without needing a UVMap node."""
+    tree = _FakeTree()
+    normal_map = _FakeNode(node_type='NORMAL_MAP')
+    normal_map.uv_map = ""
+
+    bake_textures._bind_uv_layer(tree, normal_map, "BakeUV")
+
+    assert normal_map.uv_map == "BakeUV"
+    assert [node for node in tree.nodes if node.type == 'UVMAP'] == []
+
+
+def test_no_uv_layer_binds_nothing():
+    tree = _FakeTree()
+    image_node = _FakeNode()
+
+    bake_textures._bind_uv_layer(tree, image_node, None)
+
+    assert list(tree.nodes) == []
+    assert not image_node.inputs["Vector"].is_linked
+
+
+def test_an_existing_vector_link_is_not_overwritten():
+    tree = _FakeTree()
+    image_node = _FakeNode()
+    image_node.inputs["Vector"].is_linked = True
+
+    bake_textures._bind_uv_layer(tree, image_node, "BakeUV")
+
+    assert list(tree.nodes) == [], "a caller-authored Vector graph must win"

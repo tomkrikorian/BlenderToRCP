@@ -1566,12 +1566,55 @@ def _surface_render_method(material, *, transparent: bool) -> str:
     return value
 
 
+def _bind_uv_layer(node_tree, node, uv_layer: Optional[str]) -> None:
+    """Point ``node`` at a specific UV map.
+
+    ``ShaderNodeTexImage`` has no ``uv_map`` property - only ShaderNodeNormalMap
+    and ShaderNodeUVMap do - so the ``hasattr(node, "uv_map")`` guards this
+    replaces never fired and every image-node binding was a silent no-op. An
+    image node with an unconnected Vector input samples whatever UV map the
+    renderer picks by default, which is not necessarily the one the bake wrote
+    into (the bake follows ``mesh.uv_layers.active``, verified against Blender
+    5.2). On a mesh with more than one UV map that is a texture sampled through
+    the wrong layout. Bind it explicitly so the result does not depend on which
+    map happens to be the default.
+    """
+    if not uv_layer:
+        return
+    # Real for ShaderNodeNormalMap and ShaderNodeUVMap, never for an image node.
+    if hasattr(node, "uv_map"):
+        node.uv_map = uv_layer
+        return
+
+    vector_input = node.inputs.get("Vector")
+    if vector_input is None:
+        return
+    if vector_input.is_linked:
+        return
+
+    # One UV source per layer per material; reuse it across the baked textures.
+    uv_node = next(
+        (
+            candidate
+            for candidate in node_tree.nodes
+            if candidate.type == 'UVMAP' and candidate.uv_map == uv_layer
+        ),
+        None,
+    )
+    if uv_node is None:
+        uv_node = node_tree.nodes.new("ShaderNodeUVMap")
+        uv_node.uv_map = uv_layer
+    node_tree.links.new(uv_node.outputs["UV"], vector_input)
+
+
 def _set_active_image_node(material, image, uv_layer: Optional[str]) -> None:
+    # No UV binding here on purpose: this node is only the bake *target*, and
+    # the layout the bake writes comes from the mesh, not from this node's
+    # Vector input. Binding is done on the final baked material, which is what
+    # actually gets sampled and exported.
     nodes = material.node_tree.nodes
     node = nodes.new("ShaderNodeTexImage")
     node.image = image
-    if uv_layer and hasattr(node, "uv_map"):
-        node.uv_map = uv_layer
     nodes.active = node
     node.select = True
 
@@ -1664,8 +1707,9 @@ def _build_baked_material(
             f"Unsupported Blender 5.2 surface render method: {surface_render_method}"
         )
     material.use_nodes = True
-    nodes = material.node_tree.nodes
-    links = material.node_tree.links
+    node_tree = material.node_tree
+    nodes = node_tree.nodes
+    links = node_tree.links
     nodes.clear()
 
     output_node = nodes.new("ShaderNodeOutputMaterial")
@@ -1712,15 +1756,13 @@ def _build_baked_material(
         except Exception:
             pass
         normal_uv = normal.get("uv_layer") or uv_layer
-        if normal_uv and hasattr(normal_map_node, "uv_map"):
-            normal_map_node.uv_map = normal_uv
+        _bind_uv_layer(node_tree, normal_map_node, normal_uv)
         normal_tex = nodes.new("ShaderNodeTexImage")
         # Reference the source image as-is; it already carries its authored
         # colorspace. Forcing it here would mutate the shared datablock for
         # every other user of the image (and isn't restored).
         normal_tex.image = normal["image"]
-        if normal_uv and hasattr(normal_tex, "uv_map"):
-            normal_tex.uv_map = normal_uv
+        _bind_uv_layer(node_tree, normal_tex, normal_uv)
         links.new(normal_tex.outputs['Color'], normal_map_node.inputs['Color'])
         links.new(normal_map_node.outputs['Normal'], principled.inputs['Normal'])
 
@@ -1732,8 +1774,7 @@ def _build_baked_material(
             # As-is: don't mutate the shared image's colorspace (see normal map).
             metallic_tex.image = metallic["image"]
             metallic_uv = metallic.get("uv_layer") or uv_layer
-            if metallic_uv and hasattr(metallic_tex, "uv_map"):
-                metallic_tex.uv_map = metallic_uv
+            _bind_uv_layer(node_tree, metallic_tex, metallic_uv)
             links.new(metallic_tex.outputs['Color'], principled.inputs['Metallic'])
         elif metallic.get("value") is not None:
             try:
@@ -1744,8 +1785,7 @@ def _build_baked_material(
     if roughness_image is not None:
         rough_node = nodes.new("ShaderNodeTexImage")
         rough_node.image = roughness_image
-        if uv_layer and hasattr(rough_node, "uv_map"):
-            rough_node.uv_map = uv_layer
+        _bind_uv_layer(node_tree, rough_node, uv_layer)
         links.new(rough_node.outputs['Color'], principled.inputs['Roughness'])
     elif roughness_value is not None:
         try:
@@ -1756,8 +1796,7 @@ def _build_baked_material(
     if base_image:
         base_node = nodes.new("ShaderNodeTexImage")
         base_node.image = base_image
-        if uv_layer and hasattr(base_node, "uv_map"):
-            base_node.uv_map = uv_layer
+        _bind_uv_layer(node_tree, base_node, uv_layer)
         links.new(base_node.outputs['Color'], principled.inputs['Base Color'])
         if use_opacity and opacity_image is None:
             alpha_output = base_node.outputs.get('Alpha')
@@ -1769,8 +1808,7 @@ def _build_baked_material(
     if use_opacity and opacity_image:
         opacity_node = nodes.new("ShaderNodeTexImage")
         opacity_node.image = opacity_image
-        if uv_layer and hasattr(opacity_node, "uv_map"):
-            opacity_node.uv_map = uv_layer
+        _bind_uv_layer(node_tree, opacity_node, uv_layer)
         separate = nodes.new("ShaderNodeSeparateColor")
         separate.mode = 'RGB'
         links.new(opacity_node.outputs['Color'], separate.inputs['Color'])

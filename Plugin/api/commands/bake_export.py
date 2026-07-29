@@ -726,34 +726,79 @@ def _handle(args: dict, settings) -> dict:
                 _save_diagnostics(diag, diagnostics_path)
             except Exception:
                 pass
-        settings.force_unlit_materials = original_force_unlit
-        try:
-            bpy.context.scene.render.engine = original_engine
-        except Exception:
-            pass
-        if bake_result is not None:
-            bake_textures.restore_baked_materials(
-                bake_result,
-                bool(getattr(settings, "bake_keep_materials", False)),
-            )
-        bake_ops._restore_selection(bpy.context, original_selection, original_active)
-        bake_ops._restore_mode(bpy.context, original_active, original_mode)
-        # Clean only this attempt. Prefer the directory proven by the returned
-        # USD path; before export returns, fall back to the directory allocated
-        # for the bake. A failing native export cleans its own attempt.
-        cleanup_staging_dir = (
-            Path(temp_usd_path).parent if temp_usd_path else staging_dir
-        )
-        if cleanup_staging_dir is not None:
+        # Every restoration below is independent: one failure must not skip the
+        # rest, and none of them may escape. An escaping cleanup error replaced
+        # the real CommandError, and skipping the tail left the user's
+        # selection, mode and staging directory as the bake left them - with
+        # the watchdog still armed, so the run was later reported as a
+        # BAKE_STEP_TIMEOUT that never happened. The background runner already
+        # guards each step individually; this path now matches it.
+        def _restore(label: str, action) -> None:
             try:
-                blender_usd_export.remove_export_staging_dir(
-                    usd_filepath,
-                    diag,
-                    staging_dir=cleanup_staging_dir,
+                action()
+            except Exception as exc:
+                try:
+                    diag.add_error(f"Could not restore {label}: {exc}")
+                except Exception:
+                    pass
+
+        try:
+            _restore(
+                "the unlit material override",
+                lambda: setattr(
+                    settings, "force_unlit_materials", original_force_unlit
+                ),
+            )
+            _restore(
+                "the render engine",
+                lambda: setattr(
+                    bpy.context.scene.render, "engine", original_engine
+                ),
+            )
+            if bake_result is not None:
+                _restore(
+                    "the original material slots",
+                    lambda: bake_textures.restore_baked_materials(
+                        bake_result,
+                        bool(getattr(settings, "bake_keep_materials", False)),
+                    ),
                 )
+            _restore(
+                "the object selection",
+                lambda: bake_ops._restore_selection(
+                    bpy.context, original_selection, original_active
+                ),
+            )
+            _restore(
+                "the object mode",
+                lambda: bake_ops._restore_mode(
+                    bpy.context, original_active, original_mode
+                ),
+            )
+            # Clean only this attempt. Prefer the directory proven by the
+            # returned USD path; before export returns, fall back to the
+            # directory allocated for the bake. A failing native export cleans
+            # its own attempt.
+            cleanup_staging_dir = (
+                Path(temp_usd_path).parent if temp_usd_path else staging_dir
+            )
+            if cleanup_staging_dir is not None:
+                _restore(
+                    "the export staging directory",
+                    lambda: blender_usd_export.remove_export_staging_dir(
+                        usd_filepath,
+                        diag,
+                        staging_dir=cleanup_staging_dir,
+                    ),
+                )
+            try:
+                _save_diagnostics(diag, diagnostics_path)
             except Exception:
                 pass
-        step_watchdog.stop()
+        finally:
+            # Unconditional: a live watchdog thread reports a timeout that did
+            # not happen and calls os._exit(124), masking the real error.
+            step_watchdog.stop()
 
 
 def _unlink_processing_scope(animation_export, state: dict, *, strict: bool) -> None:
