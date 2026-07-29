@@ -767,3 +767,65 @@ def test_non_color_output_socket_is_not_carried_through(monkeypatch):
     assert bake_textures._source_roughness_passthrough(
         _material_with(principled)
     ) is None
+
+
+# ---------------------------------------------------------------------------
+# Lighting & Shadows with nothing to light the scene.
+#
+# LIT_IBL renders incoming light onto every surface. With no world and no light
+# object, the only possible contribution is material emission, so an ordinary
+# scene bakes pure black and still reports success. Measured: world None, no
+# lights, one 2048 texture, mean red 0.0000, no warning anywhere.
+# ---------------------------------------------------------------------------
+
+
+class _WarningSink:
+    def __init__(self):
+        self.warnings = []
+
+    def add_warning(self, message):
+        self.warnings.append(message)
+
+
+def _scene_context(world, object_types):
+    objects = [types.SimpleNamespace(type=t) for t in object_types]
+    return types.SimpleNamespace(
+        scene=types.SimpleNamespace(world=world, objects=objects)
+    )
+
+
+def test_no_world_and_no_lights_warns():
+    diagnostics = _WarningSink()
+
+    bake_textures._warn_if_scene_has_no_illumination(
+        _scene_context(None, ['MESH', 'MESH']), diagnostics
+    )
+
+    assert diagnostics.warnings, "a bake that can only be black must say so"
+    assert "no light objects" in diagnostics.warnings[0]
+
+
+def test_a_light_object_suppresses_the_warning():
+    diagnostics = _WarningSink()
+
+    bake_textures._warn_if_scene_has_no_illumination(
+        _scene_context(None, ['MESH', 'LIGHT']), diagnostics
+    )
+
+    assert diagnostics.warnings == []
+
+
+def test_a_world_suppresses_the_warning():
+    diagnostics = _WarningSink()
+
+    bake_textures._warn_if_scene_has_no_illumination(
+        _scene_context(object(), ['MESH']), diagnostics
+    )
+
+    assert diagnostics.warnings == []
+
+
+def test_no_diagnostics_sink_is_not_an_error():
+    bake_textures._warn_if_scene_has_no_illumination(
+        _scene_context(None, ['MESH']), None
+    )

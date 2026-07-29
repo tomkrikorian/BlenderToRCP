@@ -747,6 +747,43 @@ def _bake_materials_for_objects_impl(
     return result
 
 
+def _warn_if_scene_has_no_illumination(context, diagnostics) -> None:
+    """Warn when a Lighting & Shadows bake has no light to capture.
+
+    LIT_IBL renders incoming light onto every surface. With no world and no
+    light object the only possible contribution is material emission, so an
+    otherwise ordinary scene bakes to pure black and still reports success.
+    Measured: world None, no lights, one 2048 texture, mean red 0.0000, no
+    warning anywhere in the response or diagnostics.
+
+    A warning rather than a refusal: emissive materials are a legitimate sole
+    light source, and this check cannot cheaply prove their absence. The
+    message names exactly what was detected so a false positive is obvious.
+    """
+    if diagnostics is None:
+        return
+    scene = getattr(context, "scene", None)
+    if scene is None:
+        return
+    if getattr(scene, "world", None) is not None:
+        return
+    try:
+        has_light = any(
+            getattr(obj, "type", None) == 'LIGHT' for obj in scene.objects
+        )
+    except Exception:
+        return
+    if has_light:
+        return
+
+    diagnostics.add_warning(
+        "Lighting & Shadows bake: the scene has no World and no light objects, "
+        "so nothing illuminates it. Baked textures will be black unless a "
+        "material is emissive. Add a World or a light, or choose a "
+        "Material Color Only bake mode."
+    )
+
+
 @contextmanager
 def _temporary_ibl_world(context, settings, diagnostics=None, enabled: bool = True):
     """Temporarily override the scene World with a known IBL (HDRI) setup."""
@@ -756,6 +793,8 @@ def _temporary_ibl_world(context, settings, diagnostics=None, enabled: bool = Tr
 
     source = str(getattr(settings, "bake_ibl_source", "SCENE_WORLD") or "SCENE_WORLD")
     if source != "HDRI_FILE":
+        # No HDRI override: the scene lights itself, so check that it can.
+        _warn_if_scene_has_no_illumination(context, diagnostics)
         yield
         return
 
