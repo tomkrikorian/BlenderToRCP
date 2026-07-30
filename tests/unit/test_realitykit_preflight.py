@@ -1240,3 +1240,103 @@ def test_os27_schemas_without_realitykit_usd_import_are_rejected(
     assert len(matching) == 1
     assert matching[0].details["prim_type"] == type_name
     assert message_fragment in matching[0].message
+
+
+# ---------------------------------------------------------------------------
+# The retained preview network must not conflict with the MaterialX network.
+#
+# The exporter authors two networks per material: the MaterialX ShaderGraph
+# RealityKit consumes, and the native UsdPreviewSurface network Blender wrote,
+# retained for other USD consumers. One Blender Mapping node therefore appears
+# twice - as a MaterialX place2d (texcoord UV0, reciprocal SRT scale) and as a
+# UsdTransform2d (texcoord st, direct scale). Same transform, different
+# conventions, never equal.
+#
+# Counting both networks together meant ANY non-identity Mapping node produced
+# distinct_transform_count == 2 and failed the export. Measured: a cube with
+# one texture and Mapping Scale 3 - validate() clean, export dead at preflight,
+# and the message told the artist to "use one identical transform ... or bake"
+# for a conflict the exporter created between its own two networks.
+# ---------------------------------------------------------------------------
+
+
+def _author_preview_transform_chain(stage, material_path, scale, name="Mapping"):
+    """A Blender-shaped retained preview chain: UsdTransform2d -> UsdUVTexture."""
+    material = UsdShade.Material.Get(stage, material_path)
+    if not material:
+        material = UsdShade.Material.Define(stage, material_path)
+
+    preview = UsdShade.Shader.Define(stage, f"{material_path}/PreviewSurface")
+    preview.CreateIdAttr("UsdPreviewSurface")
+    material.CreateSurfaceOutput().ConnectToSource(
+        preview.ConnectableAPI(), "surface"
+    )
+
+    primvar = UsdShade.Shader.Define(stage, f"{material_path}/uvmap")
+    primvar.CreateIdAttr("UsdPrimvarReader_float2")
+    primvar.CreateInput("varname", Sdf.ValueTypeNames.Token).Set("st")
+    primvar_out = primvar.CreateOutput("result", Sdf.ValueTypeNames.Float2)
+
+    transform = UsdShade.Shader.Define(stage, f"{material_path}/{name}")
+    transform.CreateIdAttr("UsdTransform2d")
+    transform.CreateInput("in", Sdf.ValueTypeNames.Float2).ConnectToSource(
+        primvar_out
+    )
+    transform.CreateInput("scale", Sdf.ValueTypeNames.Float2).Set(scale)
+    transform.CreateInput("translation", Sdf.ValueTypeNames.Float2).Set((0.0, 0.0))
+    transform.CreateInput("rotation", Sdf.ValueTypeNames.Float).Set(0.0)
+    transformed = transform.CreateOutput("result", Sdf.ValueTypeNames.Float2)
+
+    texture = UsdShade.Shader.Define(stage, f"{material_path}/PreviewTexture{name}")
+    texture.CreateIdAttr("UsdUVTexture")
+    texture.CreateInput("st", Sdf.ValueTypeNames.Float2).ConnectToSource(transformed)
+    rgb = texture.CreateOutput("rgb", Sdf.ValueTypeNames.Float3)
+    preview.CreateInput(
+        f"diffuseColor{name}", Sdf.ValueTypeNames.Color3f
+    ).ConnectToSource(rgb)
+    return transform
+
+
+def test_retained_preview_transform_does_not_conflict_with_materialx():
+    """One Blender Mapping node -> two representations -> no conflict."""
+    stage, mesh = _stage_with_mesh()
+    _author_bound_place2d_material(stage, mesh, offsets=[(0.25, 0.5)])
+    # Blender's retained network describes the SAME mapping in its own
+    # convention: st texcoord, direct (non-reciprocal) scale.
+    _author_preview_transform_chain(stage, "/Root/MappedMaterial", scale=(2.0, 2.0))
+
+    report = validate_stage(stage)
+
+    assert "MATERIAL_TEXTURE_TRANSFORM_CONFLICT" not in _codes(report)
+
+
+def test_two_distinct_materialx_transforms_still_conflict():
+    """The fix must not blind the check to genuine MaterialX conflicts."""
+    stage, mesh = _stage_with_mesh()
+    _author_bound_place2d_material(stage, mesh, offsets=[(0.25, 0.5), (0.75, 0.1)])
+    _author_preview_transform_chain(stage, "/Root/MappedMaterial", scale=(2.0, 2.0))
+
+    report = validate_stage(stage)
+
+    assert "MATERIAL_TEXTURE_TRANSFORM_CONFLICT" in _codes(report)
+
+
+def test_hand_authored_usdtransform2d_only_is_still_judged():
+    """With no MaterialX transform, the preview network is the effective one.
+
+    That is the hand-authored-USD case this check was originally written for;
+    excluding UsdTransform2d outright would silently stop validating it.
+    """
+    stage, mesh = _stage_with_mesh()
+    material = UsdShade.Material.Define(stage, "/Root/PreviewOnly")
+    UsdShade.MaterialBindingAPI.Apply(mesh.GetPrim()).Bind(material)
+    _author_preview_transform_chain(
+        stage, "/Root/PreviewOnly", scale=(2.0, 2.0), name="MappingA"
+    )
+    _author_preview_transform_chain(
+        stage, "/Root/PreviewOnly", scale=(5.0, 5.0), name="MappingB"
+    )
+
+    report = validate_stage(stage)
+
+    assert "MATERIAL_TEXTURE_TRANSFORM_CONFLICT" in _codes(report)

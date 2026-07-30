@@ -1044,13 +1044,28 @@ def _check_material_texture_transforms(
             materials.setdefault(str(material_prim.GetPath()), material_prim)
 
     for material_path, material_prim in sorted(materials.items()):
-        contracts: dict[Any, list[str]] = defaultdict(list)
+        # Collected separately because the exporter authors *two* networks per
+        # material - the MaterialX ShaderGraph RealityKit consumes, and the
+        # native UsdPreviewSurface network Blender wrote, retained for other USD
+        # consumers. One Blender Mapping node therefore appears twice: once as a
+        # MaterialX place2d (texcoord UV0, reciprocal SRT scale) and once as a
+        # UsdTransform2d (texcoord st, direct scale). The two describe the same
+        # transform in different conventions, so they never compare equal.
+        #
+        # Counting them together meant *any* non-identity Mapping node produced
+        # distinct_transform_count == 2 and failed the export - measured on a
+        # cube with one texture and Scale 3, which validate() passed as clean -
+        # while telling the artist to "use one identical transform ... or bake",
+        # a conflict they did not create and cannot resolve.
+        materialx_contracts: dict[Any, list[str]] = defaultdict(list)
+        preview_contracts: dict[Any, list[str]] = defaultdict(list)
         uninspectable: list[tuple[str, str]] = []
         for prim in _upstream_material_prims(material_prim):
             shader = UsdShade.Shader(prim)
             shader_id = str(shader.GetIdAttr().Get() or "")
             lowered_id = shader_id.lower()
-            if "place2d" not in lowered_id and lowered_id != "usdtransform2d":
+            is_place2d = "place2d" in lowered_id
+            if not is_place2d and lowered_id != "usdtransform2d":
                 continue
             try:
                 contract = _usd_texture_transform_contract(shader, shader_id)
@@ -1058,7 +1073,14 @@ def _check_material_texture_transforms(
                 uninspectable.append((str(prim.GetPath()), str(exc)))
                 continue
             if contract is not None:
-                contracts[contract].append(str(prim.GetPath()))
+                bucket = materialx_contracts if is_place2d else preview_contracts
+                bucket[contract].append(str(prim.GetPath()))
+
+        # Judge the network RealityKit actually consumes. Only when a material
+        # has no MaterialX transform at all does the preview network stand in -
+        # that is the hand-authored-USD case this check was written for, where
+        # UsdTransform2d nodes really are the effective transforms.
+        contracts = materialx_contracts or preview_contracts
 
         if uninspectable:
             report.add(
