@@ -237,7 +237,14 @@ def _handle(args: dict, settings) -> dict:
                 f"Unsupported nodes in material '{mat.name}'.",
                 code="UNSUPPORTED_MATERIAL_NODES",
                 stage="validation",
-                details=result["errors"],
+                # Strip the live bpy node objects: they are not JSON
+                # serializable, and leaving them in made the CLI die with
+                # "Object of type ShaderNodeMixShader is not JSON serializable"
+                # instead of reporting this refusal.
+                details=[
+                    {k: v for k, v in issue.items() if k != "node"}
+                    for issue in result["errors"]
+                ],
                 artifacts=_artifacts(diagnostics_path, filepath, bpy.data.filepath),
                 context={"material": mat.name, "errors": error_msgs},
             )

@@ -155,7 +155,6 @@ UNSUPPORTED_TYPES = {
     'OUTPUT_LIGHT',
     'BACKGROUND',
     'HOLDOUT',
-    'MIX_SHADER',
     'ADD_SHADER',
     'BSDF_DIFFUSE',
     'BSDF_GLOSSY',
@@ -728,6 +727,22 @@ def validate_material(
                 "errors",
                 node,
                 "Node is supported by ShaderGraph but not yet mapped by the exporter.",
+            )
+            continue
+
+        if node_type == 'MIX_SHADER':
+            # Direct export cannot translate a shader-level mix, but the bake
+            # lane can: LIT_IBL (Lighting & Shadows) renders the full mixed
+            # shading, and the Material Color modes support a mix of exactly
+            # two Principled BSDFs. Always an error for direct export — the
+            # advice is the point.
+            add_issue(
+                "errors",
+                node,
+                "Mix Shader cannot be exported directly. Use Bake Textures & Export: "
+                "bake mode LIT_IBL (Lighting & Shadows) bakes the full mixed shading "
+                "into textures; the Material Color modes (UNLIT_ALBEDO / LIT_ALBEDO) "
+                "support a mix of exactly two Principled BSDFs.",
             )
             continue
 

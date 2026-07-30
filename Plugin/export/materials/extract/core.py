@@ -82,9 +82,34 @@ def material_has_transparency(material) -> bool:
     # rendering. Disconnected Principled nodes must not make an opaque material
     # transparent or disagree with the bake pipeline.
     surface_node = _get_surface_shader_node(material)
-    if not surface_node or surface_node.type != 'BSDF_PRINCIPLED':
+    if not surface_node:
         return False
-    alpha_socket = surface_node.inputs.get('Alpha')
+    if surface_node.type == 'MIX_SHADER':
+        # The bake lane supports a Mix Shader over Principled BSDFs; its
+        # transparency is whatever either side's Alpha establishes, and a
+        # mixed-in Transparent BSDF is transparency by construction.
+        found_alpha = False
+        for socket in getattr(surface_node, "inputs", []) or []:
+            if not getattr(socket, "is_linked", False):
+                continue
+            links = list(getattr(socket, "links", ()) or ())
+            source = getattr(links[0], "from_node", None) if links else None
+            if source is None:
+                continue
+            source_type = getattr(source, "type", "")
+            if source_type == 'BSDF_TRANSPARENT':
+                return True
+            if source_type == 'BSDF_PRINCIPLED':
+                if _principled_alpha_is_transparent(source):
+                    found_alpha = True
+        return found_alpha
+    if surface_node.type != 'BSDF_PRINCIPLED':
+        return False
+    return _principled_alpha_is_transparent(surface_node)
+
+
+def _principled_alpha_is_transparent(principled) -> bool:
+    alpha_socket = principled.inputs.get('Alpha')
     if not alpha_socket:
         return False
     if alpha_socket.is_linked:
@@ -606,7 +631,6 @@ def collect_material_warnings(material) -> List[str]:
         'OUTPUT_LIGHT',
         'BACKGROUND',
         'HOLDOUT',
-        'MIX_SHADER',
         'ADD_SHADER',
         'BSDF_DIFFUSE',
         'BSDF_GLOSSY',
@@ -676,6 +700,15 @@ def collect_material_warnings(material) -> List[str]:
                         f"Material '{material.name}': Color Ramp '{node_name}' {color_mode}/"
                         f"{interpolation} requires baking."
                     )
+            continue
+
+        if node_type == 'MIX_SHADER':
+            warnings.append(
+                f"Material '{material.name}': Node '{node_name}' (MIX_SHADER) cannot be "
+                "exported directly; use Bake Textures & Export — bake mode LIT_IBL "
+                "(Lighting & Shadows) bakes the mixed shading, and the Material Color "
+                "modes support a mix of two Principled BSDFs."
+            )
             continue
 
         if node_type in {'MIX_RGB', 'MIX'}:
