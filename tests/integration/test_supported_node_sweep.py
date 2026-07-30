@@ -32,9 +32,11 @@ pytestmark = pytest.mark.integration
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
 #: Node types deliberately absent, with the measured reason:
-#: GAMMA/COMBXYZ/CURVE_* etc. are BAKE_TYPES by policy; MATH passes only as an
-#: identity; TEX_COORD/UVMAP/MAPPING are PARTIAL_TYPES that warn by design;
-#: BRIGHTCONTRAST on colour is a recorded open defect (type mismatch).
+#: GAMMA/COMBXYZ/CURVE_* etc. are BAKE_TYPES by policy; MATH operations
+#: outside validate.SUPPORTED_MATH_OPERATIONS are refused (covered by the
+#: refusal fixture below); TEX_COORD/UVMAP/MAPPING are PARTIAL_TYPES that
+#: warn by design; BRIGHTCONTRAST on colour is a recorded open defect (type
+#: mismatch).
 _BUILD = r'''
 import bpy, sys
 out = sys.argv[sys.argv.index("--") + 1]
@@ -164,6 +166,26 @@ normal = tree.nodes.new("ShaderNodeNormalMap")
 tree.links.new(tex.outputs["Color"], normal.inputs["Color"])
 tree.links.new(normal.outputs["Normal"], bsdf.inputs["Normal"])
 
+# MATH (roughness x 0.8 - the motivating non-identity case)
+tree, bsdf = material_on_plane("SweepMathMultiply")
+tex = tree.nodes.new("ShaderNodeTexImage"); tex.image = data_map
+math_node = tree.nodes.new("ShaderNodeMath")
+math_node.operation = 'MULTIPLY'
+math_node.inputs[1].default_value = 0.8
+tree.links.new(tex.outputs["Color"], math_node.inputs[0])
+tree.links.new(math_node.outputs["Value"], bsdf.inputs["Roughness"])
+
+# MATH composed: MULTIPLY_ADD (multiply + add nodes) with use_clamp (clamp)
+tree, bsdf = material_on_plane("SweepMathMultiplyAdd")
+tex = tree.nodes.new("ShaderNodeTexImage"); tex.image = data_map
+math_node = tree.nodes.new("ShaderNodeMath")
+math_node.operation = 'MULTIPLY_ADD'
+math_node.use_clamp = True
+math_node.inputs[1].default_value = 0.5
+math_node.inputs[2].default_value = 0.25
+tree.links.new(tex.outputs["Color"], math_node.inputs[0])
+tree.links.new(math_node.outputs["Value"], bsdf.inputs["Roughness"])
+
 # EMISSION as the active surface
 tree, _bsdf = material_on_plane("SweepEmission")
 emission = tree.nodes.new("ShaderNodeEmission")
@@ -178,7 +200,8 @@ print("SWEEP_MATERIALS:", len(bpy.data.materials))
 _SWEEP_MATERIALS = [
     "SweepTexImage", "SweepRGB", "SweepValue", "SweepClamp", "SweepMapRange",
     "SweepInvert", "SweepRGBToBW", "SweepSeparate", "SweepRamp", "SweepHueSat",
-    "SweepMix", "SweepNormal", "SweepEmission",
+    "SweepMix", "SweepNormal", "SweepMathMultiply", "SweepMathMultiplyAdd",
+    "SweepEmission",
 ]
 
 _CAPABILITY_NOISE = ("unrecognized", "requires baking", "limited support")
@@ -257,6 +280,16 @@ def test_no_unmapped_color_space_token_ships(sweep_export):
     assert "srgb_rec709_display" not in stage.read_text()
 
 
+def test_math_materials_author_real_materialx_nodes(sweep_export):
+    """roughness x 0.8 must ship as a real multiply, and the composed
+    MULTIPLY_ADD with use_clamp must ship multiply + add + clamp."""
+    _payload, stage = sweep_export
+    text = stage.read_text()
+
+    for nodedef in ("ND_multiply_float", "ND_add_float", "ND_clamp_float"):
+        assert f'info:id = "{nodedef}"' in text, f"{nodedef} was not authored"
+
+
 def test_every_authored_nodedef_is_manifest_backed(sweep_export):
     """The sweep doubles as a broad corpus for the nodedef closing gate."""
     import re
@@ -273,3 +306,66 @@ def test_every_authored_nodedef_is_manifest_backed(sweep_export):
 
     unknown = sorted(authored - known)
     assert unknown == [], f"fabricated nodedefs shipped: {unknown}"
+
+
+# --- refusal control: unsupported Math operations keep the bake advice ------
+
+_REFUSED_BUILD = r'''
+import bpy, sys
+out = sys.argv[sys.argv.index("--") + 1]
+
+bpy.ops.wm.read_factory_settings(use_empty=True)
+bpy.ops.mesh.primitive_plane_add()
+obj = bpy.context.active_object
+material = bpy.data.materials.new("RefusedMathSmoothMin")
+material.use_nodes = True
+obj.data.materials.append(material)
+tree = material.node_tree
+bsdf = tree.nodes["Principled BSDF"]
+
+value = tree.nodes.new("ShaderNodeValue"); value.outputs[0].default_value = 0.4
+math_node = tree.nodes.new("ShaderNodeMath")
+math_node.operation = 'SMOOTH_MIN'
+math_node.inputs[1].default_value = 0.3
+tree.links.new(value.outputs[0], math_node.inputs[0])
+tree.links.new(math_node.outputs["Value"], bsdf.inputs["Roughness"])
+
+bpy.ops.wm.save_as_mainfile(filepath=out)
+'''
+
+
+@pytest.fixture(scope="module")
+def refused_math_blend(tmp_path_factory):
+    workdir = tmp_path_factory.mktemp("refused_math")
+    script = workdir / "build.py"
+    script.write_text(_REFUSED_BUILD)
+    blend = workdir / "refused.blend"
+
+    built = subprocess.run(
+        [_blender(), "--background", "--factory-startup", "--python", str(script),
+         "--", str(blend)],
+        capture_output=True, text=True, timeout=300,
+    )
+    assert blend.exists(), built.stdout + built.stderr
+    return blend
+
+
+def test_unsupported_math_operation_still_refuses_with_bake_advice(refused_math_blend):
+    """SMOOTH_MIN has no exact MaterialX equivalent; the validator must name
+    the operation and keep the bake advice - never approximate silently."""
+    result = subprocess.run(
+        [sys.executable, str(REPO_ROOT / "Plugin"), "--json",
+         "validate", str(refused_math_blend)],
+        capture_output=True, text=True, timeout=900,
+    )
+    payload = json.loads(result.stdout)
+
+    entry = next(
+        material for material in payload["materials"]
+        if material["name"] == "RefusedMathSmoothMin"
+    )
+    assert entry["ok"] is False
+    messages = [issue["message"] for issue in entry["errors"]]
+    refusals = [m for m in messages if "SMOOTH_MIN" in m]
+    assert refusals, f"no refusal names the operation: {messages}"
+    assert any("requires baking" in m for m in refusals)

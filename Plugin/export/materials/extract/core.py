@@ -5,6 +5,7 @@ Extracts supported parameters and emits warnings for unsupported nodes.
 """
 
 import hashlib
+import math
 import os
 import re
 import shutil
@@ -584,6 +585,10 @@ def collect_material_warnings(material) -> List[str]:
     # phrases the warnings.
     from ....nodes.validate import BAKE_TYPES as _VALIDATOR_BAKE_TYPES
     from ....nodes.validate import SUPPORTED_TYPES as _VALIDATOR_SUPPORTED_TYPES
+    from ....nodes.validate import (
+        SUPPORTED_MATH_OPERATIONS as _VALIDATOR_SUPPORTED_MATH_OPS,
+    )
+    from ....nodes.validate import math_refusal_message as _math_refusal_message
 
     supported_types = set(_VALIDATOR_SUPPORTED_TYPES)
 
@@ -684,11 +689,12 @@ def collect_material_warnings(material) -> List[str]:
             continue
 
         if node_type == 'MATH':
-            if _is_identity_math_node(node):
+            operation = (getattr(node, "operation", "") or "").upper()
+            if operation in _VALIDATOR_SUPPORTED_MATH_OPS:
                 continue
             warnings.append(
-                f"Material '{material.name}': Node '{node_name}' ({node_type}) requires baking unless "
-                "it is a pass-through (add 0, subtract 0, multiply 1, divide 1)."
+                f"Material '{material.name}': Node '{node_name}' (MATH): "
+                + _math_refusal_message(operation)
             )
             continue
 
@@ -1577,7 +1583,12 @@ def _resolve_socket_value(
 
     if node_type == 'MATH':
         operation = (getattr(from_node, "operation", "") or "").upper()
-        if hasattr(from_node, "inputs") and len(from_node.inputs) >= 2:
+        use_clamp = bool(getattr(from_node, "use_clamp", False))
+        # Collapse a pass-through (add 0, subtract 0, multiply 1, divide 1)
+        # to its linked input instead of authoring a no-op MaterialX node.
+        # A clamped pass-through is NOT a pass-through - the clamp must be
+        # authored, so it takes the general path below.
+        if not use_clamp and hasattr(from_node, "inputs") and len(from_node.inputs) >= 2:
             in0 = from_node.inputs[0]
             in1 = from_node.inputs[1]
             if in0 and in0.is_linked and (not in1 or not in1.is_linked):
@@ -1608,6 +1619,23 @@ def _resolve_socket_value(
                         cache,
                         expected_type=expected_type,
                     )
+        expr = _math_node_expr(from_node, operation, visited, channel, provenance, cache)
+        if expr is not None:
+            if (
+                isinstance(expr, dict)
+                and expr.get("kind") == "node"
+                and expected_type
+                and expected_type not in {"float", "half", "integer"}
+            ):
+                # Math is always scalar; a colour/vector consumer needs an
+                # explicit broadcast, matching Blender's implicit conversion.
+                expr = _make_node_expr(
+                    _nodedef_for("convert", expected_type, input_type="float"),
+                    {"in": expr},
+                )
+            return expr
+        # Unsupported operation: fall through to the unresolved tail so the
+        # bake advice fires - never approximate silently.
 
     if node_type == 'CLAMP':
         value_expr = _expr_from_socket(
@@ -2680,6 +2708,212 @@ def _is_identity_math(operation: str, value: Optional[float], linked_index: int)
     return False
 
 
+#: Blender Math operation -> MaterialX node name, single-input float ops.
+#: Blender clamps out-of-domain inputs to 0 (safe_sqrt, safe_asin, ...) where
+#: raw GPU math is undefined; the mapping is exact on the defined domain.
+_MATH_SINGLE_INPUT_OPS = {
+    'SQRT': 'sqrt',
+    'ABSOLUTE': 'absval',
+    'EXPONENT': 'exp',
+    'ROUND': 'round',
+    'FLOOR': 'floor',
+    'CEIL': 'ceil',
+    'FRACT': 'fract',
+    'SINE': 'sin',
+    'COSINE': 'cos',
+    'TANGENT': 'tan',
+    'ARCSINE': 'asin',
+    'ARCCOSINE': 'acos',
+}
+
+#: Blender Math operation -> MaterialX node name, two-input float ops.
+#:
+#: POWER uses ND_power_float, not ND_safepower_float: Blender and pow() agree
+#: exactly for base >= 0 (the whole meaningful domain); for a negative base
+#: with a fractional exponent Blender returns 0 where pow is undefined.
+#: safepower computes sign(in1) * pow(|in1|, in2), which is *wrong* for
+#: Blender on negative bases ((-2)^2: Blender 4, safepower -4), so the plain
+#: power is the exact match.
+#:
+#: FLOORED_MODULO (not MODULO) maps to MaterialX modulo: both are floored
+#: (result sign follows in2). Blender's MODULO is truncated fmod (sign
+#: follows in1) and is refused by the validator - see
+#: Plugin/nodes/validate.py SUPPORTED_MATH_OPERATIONS.
+#:
+#: ARCTAN2: the shipped manifest declares the 1.38-style in1/in2 inputs (the
+#: 1.39 iny/inx rename has not landed there); in1 is the y term, in2 the x
+#: term, matching Blender's atan2(value0, value1) positionally.
+_MATH_TWO_INPUT_OPS = {
+    'ADD': 'add',
+    'SUBTRACT': 'subtract',
+    'MULTIPLY': 'multiply',
+    'DIVIDE': 'divide',
+    'POWER': 'power',
+    'MINIMUM': 'min',
+    'MAXIMUM': 'max',
+    'FLOORED_MODULO': 'modulo',
+    'ARCTAN2': 'atan2',
+}
+
+#: Ops authored as exact compositions of manifest nodedefs (no approximation):
+#: MULTIPLY_ADD = add(multiply(a, b), c); ARCTANGENT = atan2(x, 1);
+#: LOGARITHM = ln(v) / ln(base) (a single ln when the base is the constant e).
+_MATH_COMPOSED_OPS = frozenset({'MULTIPLY_ADD', 'LOGARITHM', 'ARCTANGENT'})
+
+
+#: Blender's implicit colour-to-float socket conversion is linear RGB to
+#: gray (Rec.709 luminance); these are the coefficients it uses.
+_RGB_TO_GRAY = (0.2126, 0.7152, 0.0722)
+
+
+def _float_math_input_expr(expr):
+    """Coerce a resolved expression to an exact float for a Math input.
+
+    Blender implicitly converts a colour feeding a scalar socket with linear
+    RGB to gray (luminance). A channel-bearing or float texture already reads
+    a scalar; a channelless colour texture gets an explicit luminance whose
+    replicated output the swizzle then reads - the same exact chain
+    conversions.py inserts for colour-to-float. Colour constants are folded
+    with the same coefficients.
+    """
+    if not isinstance(expr, dict):
+        return None
+    kind = expr.get("kind")
+    if kind == "constant":
+        value = expr.get("value")
+        if isinstance(value, (list, tuple)):
+            if len(value) < 3:
+                return None
+            try:
+                return _constant_expr(
+                    sum(float(component) * weight
+                        for component, weight in zip(value, _RGB_TO_GRAY))
+                )
+            except (TypeError, ValueError):
+                return None
+        return expr
+    if kind == "texture" and not expr.get("channel"):
+        texture = dict(expr)
+        texture["output_type"] = "color3"
+        luminance = _make_node_expr(
+            _nodedef_for("luminance", "color3"), {"in": texture}
+        )
+        swizzle_node = select_nodedef_name_for_node(
+            _get_manifest(),
+            "swizzle",
+            signature="in[in:color3,channels:string]|out[out:float]",
+            output_type="float",
+        ) or "ND_swizzle_color3_float"
+        return _make_node_expr(
+            swizzle_node,
+            {"in": luminance, "channels": _constant_expr("r")},
+        )
+    return expr
+
+
+def _math_socket_expr(node, index, visited, channel, provenance, cache):
+    """Resolve a Math node input socket (linked or constant) as a float expr."""
+    inputs = getattr(node, "inputs", None)
+    if inputs is None or len(inputs) <= index:
+        return None
+    socket = inputs[index]
+    if socket is None:
+        return None
+    if getattr(socket, "is_linked", False):
+        # Sibling branches each get their own ancestry copy (diamond graphs).
+        resolved = _resolve_socket_value(
+            socket,
+            set(visited or ()),
+            channel,
+            list(provenance or ()),
+            cache,
+            expected_type="float",
+        )
+        return _float_math_input_expr(resolved)
+    value = _socket_default_value(socket)
+    if value is None:
+        return None
+    try:
+        return _constant_expr(float(value))
+    except (TypeError, ValueError):
+        return None
+
+
+def _math_node_expr(node, operation, visited, channel, provenance, cache):
+    """Author a Blender Math node as exact MaterialX float nodes.
+
+    Returns None when the operation has no exact MaterialX mapping - the
+    caller falls through to the unresolved tail so the bake advice fires;
+    nothing is approximated silently.
+    """
+    def socket_expr(index):
+        return _math_socket_expr(node, index, visited, channel, provenance, cache)
+
+    node_name = _MATH_SINGLE_INPUT_OPS.get(operation)
+    if node_name is not None:
+        value = socket_expr(0)
+        if value is None:
+            return None
+        expr = _make_node_expr(_nodedef_for(node_name, "float"), {"in": value})
+    elif operation in _MATH_TWO_INPUT_OPS:
+        in1 = socket_expr(0)
+        in2 = socket_expr(1)
+        if in1 is None or in2 is None:
+            return None
+        expr = _make_node_expr(
+            _nodedef_for(_MATH_TWO_INPUT_OPS[operation], "float"),
+            {"in1": in1, "in2": in2},
+        )
+    elif operation == 'MULTIPLY_ADD':
+        a = socket_expr(0)
+        b = socket_expr(1)
+        addend = socket_expr(2)
+        if a is None or b is None or addend is None:
+            return None
+        product = _make_node_expr(
+            _nodedef_for("multiply", "float"), {"in1": a, "in2": b}
+        )
+        expr = _make_node_expr(
+            _nodedef_for("add", "float"), {"in1": product, "in2": addend}
+        )
+    elif operation == 'ARCTANGENT':
+        value = socket_expr(0)
+        if value is None:
+            return None
+        expr = _make_node_expr(
+            _nodedef_for("atan2", "float"),
+            {"in1": value, "in2": _constant_expr(1.0)},
+        )
+    elif operation == 'LOGARITHM':
+        # Blender computes log(value, base) = ln(value) / ln(base).
+        value = socket_expr(0)
+        base = socket_expr(1)
+        if value is None or base is None:
+            return None
+        ln_value = _make_node_expr(_nodedef_for("ln", "float"), {"in": value})
+        if _expr_is_constant(base, math.e):
+            expr = ln_value
+        else:
+            ln_base = _make_node_expr(_nodedef_for("ln", "float"), {"in": base})
+            expr = _make_node_expr(
+                _nodedef_for("divide", "float"),
+                {"in1": ln_value, "in2": ln_base},
+            )
+    else:
+        return None
+
+    if not isinstance(expr, dict) or expr.get("kind") != "node":
+        # An unresolved child propagated through _make_node_expr; keep its
+        # provenance chain instead of wrapping it further.
+        return expr
+    if getattr(node, "use_clamp", False):
+        expr = _make_node_expr(
+            _nodedef_for("clamp", "float"),
+            {"in": expr, "low": _constant_expr(0.0), "high": _constant_expr(1.0)},
+        )
+    return expr
+
+
 def _get_manifest() -> Dict[str, Any]:
     global _MANIFEST_CACHE
     if _MANIFEST_CACHE is None:
@@ -2866,33 +3100,6 @@ def _is_supported_mix(node) -> bool:
     if blend == 'MIX':
         return both_linked
     return blend in _RESOLVABLE_MIX_BLENDS and both_linked
-
-
-def _is_identity_math_node(node) -> bool:
-    """Return True when a Math node is effectively a pass-through."""
-    if not node or getattr(node, "type", "") != 'MATH':
-        return False
-    if not hasattr(node, "inputs") or len(node.inputs) < 2:
-        return False
-    operation = (getattr(node, "operation", "") or "").upper()
-    in0 = node.inputs[0]
-    in1 = node.inputs[1]
-
-    if in0 and in0.is_linked and (not in1 or not in1.is_linked):
-        try:
-            value = float(in1.default_value)
-        except Exception:
-            value = None
-        return _is_identity_math(operation, value, linked_index=0)
-
-    if in1 and in1.is_linked and (not in0 or not in0.is_linked):
-        try:
-            value = float(in0.default_value)
-        except Exception:
-            value = None
-        return _is_identity_math(operation, value, linked_index=1)
-
-    return False
 
 
 def _extract_mapping_from_node(node) -> Optional[Dict[str, Any]]:

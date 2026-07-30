@@ -61,3 +61,32 @@ def test_types_the_validator_accepts_are_not_called_unrecognized():
     # The warning pass must consult the validator's set for this decision.
     assert "_VALIDATOR_SUPPORTED_TYPES" in source
     assert "CLAMP" in validate.SUPPORTED_TYPES
+
+
+def test_math_operation_tables_stay_in_sync_with_the_validator():
+    """The resolver's op -> nodedef tables and the validator's supported-op
+    set must describe the same capability, or validate says yes while the
+    export ships an unresolved warning (or vice versa)."""
+    resolver_ops = (
+        set(core._MATH_SINGLE_INPUT_OPS)
+        | set(core._MATH_TWO_INPUT_OPS)
+        | set(core._MATH_COMPOSED_OPS)
+    )
+    assert resolver_ops == set(validate.SUPPORTED_MATH_OPERATIONS)
+
+
+def test_the_warning_pass_derives_math_support_from_the_validator():
+    source = _warning_pass_source()
+    assert "_VALIDATOR_SUPPORTED_MATH_OPS" in source
+    assert "math_refusal_message" in source
+
+
+def test_semantic_mismatch_operations_stay_refused():
+    """MODULO (truncated fmod vs MaterialX floored modulo) and the ops with
+    no exact nodedef must never drift into the supported set silently."""
+    refused = {
+        'MODULO', 'SMOOTH_MIN', 'SMOOTH_MAX', 'PINGPONG', 'WRAP', 'SNAP',
+        'COMPARE', 'INVERSE_SQRT', 'TRUNC', 'LESS_THAN', 'GREATER_THAN',
+    }
+    overlap = refused & set(validate.SUPPORTED_MATH_OPERATIONS)
+    assert overlap == set(), f"refused operations leaked into support: {overlap}"

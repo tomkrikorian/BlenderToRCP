@@ -55,6 +55,64 @@ SUPPORTED_TYPES = {
 SHADERGRAPH_SUPPORTED_TYPES = {
 }
 
+#: Blender Math operations the exporter authors as exact MaterialX float
+#: nodes (see _MATH_SINGLE_INPUT_OPS / _MATH_TWO_INPUT_OPS /
+#: _MATH_COMPOSED_OPS in Plugin/export/materials/extract/core.py; the parity
+#: test in tests/unit/test_capability_table_parity.py keeps the tables in
+#: sync). Deliberately absent, with the reason:
+#: - MODULO: Blender is truncated fmod (result sign follows the dividend);
+#:   MaterialX modulo is floored (sign follows in2). They differ for negative
+#:   inputs, so MODULO is refused and FLOORED_MODULO is the exact mapping.
+#: - INVERSE_SQRT, TRUNC, SNAP, WRAP, PINGPONG, COMPARE, LESS_THAN,
+#:   GREATER_THAN, SMOOTH_MIN, SMOOTH_MAX, SIGN, SINH, COSH, TANH, RADIANS,
+#:   DEGREES: no verified exact manifest nodedef or composition is authored
+#:   for them; they keep the bake path rather than a silent approximation.
+SUPPORTED_MATH_OPERATIONS = frozenset({
+    'ADD',
+    'SUBTRACT',
+    'MULTIPLY',
+    'DIVIDE',
+    'MULTIPLY_ADD',
+    'POWER',
+    'LOGARITHM',
+    'SQRT',
+    'EXPONENT',
+    'ABSOLUTE',
+    'MINIMUM',
+    'MAXIMUM',
+    'ROUND',
+    'FLOOR',
+    'CEIL',
+    'FRACT',
+    'FLOORED_MODULO',
+    'SINE',
+    'COSINE',
+    'TANGENT',
+    'ARCSINE',
+    'ARCCOSINE',
+    'ARCTANGENT',
+    'ARCTAN2',
+})
+
+
+def math_refusal_message(operation: str) -> str:
+    """Shared phrasing for refusing a Math node operation.
+
+    Both the validator and the export-time warning pass emit this, so the
+    user reads one story about the same node.
+    """
+    operation = (operation or "").upper() or "UNKNOWN"
+    if operation == 'MODULO':
+        return (
+            "Math operation MODULO requires baking: Blender's truncated fmod "
+            "has no exact MaterialX equivalent (MaterialX modulo is floored). "
+            "Use Floored Modulo for MaterialX semantics, or bake."
+        )
+    return (
+        f"Math operation {operation} requires baking; it has no exact "
+        "MaterialX equivalent."
+    )
+
 PARTIAL_TYPES = {
     'TEX_COORD',
     'UVMAP',
@@ -686,12 +744,13 @@ def validate_material(
             continue
 
         if node_type == 'MATH':
-            if _is_identity_math_node(node):
+            operation = (getattr(node, "operation", "") or "").upper()
+            if operation in SUPPORTED_MATH_OPERATIONS:
                 continue
             add_issue(
                 "warnings",
                 node,
-                "Math node requires baking unless it is a pass-through (add 0, subtract 0, multiply 1, divide 1).",
+                math_refusal_message(operation),
                 force_error=strict,
             )
             continue
@@ -952,43 +1011,3 @@ def _is_supported_mix(node) -> bool:
     return blend in _RESOLVABLE_MIX_BLENDS and both_linked
 
 
-def _is_identity_math_node(node) -> bool:
-    """Return True when a Math node is effectively a pass-through."""
-    if not node or getattr(node, "type", "") != 'MATH':
-        return False
-    if not hasattr(node, "inputs") or len(node.inputs) < 2:
-        return False
-    operation = (getattr(node, "operation", "") or "").upper()
-    in0 = node.inputs[0]
-    in1 = node.inputs[1]
-
-    if in0 and in0.is_linked and (not in1 or not in1.is_linked):
-        try:
-            value = float(in1.default_value)
-        except Exception:
-            value = None
-        return _is_identity_math(operation, value, linked_index=0)
-
-    if in1 and in1.is_linked and (not in0 or not in0.is_linked):
-        try:
-            value = float(in0.default_value)
-        except Exception:
-            value = None
-        return _is_identity_math(operation, value, linked_index=1)
-
-    return False
-
-
-def _is_identity_math(operation: str, value: float | None, linked_index: int) -> bool:
-    """Return True when a math node is a passthrough."""
-    if value is None:
-        return False
-    if operation == "ADD" and abs(value) < 1e-6:
-        return True
-    if operation == "SUBTRACT" and linked_index == 0 and abs(value) < 1e-6:
-        return True
-    if operation == "MULTIPLY" and abs(value - 1.0) < 1e-6:
-        return True
-    if operation == "DIVIDE" and linked_index == 0 and abs(value - 1.0) < 1e-6:
-        return True
-    return False
