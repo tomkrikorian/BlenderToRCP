@@ -248,6 +248,15 @@ def test_no_capability_warning_fires_for_supported_nodes(sweep_export):
     )
 
 
+def test_no_unmapped_color_space_token_ships(sweep_export):
+    """RCP 3.0 (80.0.1.500.1) has no alias for Blender's OCIO name
+    ``srgb_rec709_display``; the postprocess renames it to ``srgb_texture``.
+    A surviving occurrence means the retag step regressed."""
+    _payload, stage = sweep_export
+
+    assert "srgb_rec709_display" not in stage.read_text()
+
+
 def test_every_authored_nodedef_is_manifest_backed(sweep_export):
     """The sweep doubles as a broad corpus for the nodedef closing gate."""
     import re

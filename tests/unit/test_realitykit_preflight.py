@@ -567,7 +567,7 @@ def test_blender_52_colorspace_api_opinion_is_resolved(tmp_path):
         consumer_name="base_color",
         consumer_type=Sdf.ValueTypeNames.Color3f,
         output_type=Sdf.ValueTypeNames.Color3f,
-        api_color_space="srgb_rec709_display",
+        api_color_space="srgb_rec709_scene",
     )
 
     report = validate_stage(
@@ -578,6 +578,32 @@ def test_blender_52_colorspace_api_opinion_is_resolved(tmp_path):
 
     assert report.ok
     assert "TEXTURE_COLOR_SPACE_MISMATCH" not in _codes(report)
+
+
+def test_unmapped_ocio_display_token_flags(tmp_path):
+    """``srgb_rec709_display`` appears nowhere in RCP 80.0.1.500.1 — the
+    engine's alias table has no mapping for it, so its decode behaviour is
+    undefined. The postprocess retags it to ``srgb_texture`` before preflight
+    runs; a stage still carrying it means that rewrite regressed."""
+    stage, _mesh = _stage_with_mesh()
+    (tmp_path / "base-color.png").write_bytes(b"texture")
+    _author_materialx_texture(
+        stage,
+        texture_name="BlenderNativeColor",
+        texture_filename="base-color.png",
+        consumer_name="base_color",
+        consumer_type=Sdf.ValueTypeNames.Color3f,
+        output_type=Sdf.ValueTypeNames.Color3f,
+        api_color_space="srgb_rec709_display",
+    )
+
+    report = validate_stage(
+        stage,
+        tmp_path / "scene.usdc",
+        SimpleNamespace(export_format="USDC"),
+    )
+
+    assert "TEXTURE_COLOR_SPACE_MISMATCH" in _codes(report)
 
 
 def test_linear_rec709_remains_invalid_for_scalar_data(tmp_path):

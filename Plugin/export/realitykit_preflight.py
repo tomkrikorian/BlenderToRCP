@@ -107,16 +107,20 @@ _DATA_INPUT_TERMS = (
 # MaterialX distinguishes color values from scalar/vector data. A perceptual
 # color texture may be authored either in an sRGB encoding or as already-linear
 # Rec.709 scene color; neither contract is appropriate for roughness, normal,
-# metallic, or other data inputs. Blender 5.2 authors the longer
-# ``*_rec709_*`` names through ColorSpaceAPI and the shorter MaterialX names on
-# individual file inputs, so keep both canonical spellings explicit here.
+# metallic, or other data inputs. This set is the intersection of what the
+# exporter may legitimately author and what RCP 3.0 (80.0.1.500.1) can decode:
+# its CoreRE engine aliases ``srgb_texture``, ``srgb_rec709_scene`` and the
+# ``lin_rec709*`` family, but has no mapping at all for Blender's OCIO name
+# ``srgb_rec709_display`` — the postprocess retags that token to
+# ``srgb_texture`` before this gate runs, so accepting it here would only
+# mask a regression of that rewrite.
 _COLOR_TEXTURE_COLOR_SPACES = frozenset(
     {
         "srgb",
         "srgb_texture",
         "srgbtexture",
-        "srgb_rec709_display",
-        "srgbrec709display",
+        "srgb_rec709_scene",
+        "srgbrec709scene",
         "lin_rec709",
         "linrec709",
         "lin_rec709_scene",
@@ -1623,10 +1627,10 @@ def _texture_color_space(shader_input, connectable) -> str:
         return color_space
 
     # ColorSpaceAPI is the standard USD contract Blender 5.2 uses on shader,
-    # material, and root prims. Read its exact authored token first: Blender's
-    # OCIO names (for example ``srgb_rec709_display``) are valid authored
-    # contracts even when a particular OpenUSD build doesn't register a
-    # matching GfColorSpace and ComputeColorSpaceName would discard the token.
+    # material, and root prims. Read its exact authored token first, even when
+    # a particular OpenUSD build doesn't register a matching GfColorSpace and
+    # ComputeColorSpaceName would discard the token — judging the literal
+    # authored name is the whole point of this gate.
     color_space = _authored_color_space_api_name(connectable.GetPrim())
     if color_space:
         return color_space

@@ -104,6 +104,13 @@ def process_usd_stage(usd_path: str, settings, context, diagnostics=None) -> Non
         )
         _run_step(
             diagnostics,
+            "retag_unmapped_color_spaces",
+            _retag_unmapped_color_space_names,
+            stage,
+            diagnostics,
+        )
+        _run_step(
+            diagnostics,
             "realitykit_preflight",
             _require_realitykit_preflight,
             stage,
@@ -264,6 +271,41 @@ def _normalize_preview_network_color_spaces(stage, diagnostics=None) -> None:
             "Retagged the retained preview network's colour textures as "
             "lin_rec709 to match the MaterialX graph: "
             + ", ".join(sorted(retagged))
+        )
+
+
+#: ColorSpaceAPI tokens Blender 5.2 authors that RCP 3.0 (80.0.1.500.1) has no
+#: alias for, mapped to the engine-known token with the same encoding.
+#: Measured: CoreRE's alias table carries ``srgb_texture``/``sRGB``/``srgb_tx``
+#: and ``srgb_rec709_scene``, but the string ``srgb_rec709_display`` appears
+#: nowhere in the app bundle — its decode behaviour is undefined. Both names
+#: describe the same sRGB transfer on Rec.709 primaries, so the rewrite is a
+#: renaming, not a conversion.
+_COLOR_SPACE_NAME_REWRITES = {
+    "srgb_rec709_display": "srgb_texture",
+}
+
+
+def _retag_unmapped_color_space_names(stage, diagnostics=None) -> None:
+    """Rewrite authored ``colorSpace:name`` tokens RCP cannot interpret."""
+    retagged = {}
+    for prim in stage.Traverse():
+        attribute = prim.GetAttribute("colorSpace:name")
+        if not attribute or not attribute.HasAuthoredValue():
+            continue
+        authored = str(attribute.Get() or "")
+        replacement = _COLOR_SPACE_NAME_REWRITES.get(authored)
+        if replacement is None:
+            continue
+        attribute.Set(replacement)
+        retagged[str(prim.GetPath())] = (authored, replacement)
+
+    if retagged and diagnostics:
+        pairs = sorted({change for change in retagged.values()})
+        diagnostics.add_info(
+            "Renamed Blender colour-space tokens RealityKit has no alias for: "
+            + ", ".join(f"{old} -> {new}" for old, new in pairs)
+            + f" ({len(retagged)} prims)"
         )
 
 
