@@ -274,6 +274,7 @@ def _check_composed_stage(
     _check_meshes(prims, report, settings)
     _check_material_bindings(prims, report)
     _check_material_texture_transforms(prims, report)
+    _check_materialx_nodedefs(prims, report)
     _check_skeletons(stage, prims, report)
     _check_textures(prims, report, asset_path, settings)
     _check_accessibility(stage, prims, report, settings)
@@ -1121,6 +1122,73 @@ def _check_material_texture_transforms(
                     contracts.items(), key=lambda item: repr(item[0])
                 )
             ],
+        )
+
+
+_KNOWN_NODEDEF_NAMES: frozenset[str] | None = None
+
+
+def _known_nodedef_names() -> frozenset[str] | None:
+    """The manifest's nodedef names, loaded once; None when unavailable."""
+    global _KNOWN_NODEDEF_NAMES
+    if _KNOWN_NODEDEF_NAMES is None:
+        try:
+            from ..manifest.materialx_nodes import load_manifest
+
+            _KNOWN_NODEDEF_NAMES = frozenset(
+                load_manifest().get("nodes", {}).keys()
+            )
+        except Exception:
+            return None
+    return _KNOWN_NODEDEF_NAMES or None
+
+
+def _check_materialx_nodedefs(
+    prims: Iterable[Any], report: RealityKitPreflightReport
+) -> None:
+    """Every authored MaterialX info:id must exist in the shipped manifest.
+
+    This is the closing gate on nodedef validity. Selection is hardened
+    upstream, but three callers used to defeat it - a bare-node-name
+    fallback, an unconstrained re-select, and an f-string that fabricated
+    convert names - and nothing downstream ever checked the result.
+    Measured: an RGB-to-BW -> Roughness graph shipped
+    ND_convert_color3_float, an info:id existing in no MaterialX library,
+    with ok: true. RealityKit cannot bind a shader whose nodedef does not
+    exist, so an unknown id is a broken material regardless of how it was
+    produced.
+
+    Only ``ND_``-prefixed ids are judged: the retained preview network's
+    UsdPreviewSurface/UsdUVTexture/UsdTransform2d ids are USD schemas, not
+    MaterialX nodedefs.
+    """
+    known = _known_nodedef_names()
+    if known is None:
+        report.add(
+            "warning",
+            "MATERIALX_MANIFEST_UNAVAILABLE",
+            "The MaterialX manifest could not be loaded, so authored "
+            "info:id values were not verified.",
+            None,
+        )
+        return
+
+    for prim in prims:
+        shader = UsdShade.Shader(prim)
+        if not shader:
+            continue
+        shader_id = str(shader.GetIdAttr().Get() or "")
+        if not shader_id.startswith("ND_") or shader_id in known:
+            continue
+        report.add(
+            "error",
+            "UNKNOWN_MATERIALX_NODEDEF",
+            (
+                "Shader authors an info:id that exists in no MaterialX "
+                "library; RealityKit cannot bind it."
+            ),
+            prim.GetPath(),
+            nodedef=shader_id,
         )
 
 

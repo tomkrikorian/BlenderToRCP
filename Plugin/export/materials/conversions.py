@@ -240,6 +240,50 @@ def _coerce_value_to_input_type(value: Any, input_def: Optional[Dict[str, Any]])
     return value
 
 
+def _create_chain_output(
+    manifest: Dict[str, Any],
+    stage,
+    nodegraph_path: str,
+    input_name: str,
+    source_output,
+    *,
+    steps,
+    diagnostics=None,
+):
+    """Author a fixed chain of manifest-verified shaders and return its output.
+
+    Every nodedef in ``steps`` is asserted against the manifest before any prim
+    is authored, so a typo here fails loudly instead of shipping an unknown
+    info:id.
+    """
+    nodes = manifest.get("nodes", {})
+    for nodedef_name, _input, _from, _to, _extra in steps:
+        if nodedef_name not in nodes:
+            raise ValueError(
+                f"Conversion chain nodedef '{nodedef_name}' is not in the "
+                "MaterialX manifest."
+            )
+
+    current = source_output
+    for nodedef_name, input_name_on_node, from_type, to_type, extra in steps:
+        shader_name = _convert_shader_name(stage, nodegraph_path, input_name)
+        prim = stage.DefinePrim(f"{nodegraph_path}/{shader_name}", "Shader")
+        shader = UsdShade.Shader(prim)
+        shader.CreateIdAttr(nodedef_name)
+        in_type = _map_mtlx_type_to_sdf(from_type) or current.GetTypeName()
+        shader.CreateInput(input_name_on_node, in_type).ConnectToSource(current)
+        for extra_name, extra_value in extra.items():
+            shader.CreateInput(extra_name, Sdf.ValueTypeNames.String).Set(extra_value)
+        out_type = _map_mtlx_type_to_sdf(to_type) or current.GetTypeName()
+        current = shader.CreateOutput("out", out_type)
+    if diagnostics:
+        chain = " -> ".join(step[0] for step in steps)
+        diagnostics.add_warning(
+            f"Inserted conversion chain for {input_name}: {chain}."
+        )
+    return current
+
+
 def _create_convert_output(
     manifest: Dict[str, Any],
     stage,
@@ -263,21 +307,42 @@ def _create_convert_output(
         output_type=to_type,
     )
     if not nodedef_name:
-        nodedef_name = f"ND_convert_{from_type}_{to_type}"
-        if diagnostics:
-            diagnostics.add_material_issue(
-                "missing_mappings",
-                nodegraph_path=nodegraph_path,
-                input_name=input_name,
-                source_type=from_type,
-                target_type=to_type,
-                fallback_nodedef=nodedef_name,
-                message="No matching convert nodedef was found; output may be invalid.",
+        # MaterialX has no convert nodedef for every pair. This used to
+        # fabricate the name by string formatting and author it anyway -
+        # measured: an RGB-to-BW -> Roughness graph shipped
+        # ND_convert_color3_float, an info:id existing in no MaterialX
+        # library, with ok: true and no error. Two pairs have real
+        # manifest-backed paths; everything else fails the material.
+        if (from_type, to_type) == ("color3", "float"):
+            # Blender's own implicit colour-to-float conversion is linear RGB
+            # to gray, i.e. luminance. Luminance of an already-grayscale
+            # colour is the identity, so this is also exact for the common
+            # RGB-to-BW upstream. The channel swizzle then just reads the
+            # replicated value.
+            return _create_chain_output(
+                manifest, stage, nodegraph_path, input_name, source_output,
+                steps=[
+                    ("ND_luminance_color3", "in", from_type, "color3", {}),
+                    ("ND_swizzle_color3_float", "in", "color3", to_type,
+                     {"channels": "r"}),
+                ],
+                diagnostics=diagnostics,
             )
-            diagnostics.add_warning(
-                f"Falling back to '{nodedef_name}' for conversion {from_type} -> {to_type}. "
-                "No matching nodedef was found; output may be invalid."
+        if (from_type, to_type) == ("vector4", "color3"):
+            # Drop the fourth channel; channel-preserving and unambiguous.
+            return _create_chain_output(
+                manifest, stage, nodegraph_path, input_name, source_output,
+                steps=[
+                    ("ND_swizzle_vector4_color3", "in", from_type, to_type,
+                     {"channels": "xyz"}),
+                ],
+                diagnostics=diagnostics,
             )
+        raise ValueError(
+            f"No MaterialX conversion exists from {from_type} to {to_type} "
+            f"for input '{input_name}'. Bake the material, or rewire the "
+            "input to a matching type."
+        )
     convert_name = _convert_shader_name(stage, nodegraph_path, input_name)
     convert_prim = stage.DefinePrim(f"{nodegraph_path}/{convert_name}", "Shader")
     convert_shader = UsdShade.Shader(convert_prim)

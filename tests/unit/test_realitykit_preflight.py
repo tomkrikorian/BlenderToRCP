@@ -68,7 +68,7 @@ def _author_materialx_texture(
     ).Set("1.39")
 
     surface = UsdShade.Shader.Define(stage, "/Root/Material/Surface")
-    surface.CreateIdAttr("ND_standard_surface_surfaceshader")
+    surface.CreateIdAttr("ND_realitykit_pbr_surfaceshader")
     material.CreateSurfaceOutput("mtlx").ConnectToSource(
         surface.ConnectableAPI(), "surface"
     )
@@ -114,7 +114,7 @@ def _author_exported_color_texture(
     ).Set("1.39")
 
     surface = UsdShade.Shader.Define(stage, "/Root/Material/Surface")
-    surface.CreateIdAttr("ND_standard_surface_surfaceshader")
+    surface.CreateIdAttr("ND_realitykit_pbr_surfaceshader")
     material.CreateSurfaceOutput("mtlx").ConnectToSource(
         surface.ConnectableAPI(), "surface"
     )
@@ -150,7 +150,7 @@ def _author_bound_place2d_material(
 ):
     material = UsdShade.Material.Define(stage, material_path)
     surface = UsdShade.Shader.Define(stage, f"{material_path}/Surface")
-    surface.CreateIdAttr("ND_standard_surface_surfaceshader")
+    surface.CreateIdAttr("ND_realitykit_pbr_surfaceshader")
     material.CreateSurfaceOutput("mtlx").ConnectToSource(
         surface.ConnectableAPI(), "surface"
     )
@@ -1340,3 +1340,52 @@ def test_hand_authored_usdtransform2d_only_is_still_judged():
     report = validate_stage(stage)
 
     assert "MATERIAL_TEXTURE_TRANSFORM_CONFLICT" in _codes(report)
+
+
+# ---------------------------------------------------------------------------
+# The closing gate on nodedef validity.
+#
+# Measured before the gate: an RGB-to-BW -> Roughness graph exported ok: true
+# while authoring ND_convert_color3_float and ND_convert_vector4_color3 -
+# info:id values existing in no MaterialX library, fabricated by string
+# formatting after the hardened selector correctly returned None. Nothing
+# downstream ever loaded the manifest to check.
+# ---------------------------------------------------------------------------
+
+
+def test_unknown_materialx_nodedef_is_rejected():
+    stage, mesh = _stage_with_mesh()
+    material = UsdShade.Material.Define(stage, "/Root/Material")
+    shader = UsdShade.Shader.Define(stage, "/Root/Material/Bogus")
+    shader.CreateIdAttr("ND_convert_color3_float")
+    UsdShade.MaterialBindingAPI.Apply(mesh.GetPrim()).Bind(material)
+
+    report = validate_stage(stage)
+
+    assert "UNKNOWN_MATERIALX_NODEDEF" in _codes(report)
+
+
+def test_manifest_backed_nodedefs_are_accepted():
+    stage, mesh = _stage_with_mesh()
+    _author_bound_place2d_material(stage, mesh, offsets=[(0.25, 0.5)])
+
+    report = validate_stage(stage)
+
+    assert "UNKNOWN_MATERIALX_NODEDEF" not in _codes(report)
+
+
+def test_usd_schema_ids_are_not_judged_as_nodedefs():
+    """The retained preview network's ids are USD schemas, not MaterialX."""
+    stage, mesh = _stage_with_mesh()
+    material = UsdShade.Material.Define(stage, "/Root/Preview")
+    for name, shader_id in (
+        ("Surface", "UsdPreviewSurface"),
+        ("Texture", "UsdUVTexture"),
+        ("Transform", "UsdTransform2d"),
+    ):
+        UsdShade.Shader.Define(stage, f"/Root/Preview/{name}").CreateIdAttr(shader_id)
+    UsdShade.MaterialBindingAPI.Apply(mesh.GetPrim()).Bind(material)
+
+    report = validate_stage(stage)
+
+    assert "UNKNOWN_MATERIALX_NODEDEF" not in _codes(report)

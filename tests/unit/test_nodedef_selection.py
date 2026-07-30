@@ -148,3 +148,57 @@ def test_a_returned_nodedef_always_accepts_the_requested_input_type(manifest):
                 f"{node_name} with input {input_type} selected {selected}, "
                 f"which declares inputs {sorted(declared)}"
             )
+
+
+# ---------------------------------------------------------------------------
+# Every literal (node, type) request the resolver makes must be satisfiable.
+#
+# _nodedef_for now raises on an impossible ask instead of leaking a bare node
+# name into the expression tree. Two literal call sites were unsatisfiable
+# when this guard landed - luminance/float (RGB-to-BW) and separate3/color3
+# (RGB Curves) - and both shipped fabricated info:id values. This test walks
+# the resolver's source so a new call site with an impossible pair fails here,
+# in milliseconds, instead of at an artist's export.
+# ---------------------------------------------------------------------------
+
+
+def test_every_literal_nodedef_request_in_the_resolver_is_satisfiable(manifest):
+    import ast
+    from pathlib import Path
+
+    source = (
+        Path(__file__).resolve().parents[2]
+        / "Plugin" / "export" / "materials" / "extract" / "core.py"
+    ).read_text()
+
+    unsatisfiable = []
+    for node in ast.walk(ast.parse(source)):
+        if not (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name)
+            and node.func.id == "_nodedef_for"
+        ):
+            continue
+        args = [
+            arg.value if isinstance(arg, ast.Constant) else None
+            for arg in node.args
+        ]
+        keywords = {
+            kw.arg: kw.value.value
+            for kw in node.keywords
+            if isinstance(kw.value, ast.Constant)
+        }
+        name = args[0] if args else None
+        output_type = args[1] if len(args) > 1 else keywords.get("output_type")
+        input_type = keywords.get("input_type")
+        if name is None or (len(node.args) > 1 and output_type is None):
+            continue  # dynamic arguments; covered by the runtime raise
+        if select_nodedef_name_for_node(
+            manifest, name, input_type=input_type, output_type=output_type
+        ) is None:
+            unsatisfiable.append((node.lineno, name, input_type, output_type))
+
+    assert unsatisfiable == [], (
+        "these _nodedef_for call sites can never resolve and would fail every "
+        f"material that reaches them: {unsatisfiable}"
+    )

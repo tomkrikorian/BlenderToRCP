@@ -33,10 +33,18 @@ def _get_node_def(manifest: Dict[str, Any], node_id: str) -> Optional[Dict[str, 
 
 
 def _get_nodedef_name(node_id: str, node_def: Optional[Dict[str, Any]]) -> str:
-    """Resolve MaterialX nodedef name for a node."""
+    """Resolve MaterialX nodedef name for a node.
+
+    This used to invent ``f"ND_{node_id}"`` when the manifest had no entry -
+    authoring an info:id that exists in no MaterialX library. Author-time is
+    the last chance to refuse, so refuse.
+    """
     if node_def and node_def.get('nodedef_name'):
         return node_def['nodedef_name']
-    return f"ND_{node_id}"
+    raise ValueError(
+        f"No MaterialX nodedef is known for node id '{node_id}'; refusing to "
+        "author an unverifiable info:id."
+    )
 
 
 def _get_input_def(node_def: Optional[Dict[str, Any]], input_name: str) -> Optional[Dict[str, Any]]:

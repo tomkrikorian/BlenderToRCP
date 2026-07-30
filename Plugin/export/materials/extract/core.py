@@ -1713,7 +1713,10 @@ def _resolve_socket_value(
             {"in1": hue_expr, "in2": sat_expr, "in3": val_expr},
         )
         hsv_expr = _make_node_expr(
-            _nodedef_for("hsvadjust", expected_type or "color3"),
+            # hsvadjust only outputs colours; an expected float used to leak a
+            # bare node name into the stage. Request the natural type and let
+            # the authoring-time conversion produce the float.
+            _nodedef_for("hsvadjust", "color3"),
             {"in": color_expr, "amount": amount_expr},
         )
         fac_expr = _expr_from_socket(
@@ -1992,7 +1995,10 @@ def _resolve_socket_value(
             if _expr_is_constant(fac_expr, 0.0):
                 return color_expr
 
-        separate_id = _nodedef_for("separate3", "color3")
+        # separate3's outputs are floats; the variant is picked by what it
+        # accepts. Requesting output color3 was unsatisfiable and leaked a
+        # bare 'separate3' id (latent: this block is bake-gated today).
+        separate_id = _nodedef_for("separate3", "float", input_type="color3")
 
         def channel_expr(output_name: str) -> Dict[str, Any]:
             return _make_node_expr(separate_id, {"in": color_expr}, output=output_name)
@@ -2044,7 +2050,10 @@ def _resolve_socket_value(
             provenance,
             cache,
         )
-        return _make_node_expr(_nodedef_for("luminance", "float"), {"in": color_expr})
+        # luminance only outputs color3; requesting float returned a bare node
+        # name that shipped as a fabricated info:id. The downstream conversion
+        # (luminance -> swizzle r) turns the grayscale into a float exactly.
+        return _make_node_expr(_nodedef_for("luminance", "color3"), {"in": color_expr})
 
     if node_type == 'COMBINE_COLOR':
         mode = (getattr(from_node, "mode", "") or "").upper()
@@ -2614,14 +2623,40 @@ def _get_manifest() -> Dict[str, Any]:
     return _MANIFEST_CACHE or {}
 
 
-def _nodedef_for(node_name: str, output_type: Optional[str] = None) -> str:
+def _nodedef_for(
+    node_name: str,
+    output_type: Optional[str] = None,
+    input_type: Optional[str] = None,
+) -> str:
+    """Resolve a manifest nodedef name, failing closed on an impossible ask.
+
+    This used to return the bare node name when the selector found nothing,
+    and every consumer treats a non-None result as success - so the bare name
+    flowed through the graph builder into an authored info:id that exists in
+    no MaterialX library, with ok: true and no diagnostic. Raising here lands
+    in the per-material failure handling in rewrite.py, which names the
+    material and fails the export loudly instead.
+    """
     manifest = _get_manifest()
     nodedef = select_nodedef_name_for_node(
         manifest,
         node_name,
+        input_type=input_type,
         output_type=output_type,
     )
-    return nodedef or node_name
+    if not nodedef:
+        wanted = ", ".join(
+            part for part in (
+                f"input {input_type}" if input_type else "",
+                f"output {output_type}" if output_type else "",
+            ) if part
+        )
+        raise ValueError(
+            f"No MaterialX nodedef satisfies '{node_name}'"
+            + (f" ({wanted})" if wanted else "")
+            + ". Bake the material, or simplify the node graph."
+        )
+    return nodedef
 
 
 def _make_node_expr(node_id: str, inputs: Dict[str, Any], output: str = "out") -> Dict[str, Any]:
