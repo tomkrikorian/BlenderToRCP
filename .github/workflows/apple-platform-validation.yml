@@ -382,6 +382,73 @@ jobs:
             --output "$APPLE_VALIDATION_DIR/realitykit-runtime.json" \
             | tee "$APPLE_VALIDATION_DIR/realitykit-runtime.log"
 
+      - name: Bake, validate, compile and load baked exports
+        # The bake lane is the default UI route for three of four material
+        # modes, yet no baked output had ever been through usdchecker,
+        # realitytool, or a RealityKit load in CI - only direct exports were
+        # validated. Two RedCube bakes cover two of the three bake modes;
+        # Robot's material intentionally fails the bake contract (normal via a
+        # UV Map chain), so it stays a direct-export-only fixture. Compiling
+        # xros + macosx here is deliberate: the direct lane already proves all
+        # seven platforms compile, and this lane's job is proving the *baked*
+        # artifact is valid, not re-proving the toolchain.
+        run: |
+          set -o pipefail
+          rm -rf "$APPLE_VALIDATION_DIR/baked"
+          mkdir -p "$APPLE_VALIDATION_DIR/baked"
+
+          python Plugin \
+            --blender "$BLENDERTORCP_BLENDER" \
+            --timeout 900 \
+            bake-export References/Blender/RedCube.blend \
+            -o "$APPLE_VALIDATION_DIR/baked/RedCube-Baked.usdz" \
+            --format USDZ \
+            --bake-mode LIT_IBL \
+            --resolution 512 \
+            --diagnostics > "$APPLE_VALIDATION_DIR/baked/bake-litibl.json"
+
+          python Plugin \
+            --blender "$BLENDERTORCP_BLENDER" \
+            --timeout 900 \
+            bake-export References/Blender/RedCube.blend \
+            -o "$APPLE_VALIDATION_DIR/baked/RedCube-Unlit.usdc" \
+            --format USDC \
+            --bake-mode UNLIT_ALBEDO \
+            --resolution 512 \
+            --diagnostics > "$APPLE_VALIDATION_DIR/baked/bake-unlit.json"
+
+          for asset in \
+            "$APPLE_VALIDATION_DIR/baked/RedCube-Baked.usdz" \
+            "$APPLE_VALIDATION_DIR/baked/RedCube-Unlit.usdc"
+          do
+            xcrun usdchecker --strict "$asset"
+            xcrun usdchecker --arkit --strict "$asset"
+          done
+
+          for platform in xros macosx
+          do
+            python3 scripts/validate_exports.py \
+              --input "$APPLE_VALIDATION_DIR/baked/RedCube-Unlit.usdc" \
+              --platform "$platform" \
+              --deployment-target 27.0 \
+              --use-metal \
+              --compiled-output-dir "$APPLE_VALIDATION_DIR/baked/compiled/$platform" \
+              --output "$APPLE_VALIDATION_DIR/baked/validate-$platform.json"
+            test -s "$APPLE_VALIDATION_DIR/baked/compiled/$platform/RedCube-Unlit-$platform-27.0.reality"
+          done
+
+          scripts/run_realitykit_runtime_smoke.sh \
+            --asset "$APPLE_VALIDATION_DIR/baked/RedCube-Baked.usdz" \
+              --expect-model \
+              --expect-shader-graph \
+            --asset "$APPLE_VALIDATION_DIR/baked/RedCube-Unlit.usdc" \
+              --expect-model \
+              --expect-shader-graph \
+            --asset "$APPLE_VALIDATION_DIR/baked/compiled/macosx/RedCube-Unlit-macosx-27.0.reality" \
+              --expect-model \
+            --output "$APPLE_VALIDATION_DIR/baked/realitykit-runtime.json" \
+            | tee "$APPLE_VALIDATION_DIR/baked/realitykit-runtime.log"
+
       - name: Validate ShaderGraph nodes with RealityKit 27
         run: |
           "$BLENDERTORCP_BLENDER" \

@@ -411,7 +411,14 @@ private func validate(_ expectation: AssetExpectation) async -> AssetReport {
 
     let entity: Entity
     do {
-        entity = try await Entity(contentsOf: url, withName: url.deletingPathExtension().lastPathComponent)
+        // The registry name must be unique per file. Using the basename made
+        // distinct assets sharing a stem collide in RealityKit's named-entity
+        // cache: with validate_exports.py's {stem}-{platform}-{target}.reality
+        // outputs, loading 7 same-named files in one process yielded 1 pass
+        // and 6 RERealityFileErrorDomain error 20 - indistinguishable from a
+        // genuinely broken asset. The full path is unique and deterministic;
+        // the name is only ever displayed, never asserted.
+        entity = try await Entity(contentsOf: url, withName: url.path)
     } catch {
         return unloadedReport(
             expectation: expectation,
