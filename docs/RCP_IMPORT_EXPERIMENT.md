@@ -247,10 +247,16 @@ The CLI publishes the adjacent USDA source and the `.import` directory.
 The static generator accepts one or more unskinned meshes directly below the
 USD default prim or inside Blender 5.2's per-object, single-mesh Xform
 wrappers. It deduplicates shared material records. A USD mesh with
-`materialBind` `GeomSubset` face assignments is split into one generated mesh
-resource per material, preserving the selected faces, UVs, normals, object
-transform, and material binding without inventing a private material-index
-buffer. Overlapping or out-of-range subsets, unsupported topology,
+`materialBind` `GeomSubset` face assignments keeps its full topology in one
+mesh descriptor and authors the canonical `subsets` array RCP itself uses:
+one entry per subset carrying the full GeomSubset prim path, a deterministic
+UUID, and a content-hashed buffer of little-endian 32-bit face ordinals,
+with the model component's materials listed in exactly descriptor-subset
+order (see
+[RCP_IMPORT_MULTI_MATERIAL_MESH.md](RCP_IMPORT_MULTI_MATERIAL_MESH.md)).
+Up to two material slots are supported — the measured corpus. Overlapping,
+out-of-range, empty, or non-exhaustive subsets, materials shared across
+subsets or mesh prims, more than two slots, unsupported topology,
 interpolation, or hierarchy, and multi-mesh transform animation fail closed
 and remove the incomplete destination.
 

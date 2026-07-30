@@ -10,13 +10,18 @@ reimport, and canonicalization.
 
 *Applies to: Reality Composer Pro 3.0, build `80.0.1.500.1`.*
 
-Status: the representation is measured; writer support is not accepted yet.
+Status: the representation is measured and the writer authors it — one
+descriptor with the canonical `subsets` array, implemented per the writer
+changes below and verified by the automatable gates (structural inspection,
+byte determinism, `usdchecker --arkit --strict`, `realitytool` compilation).
+The Reality Composer Pro acceptance gates (clean import, save/reopen, two
+non-growing reimports, visual check) have not been run yet, so writer
+support is **not accepted**.
 
-## Why the current writer is insufficient
+## Why the previous split representation was insufficient
 
-The current experiment can load a USD mesh with multiple material-bound
-`GeomSubset` children, but it turns each subset into an independent generated
-mesh resource. That package:
+The earlier experiment turned each material-bound `GeomSubset` into an
+independent generated mesh resource. That package:
 
 - opens, saves, closes, and reopens in Reality Composer Pro;
 - compiles with `realitytool` and loads through public RealityKit;
@@ -28,7 +33,12 @@ records/139 buffers after reimport 1 to 147 records/306 buffers after
 reimport 2. RCP retains the split resources, creates duplicate source
 resources, and adds its own combined mesh representation. A rendering
 success is therefore not proof that the generated resource graph matches
-RCP's private contract.
+RCP's private contract. That split path has been removed from the writer.
+
+One schema-legal field is deliberately not written: `material_bindings`.
+Its shape is pinned by the type index, but no local capture contains one —
+RCP's own reimport of the Robot fixture authored only `subsets` — and
+matching the measured output beats schema-legal guessing.
 
 ## Measured RCP-authored representation
 
@@ -118,10 +128,11 @@ beyond the measured face-ordinal arrays, and RCP's behavior for the
 unmeasured subset cases listed above, still require controlled fixtures and
 the acceptance gates below.
 
-## Required writer changes
+## Writer representation (implemented)
 
-Supporting this representation cleanly requires coordinated changes rather
-than adding a second material reference to the current split model:
+Supporting this representation cleanly required coordinated changes rather
+than adding a second material reference to the old split model. The writer
+implements all seven:
 
 1. Retain one in-memory mesh per USD mesh prim. Store ordered material slots
    and face subsets beside it instead of cloning topology, attributes, and
