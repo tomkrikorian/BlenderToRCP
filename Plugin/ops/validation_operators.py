@@ -91,7 +91,8 @@ class BLENDERTORCP_OT_select_offenders(Operator):
             self.report({'INFO'}, "No offending nodes found")
             return {'FINISHED'}
 
-        rk_validate.select_offending_nodes(material, result)
+        selected = rk_validate.select_offending_nodes(material, result)
+        self.report({'INFO'}, f"Selected {selected} offending nodes")
         return {'FINISHED'}
 
 

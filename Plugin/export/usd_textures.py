@@ -920,6 +920,23 @@ def _finalize_content_addressed_texture(dest_path: Path, textures_dir: Path) -> 
             f"Could not content-address staged texture: {dest_path}"
         )
 
+    # The dependency pipeline stages the same bytes under different source
+    # names across its two passes (e.g. Blender's native texture copy first,
+    # the packed-image snapshot the MaterialX pass references second), and
+    # ``seen_fingerprints`` only spans one staging state. The digest suffix
+    # identifies content, not provenance, so any generation file already
+    # holding these bytes is the canonical destination; without this reuse
+    # the package ships the same payload twice.
+    extension = dest_path.suffix.lower()
+    for candidate in sorted(textures_dir.glob(f"*-{digest}{extension}")):
+        if candidate.name == dest_path.name:
+            continue
+        if candidate.is_symlink() or not candidate.is_file():
+            continue
+        if _files_have_identical_bytes(dest_path, candidate):
+            dest_path.unlink()
+            return candidate
+
     semantic_stem = unicodedata.normalize("NFC", dest_path.stem)
     previous_digest = _CONTENT_HASH_SUFFIX.fullmatch(semantic_stem)
     if previous_digest:
@@ -928,7 +945,6 @@ def _finalize_content_addressed_texture(dest_path: Path, textures_dir: Path) -> 
         semantic_stem,
         _MAX_CONTENT_STEM_UTF8_BYTES,
     )
-    extension = dest_path.suffix.lower()
     addressed_path = dest_path.with_name(
         f"{semantic_stem}-{digest}{extension}"
     )

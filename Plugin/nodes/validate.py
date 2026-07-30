@@ -754,24 +754,31 @@ def validate_materials(
     return summary
 
 
-def select_offending_nodes(material, issues: Dict[str, object]) -> None:
-    """Select offending nodes in a material's node tree."""
+def select_offending_nodes(material, issues: Dict[str, object]) -> int:
+    """Select offending nodes in a material's node tree; return the count."""
     if not material or not material.node_tree:
-        return
+        return 0
     offending = issues.get("offending_nodes", []) + issues.get("warning_nodes", [])
     if not offending:
-        return
+        return 0
     node_tree = material.node_tree
-    for node in node_tree.nodes:
+    # bpy_prop_collection.__contains__ only accepts string keys, so node
+    # membership must be checked against the nodes themselves.
+    tree_nodes = list(node_tree.nodes)
+    for node in tree_nodes:
         node.select = False
     active = None
+    selected = 0
     for entry in offending:
         node = entry.get("node")
-        if node and node in node_tree.nodes:
+        if node is not None and node in tree_nodes:
+            if not node.select:
+                selected += 1
             node.select = True
             active = node
     if active:
         node_tree.nodes.active = active
+    return selected
 
 
 def remove_offending_nodes(material, issues: Dict[str, object]) -> int:
@@ -785,7 +792,9 @@ def remove_offending_nodes(material, issues: Dict[str, object]) -> int:
     removed = 0
     for entry in list(offending):
         node = entry.get("node")
-        if node and node in node_tree.nodes:
+        # Re-check per entry: duplicate issue entries can name the same node,
+        # and bpy collections reject node-object membership probes.
+        if node is not None and any(candidate == node for candidate in node_tree.nodes):
             node_tree.nodes.remove(node)
             removed += 1
     return removed
