@@ -84,6 +84,34 @@ for this controlled case it is a directly reproducible encoding of authored
 USD face membership. It does not yet prove how RCP represents unassigned,
 overlapping, empty, or non-partitioned subsets.
 
+## Canonical schema (from the shipped type index)
+
+The app's own Truth schema (`__type_index.tm_meta`, see
+`docs/RCP_IMPORT_EXPERIMENT.md` and `scripts/_lib/rcp_type_index.py`) settles
+the record shapes the observations above were reverse-measuring, and
+`tests/unit/test_rcp_contract_matches_type_index.py` pins them as the writer
+specification:
+
+- `tm_mesh_descriptor.subsets` is a **subobject_set** of
+  `tm_mesh_descriptor_subset` = `{name (string), index (uint32),
+  face_indices (buffer), face_count (uint32)}` — matching the measured
+  records, including `index` being an ordinary defaulted uint32 (slot 0's
+  omitted `index` is the serializer eliding a default-valued property, not a
+  special two-slot rule).
+- `tm_mesh_descriptor.material_bindings` is a **singular subobject** of
+  `tm_mesh_descriptor_material_binding` = `{mesh_material_index (uint32),
+  subset_to_material_index (buffer), subset_count (uint32)}` — one binding
+  object per descriptor whose buffer maps subset ordinal to material index.
+  This is the slot-mapping representation the two-slot fixture could not
+  disambiguate.
+- `tm_mesh_descriptor.winding_order` is a defaulted uint32 the writer has
+  never needed to author.
+
+Schema legality is necessary, not sufficient: buffer payload encodings beyond
+the measured face-ordinal arrays, and RCP's behaviour for the unmeasured
+subset cases listed above, still require controlled fixtures and the
+acceptance gates below.
+
 ## Required writer changes
 
 Supporting this representation cleanly requires coordinated changes rather
