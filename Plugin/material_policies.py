@@ -79,4 +79,3 @@ def specular_tint_normalization_message(policy: dict[str, object]) -> str:
         f"{format_color(policy['output'])}. The source Blender material and "
         ".blend file were not changed. Review the result in Reality Composer Pro."
     )
-

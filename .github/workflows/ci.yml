@@ -35,6 +35,43 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          # Full history so the whitespace gate below can diff against the
+          # base revision (PR base, push predecessor, or origin/dev).
+          fetch-depth: 0
+
+      - name: Check whitespace introduced by this revision
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PR_BASE_REF: ${{ github.base_ref }}
+          PUSH_BEFORE: ${{ github.event.before }}
+        run: |
+          set -euo pipefail
+
+          # A bare `git diff --check` compares the working tree to the index,
+          # which is always clean on a fresh checkout, so it can never fail.
+          # Diff the revision under test against its real base instead.
+          if [[ "$EVENT_NAME" == "pull_request" && -n "$PR_BASE_REF" ]]; then
+            git fetch --no-tags --force origin \
+              "+refs/heads/${PR_BASE_REF}:refs/remotes/origin/${PR_BASE_REF}"
+            base="$(git merge-base "refs/remotes/origin/${PR_BASE_REF}" HEAD)"
+          elif [[ "$EVENT_NAME" == "push" \
+                  && -n "$PUSH_BEFORE" \
+                  && "$PUSH_BEFORE" != 0000000000000000000000000000000000000000 ]] \
+                  && git cat-file -e "${PUSH_BEFORE}^{commit}" 2>/dev/null; then
+            base="$PUSH_BEFORE"
+          else
+            # workflow_dispatch, a workflow_call from a tag build, or a push
+            # to a brand-new ref: fall back to the dev integration branch.
+            # Revisions already reachable from dev diff empty here; they were
+            # gated by their own pull_request/push runs on the way in.
+            git fetch --no-tags --force origin \
+              '+refs/heads/dev:refs/remotes/origin/dev'
+            base="$(git merge-base refs/remotes/origin/dev HEAD)"
+          fi
+
+          echo "Checking whitespace errors introduced since $base"
+          git diff --check "$base" HEAD
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -53,7 +90,6 @@ jobs:
 
       - name: Check repository and generated metadata
         run: |
-          git diff --check
           bash tests/test_check_apple27_toolchain.sh
           python scripts/tests/test_release_archive.py -q
           python scripts/build_materialx_manifest.py

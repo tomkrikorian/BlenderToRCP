@@ -27,4 +27,3 @@ Generate the fixture with Blender 5.2:
 Import the result into RCP 3, use one fixed environment, and capture the same
 view of each sphere. Record the RCP build and OS build with the comparison.
 The generator authors USD only; it does not open, save, or modify a `.blend`.
-
