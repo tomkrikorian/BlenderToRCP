@@ -939,8 +939,16 @@ both RGB and alpha (`:714-733`). Every swizzle emits an informational warning na
 nodedef and channel (`:938-941`).
 
 Readers are shared via a cache keyed on path, texcoord, the full mapping tuple, colorspace,
-colorspace role, alpha mode, type, output type, **channel**, image-type override, and the
-`force_separate4` flag (`_texture_cache_key`, `:18-43`).
+colorspace role, alpha mode, type, output type, **channel**, image-type override, the
+`force_separate4` flag, and the sampling modes (`_texture_cache_key`, `:18-44`).
+
+Non-default sampling modes from the Blender Image Texture node are authored on the reader
+as the uniform string inputs the shipped RCP 3 (80.0.1.500.1) `ND_image_*` nodedefs
+declare: Extension **Extend** → `uaddressmode`/`vaddressmode = "clamp"`, **Clip** →
+`"constant"`, **Mirror** → `"mirror"`; Interpolation **Closest** → `filtertype =
+"closest"`, **Cubic**/**Smart** → `"cubic"`. Repeat and Linear are the nodedef defaults
+and author nothing (`_image_node_sampling`,
+`Plugin/export/materials/extract/core.py`).
 
 Because `channel` is part of that key, a packed ORM texture read for two different channels
 produces two separate image readers.

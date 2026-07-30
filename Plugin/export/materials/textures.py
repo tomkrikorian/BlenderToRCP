@@ -40,6 +40,7 @@ def _texture_cache_key(texture_spec: Dict[str, Any]) -> Tuple[Any, ...]:
         texture_spec.get("channel"),
         texture_spec.get("image_type_override"),
         bool(texture_spec.get("force_separate4")),
+        tuple(sorted((texture_spec.get("sampling") or {}).items())),
     )
 
 
@@ -161,6 +162,19 @@ def _create_texture_connection(
     file_colorspace = _materialx_file_colorspace(texture_spec, input_name, diagnostics)
     if file_colorspace:
         file_input.GetAttr().SetColorSpace(file_colorspace)
+
+    # Non-default sampler modes from Blender's Image Texture node. The shipped
+    # RCP 3 ND_image_* nodedefs declare these uniform string inputs
+    # (uaddressmode/vaddressmode: constant, clamp, periodic, mirror;
+    # filtertype: closest, linear, cubic) and wire them into Metal samplers;
+    # leaving them unauthored means periodic + linear regardless of what the
+    # artist chose in Blender.
+    for sampler_input, sampler_value in sorted(
+        (texture_spec.get("sampling") or {}).items()
+    ):
+        texture_shader.CreateInput(
+            sampler_input, Sdf.ValueTypeNames.String
+        ).Set(str(sampler_value))
 
     texcoord_name = texture_spec.get('texcoord')
     raw_mapping = texture_spec.get('mapping')

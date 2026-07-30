@@ -413,6 +413,7 @@ class MaterialXGraphBuilder:
             mapping=expr.get("mapping"),
             colorspace=expr.get("colorspace"),
             alpha_mode=expr.get("alpha_mode"),
+            sampling=expr.get("sampling"),
             scale=expr.get("scale"),
             texture_role=expr.get("colorspace_role") or texture_role,
             normal_decode=expr.get("normal_decode"),
@@ -442,6 +443,7 @@ class MaterialXGraphBuilder:
                 mapping=material_data.get('base_color_texture_mapping'),
                 colorspace=material_data.get('base_color_texture_colorspace'),
                 alpha_mode=material_data.get('base_color_texture_alpha_mode'),
+                sampling=material_data.get('base_color_texture_sampling'),
                 texture_role='color',
             )
         elif 'base_color' in material_data:
@@ -456,6 +458,7 @@ class MaterialXGraphBuilder:
                 mapping=material_data.get('metallic_texture_mapping'),
                 colorspace=material_data.get('metallic_texture_colorspace'),
                 alpha_mode=material_data.get('metallic_texture_alpha_mode'),
+                sampling=material_data.get('metallic_texture_sampling'),
                 texture_role='data',
             )
         elif 'metallic' in material_data:
@@ -470,6 +473,7 @@ class MaterialXGraphBuilder:
                 mapping=material_data.get('roughness_texture_mapping'),
                 colorspace=material_data.get('roughness_texture_colorspace'),
                 alpha_mode=material_data.get('roughness_texture_alpha_mode'),
+                sampling=material_data.get('roughness_texture_sampling'),
                 texture_role='data',
             )
         elif 'roughness' in material_data:
@@ -482,6 +486,7 @@ class MaterialXGraphBuilder:
                 mapping=material_data.get('normal_texture_mapping'),
                 colorspace=material_data.get('normal_texture_colorspace'),
                 alpha_mode=material_data.get('normal_texture_alpha_mode'),
+                sampling=material_data.get('normal_texture_sampling'),
                 scale=material_data.get('normal_texture_scale'),
                 space=material_data.get('normal_texture_space'),
             )
@@ -497,6 +502,7 @@ class MaterialXGraphBuilder:
                 mapping=material_data.get('emission_texture_mapping'),
                 colorspace=material_data.get('emission_texture_colorspace'),
                 alpha_mode=material_data.get('emission_texture_alpha_mode'),
+                sampling=material_data.get('emission_texture_sampling'),
                 scale=emission_strength,
                 texture_role='color',
             )
@@ -518,6 +524,7 @@ class MaterialXGraphBuilder:
                 mapping=material_data.get('alpha_texture_mapping'),
                 colorspace=material_data.get('alpha_texture_colorspace'),
                 alpha_mode=material_data.get('alpha_texture_alpha_mode'),
+                sampling=material_data.get('alpha_texture_sampling'),
                 texture_role='data',
             )
         elif is_transparent and 'alpha' in material_data:
@@ -535,6 +542,7 @@ class MaterialXGraphBuilder:
                 mapping=material_data.get('ao_texture_mapping'),
                 colorspace=material_data.get('ao_texture_colorspace'),
                 alpha_mode=material_data.get('ao_texture_alpha_mode'),
+                sampling=material_data.get('ao_texture_sampling'),
                 texture_role='data',
             )
 
@@ -549,6 +557,7 @@ class MaterialXGraphBuilder:
                     mapping=material_data.get('clearcoat_normal_texture_mapping'),
                     colorspace=material_data.get('clearcoat_normal_texture_colorspace'),
                     alpha_mode=material_data.get('clearcoat_normal_texture_alpha_mode'),
+                    sampling=material_data.get('clearcoat_normal_texture_sampling'),
                     scale=material_data.get('clearcoat_normal_texture_scale'),
                     space=material_data.get('clearcoat_normal_texture_space'),
                 )
@@ -931,6 +940,7 @@ class MaterialXGraphBuilder:
                 ('mapping', 'mapping'),
                 ('colorspace', 'colorspace'),
                 ('alpha_mode', 'alpha_mode'),
+                ('sampling', 'sampling'),
             ):
                 value = material_data.get(f'emission_texture_{source_suffix}')
                 if value is not None:
@@ -1008,6 +1018,7 @@ class MaterialXGraphBuilder:
                 mapping=material_data.get('base_color_texture_mapping'),
                 colorspace=material_data.get('base_color_texture_colorspace'),
                 alpha_mode=material_data.get('base_color_texture_alpha_mode'),
+                sampling=material_data.get('base_color_texture_sampling'),
                 scale=color_scale,
                 texture_role='color',
             )
@@ -1025,6 +1036,7 @@ class MaterialXGraphBuilder:
                 mapping=material_data.get('alpha_texture_mapping'),
                 colorspace=material_data.get('alpha_texture_colorspace'),
                 alpha_mode=material_data.get('alpha_texture_alpha_mode'),
+                sampling=material_data.get('alpha_texture_sampling'),
                 texture_role='data',
             )
         elif is_transparent and 'alpha' in material_data:
@@ -1056,6 +1068,7 @@ class MaterialXGraphBuilder:
         scale: Optional[float] = None,
         texture_role: Optional[str] = None,
         normal_decode: Optional[str] = None,
+        sampling: Optional[Dict[str, str]] = None,
     ) -> Dict[str, Any]:
         """Create a texture reference for the USD post-process stage."""
         spec = {
@@ -1078,6 +1091,8 @@ class MaterialXGraphBuilder:
             spec['colorspace_role'] = texture_role
         if normal_decode:
             spec['normal_decode'] = normal_decode
+        if sampling:
+            spec['sampling'] = dict(sampling)
         return spec
 
     def _create_normal_input(
@@ -1089,6 +1104,7 @@ class MaterialXGraphBuilder:
         alpha_mode: Optional[str] = None,
         scale: Optional[float] = None,
         space: Optional[str] = None,
+        sampling: Optional[Dict[str, str]] = None,
     ) -> Dict[str, Any]:
         """Create a normal map reference for the USD post-process stage."""
         spec = {
@@ -1109,4 +1125,6 @@ class MaterialXGraphBuilder:
             spec['scale'] = scale
         if space:
             spec['space'] = space
+        if sampling:
+            spec['sampling'] = dict(sampling)
         return spec

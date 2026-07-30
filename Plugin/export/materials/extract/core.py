@@ -365,6 +365,9 @@ def extract_blender_material_data(material) -> Dict[str, Any]:
                 alpha_mode = resolved.get("alpha_mode")
                 if alpha_mode:
                     data[f"{texture_key}_alpha_mode"] = alpha_mode
+                sampling = resolved.get("sampling")
+                if sampling:
+                    data[f"{texture_key}_sampling"] = sampling
                 scale = resolved.get("scale")
                 if scale is not None:
                     data[f"{texture_key}_scale"] = scale
@@ -2357,6 +2360,48 @@ def _resolve_socket_value(
     return None
 
 
+#: Blender Image Texture extension -> MaterialX image uaddressmode/vaddressmode.
+#: REPEAT is MaterialX's declared default (periodic) and is omitted.
+_EXTENSION_TO_ADDRESSMODE = {
+    "EXTEND": "clamp",
+    "CLIP": "constant",
+    "MIRROR": "mirror",
+}
+
+#: Blender Image Texture interpolation -> MaterialX image filtertype.
+#: Linear is the declared default and is omitted; Blender's Smart (Cubic when
+#: magnifying, otherwise Linear) has no MaterialX equivalent — cubic is the
+#: closest match for its visible magnified behaviour.
+_INTERPOLATION_TO_FILTERTYPE = {
+    "CLOSEST": "closest",
+    "CUBIC": "cubic",
+    "SMART": "cubic",
+}
+
+
+def _image_node_sampling(image_node) -> Optional[Dict[str, str]]:
+    """MaterialX sampling inputs for a Blender image node's non-default modes.
+
+    The shipped RCP 3 ``ND_image_*`` nodedefs declare ``uaddressmode``/
+    ``vaddressmode`` (constant, clamp, periodic, mirror; default periodic) and
+    ``filtertype`` (closest, linear, cubic; default linear), and the runtime
+    wires them into its Metal samplers. Not authoring them silently turned
+    Blender's Extend/Clip/Mirror and Closest/Cubic settings into
+    repeat + linear.
+    """
+    sampling: Dict[str, str] = {}
+    extension = str(getattr(image_node, "extension", "") or "").upper()
+    addressmode = _EXTENSION_TO_ADDRESSMODE.get(extension)
+    if addressmode:
+        sampling["uaddressmode"] = addressmode
+        sampling["vaddressmode"] = addressmode
+    interpolation = str(getattr(image_node, "interpolation", "") or "").upper()
+    filtertype = _INTERPOLATION_TO_FILTERTYPE.get(interpolation)
+    if filtertype:
+        sampling["filtertype"] = filtertype
+    return sampling or None
+
+
 def _texture_info_from_image_node(image_node) -> Optional[Dict[str, Any]]:
     """Build a texture spec from a Blender image node."""
     image = getattr(image_node, "image", None)
@@ -2400,6 +2445,7 @@ def _texture_info_from_image_node(image_node) -> Optional[Dict[str, Any]]:
         "mapping": mapping,
         "colorspace": colorspace,
         "alpha_mode": alpha_mode,
+        "sampling": _image_node_sampling(image_node),
         "current_pixel_snapshot": bool(
             getattr(image, "is_dirty", False)
             or (getattr(image, "source", "") or "").upper() == "GENERATED"
