@@ -26,6 +26,7 @@ from .helpers import (
 from .textures import (
     _coerce_texture_spec_for_input,
     _create_texture_connection,
+    _materialx_file_colorspace,
     _texture_cache_key,
 )
 from .mapping import require_realitykit_mapping_contract
@@ -117,6 +118,22 @@ def create_materialx_material(
                 diagnostics.add_error(
                     f"Missing input definition '{input_name}' for node '{node_id}' in material '{material_name}'."
                 )
+
+            if isinstance(input_value, dict) and input_value.get("type") == "file_asset":
+                # A file authored directly on a filename input (triplanar
+                # projection). The path becomes an Asset the texture staging
+                # pass relocates like any other, and the color-space token is
+                # verified by the same fail-closed policy as ND_image files.
+                shader_input = shader.CreateInput(
+                    input_name, Sdf.ValueTypeNames.Asset
+                )
+                shader_input.Set(input_value.get("path"))
+                file_colorspace = _materialx_file_colorspace(
+                    input_value, input_name, diagnostics
+                )
+                if file_colorspace:
+                    shader_input.GetAttr().SetColorSpace(file_colorspace)
+                continue
 
             if isinstance(input_value, dict):
                 if input_def:

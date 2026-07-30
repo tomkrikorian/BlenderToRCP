@@ -660,7 +660,6 @@ def collect_material_warnings(material) -> List[str]:
         'CURVE_INFO',
         'PARTICLE_INFO',
         'POINT_INFO',
-        'VERTEX_COLOR',
         'VOLUME_INFO',
         'WIREFRAME',
         'LIGHT_PATH',
@@ -691,6 +690,38 @@ def collect_material_warnings(material) -> List[str]:
                 warnings.append(
                     f"Material '{material.name}': Image Texture node '{node_name}' has no image."
                 )
+            if node_type in {'TEX_NOISE', 'TEX_VORONOI', 'TEX_GRADIENT'}:
+                # Always warn: even with wired coordinates the exported
+                # pattern is computed by MaterialX's procedural algorithm
+                # (unifiednoise3d/worleynoise3d/ramplr), not Blender's, and an
+                # unwired Vector substitutes object-space position for
+                # Blender's bounding-box-normalized Generated coordinates.
+                warnings.append(
+                    f"Material '{material.name}': Procedural texture "
+                    f"'{node_name}' ({node_type}) exports with MaterialX's "
+                    "procedural algorithm sampled in object space; the "
+                    "pattern varies spatially but will not match Blender "
+                    "pixel-for-pixel. Bake the material for an exact match."
+                )
+            if node_type == 'TEX_IMAGE':
+                projection = str(
+                    getattr(node, "projection", "FLAT") or "FLAT"
+                ).upper()
+                if projection == 'BOX':
+                    warnings.append(
+                        f"Material '{material.name}': Image Texture "
+                        f"'{node_name}' Box projection exports as MaterialX "
+                        "triplanar projection in object space; blending and "
+                        "coordinates follow MaterialX semantics and will not "
+                        "match Blender pixel-for-pixel. Bake the material for "
+                        "an exact match."
+                    )
+                elif projection != 'FLAT':
+                    warnings.append(
+                        f"Material '{material.name}': Image Texture "
+                        f"'{node_name}' projection {projection} requires "
+                        "baking; only Flat and Box projections are exported."
+                    )
             if node_type == 'VALTORGB':
                 ramp = getattr(node, "color_ramp", None)
                 interpolation = (getattr(ramp, "interpolation", "LINEAR") or "LINEAR").upper()
@@ -1563,17 +1594,44 @@ def _resolve_socket_value(
 
     if node_type in {'MIX_RGB', 'MIX'}:
         blend, fac, a_socket, b_socket = _mix_node_params(from_node)
+        # A linked Factor is a first-class mix weight: ND_mix_*'s ``mix`` input
+        # accepts a wired float, so a texture channel driving Factor resolves
+        # through the expression tree instead of demanding a bake. An
+        # unresolvable factor chain propagates unresolved via _make_node_expr,
+        # keeping the refusal for graphs the resolver cannot express.
+        fac_expr = None
         if fac is not None:
+            fac_expr = _constant_expr(fac)
+        else:
+            fac_socket = None
+            if hasattr(from_node, "inputs"):
+                fac_socket = from_node.inputs.get('Fac') or from_node.inputs.get('Factor')
+            if fac_socket is not None and getattr(fac_socket, "is_linked", False):
+                resolved_fac = _resolve_socket_value(
+                    fac_socket,
+                    set(visited),
+                    None,
+                    list(provenance),
+                    cache,
+                    expected_type='float',
+                )
+                # Blender implicitly converts a colour feeding the scalar
+                # Factor with luminance; author that conversion explicitly.
+                fac_expr = _float_math_input_expr(resolved_fac)
+        if fac_expr is not None:
             # Blender Mix is out = lerp(A, op(A, B), fac), so Factor 0 is input A
             # for *every* blend mode (the blended term drops out entirely).
-            if fac == 0.0 and a_socket and a_socket.is_linked:
+            if _expr_is_constant(fac_expr, 0.0) and a_socket and a_socket.is_linked:
                 return _resolve_socket_value(
                     a_socket, visited, channel, provenance, cache,
                     expected_type=expected_type,
                 )
             if blend == 'MIX':
                 # Plain mix: out = lerp(A, B, fac). Factor 1 is input B.
-                if fac == 1.0 and b_socket and b_socket.is_linked:
+                if (
+                    _expr_is_constant(fac_expr, 1.0)
+                    and b_socket and b_socket.is_linked
+                ):
                     return _resolve_socket_value(
                         b_socket, visited, channel, provenance, cache,
                         expected_type=expected_type,
@@ -1584,7 +1642,7 @@ def _resolve_socket_value(
                     if a_expr is not None and b_expr is not None:
                         return _make_node_expr(
                             _nodedef_for("mix", expected_type or "color3"),
-                            {"bg": a_expr, "fg": b_expr, "mix": _constant_expr(fac)},
+                            {"bg": a_expr, "fg": b_expr, "mix": fac_expr},
                         )
             else:
                 # Combining blends: out = lerp(A, op(A, B), fac). Emit op(A, B)
@@ -1607,11 +1665,11 @@ def _resolve_socket_value(
                             _nodedef_for(op_name, expected_type or "color3"),
                             {"in1": a_expr, "in2": b_expr},
                         )
-                        if fac == 1.0:
+                        if _expr_is_constant(fac_expr, 1.0):
                             return blended
                         return _make_node_expr(
                             _nodedef_for("mix", expected_type or "color3"),
-                            {"bg": a_expr, "fg": blended, "mix": _constant_expr(fac)},
+                            {"bg": a_expr, "fg": blended, "mix": fac_expr},
                         )
 
     if node_type == 'MATH':
@@ -2245,16 +2303,71 @@ def _resolve_socket_value(
             return {"kind": "constant", "value": value}
         return _make_node_expr(_nodedef_for("normal", "vector3"), {"space": "world"})
 
-    if node_type == 'TEX_NOISE':
-        vector_expr = _expr_from_socket(
-            from_node.inputs.get('Vector') if hasattr(from_node, "inputs") else None,
-            visited,
-            channel,
-            provenance,
-            cache,
+    if node_type == 'VERTEX_COLOR':
+        # Blender 5.2's Color Attribute node (bl_idname ShaderNodeVertexColor,
+        # type VERTEX_COLOR). Its USD exporter writes each mesh color
+        # attribute as ``primvars:<attribute name>`` (verified against a real
+        # Blender 5.2 export), which ND_geompropvalue_color3 reads back.
+        layer_name = (getattr(from_node, "layer_name", "") or "").strip()
+        output_name = (getattr(from_socket, "name", "") or "").lower()
+        if output_name == 'alpha':
+            return {
+                "kind": "unresolved",
+                "provenance": list(provenance),
+                "reason": (
+                    "Color Attribute Alpha output has no exact MaterialX "
+                    "read; use the Color output or bake the material"
+                ),
+            }
+        if not layer_name:
+            return {
+                "kind": "unresolved",
+                "provenance": list(provenance),
+                "reason": (
+                    "Color Attribute names no color attribute; the exported "
+                    "primvar cannot be referenced implicitly - pick the "
+                    "attribute explicitly on the node"
+                ),
+            }
+        if not re.match(r'^[A-Za-z_][A-Za-z0-9_]*$', layer_name):
+            return {
+                "kind": "unresolved",
+                "provenance": list(provenance),
+                "reason": (
+                    f"Color attribute name '{layer_name}' is not a valid USD "
+                    "primvar identifier (letters, digits, underscore; not "
+                    "starting with a digit); rename the attribute"
+                ),
+            }
+        if not _color_attribute_reaches_export(from_node, layer_name):
+            return {
+                "kind": "unresolved",
+                "provenance": list(provenance),
+                "reason": (
+                    f"Color attribute '{layer_name}' was not found on a mesh "
+                    "using this material, so the exported USD would carry no "
+                    f"primvars:{layer_name} for the geompropvalue read; add "
+                    "the attribute or fix the node's name"
+                ),
+            }
+        expr = _make_node_expr(
+            _nodedef_for("geompropvalue", "color3"),
+            {"geomprop": _constant_expr(layer_name)},
         )
-        if vector_expr is None:
-            vector_expr = _default_texcoord_expr(vector_dim=3)
+        if channel in {"r", "g", "b"}:
+            return _swizzle_color3_to_float_expr(expr, channel)
+        if expected_type in {"float", "half", "integer"}:
+            # Blender's implicit colour-to-float conversion is luminance.
+            return _swizzle_color3_to_float_expr(
+                _make_node_expr(_nodedef_for("luminance", "color3"), {"in": expr}),
+                "r",
+            )
+        return expr
+
+    if node_type == 'TEX_NOISE':
+        vector_expr = _procedural_vector_expr(
+            from_node, visited, channel, provenance, cache
+        )
         scale_expr = _expr_from_socket(
             from_node.inputs.get('Scale') if hasattr(from_node, "inputs") else None,
             visited,
@@ -2304,15 +2417,29 @@ def _resolve_socket_value(
         return _make_node_expr(node_id, inputs)
 
     if node_type == 'TEX_VORONOI':
-        vector_expr = _expr_from_socket(
-            from_node.inputs.get('Vector') if hasattr(from_node, "inputs") else None,
+        vector_expr = _procedural_vector_expr(
+            from_node, visited, channel, provenance, cache
+        )
+        # Blender applies Scale to the sample position; worleynoise3d has no
+        # frequency input, so the position is scaled explicitly. Leaving Scale
+        # unauthored silently sampled every Voronoi at frequency 1.
+        scale_expr = _expr_from_socket(
+            from_node.inputs.get('Scale') if hasattr(from_node, "inputs") else None,
             visited,
             channel,
             provenance,
             cache,
+            default=5.0,
         )
-        if vector_expr is None:
-            vector_expr = _default_texcoord_expr(vector_dim=3)
+        if not _expr_is_constant(scale_expr, 1.0):
+            scale_vector = _make_node_expr(
+                _nodedef_for("combine3", "vector3"),
+                {"in1": scale_expr, "in2": scale_expr, "in3": scale_expr},
+            )
+            vector_expr = _make_node_expr(
+                _nodedef_for("multiply", "vector3"),
+                {"in1": vector_expr, "in2": scale_vector},
+            )
         jitter_expr = _expr_from_socket(
             from_node.inputs.get('Randomness') if hasattr(from_node, "inputs") else None,
             visited,
@@ -2325,14 +2452,22 @@ def _resolve_socket_value(
         return _make_node_expr(node_id, {"position": vector_expr, "jitter": jitter_expr})
 
     if node_type == 'TEX_GRADIENT':
-        vector_expr = _expr_from_socket(
-            from_node.inputs.get('Vector') if hasattr(from_node, "inputs") else None,
-            visited,
-            channel,
-            provenance,
-            cache,
+        vector_socket = (
+            from_node.inputs.get('Vector') if hasattr(from_node, "inputs") else None
         )
-        texcoord_expr = vector_expr or _default_texcoord_expr(vector_dim=2)
+        if vector_socket is not None and getattr(vector_socket, "is_linked", False):
+            texcoord_expr = _expr_from_socket(
+                vector_socket, visited, channel, provenance, cache
+            )
+        else:
+            # ramplr's texcoord is vector2; project the generated-coordinate
+            # stand-in (object-space position) onto its first two components.
+            texcoord_expr = _make_node_expr(
+                _nodedef_for("convert", "vector2", input_type="vector3"),
+                {"in": _generated_coordinate_expr()},
+            )
+        if texcoord_expr is None:
+            return {"kind": "unresolved", "provenance": list(provenance)}
         return _make_node_expr(
             _nodedef_for("ramplr", "float"),
             {"valuel": _constant_expr(0.0), "valuer": _constant_expr(1.0), "texcoord": texcoord_expr},
@@ -2348,6 +2483,24 @@ def _resolve_socket_value(
             return texture_info
 
     if node_type == 'TEX_IMAGE':
+        projection = str(getattr(from_node, "projection", "FLAT") or "FLAT").upper()
+        if projection == 'BOX':
+            return _box_projection_expr(
+                from_node, from_socket, provenance, expected_type
+            )
+        if projection != 'FLAT':
+            # SPHERE and TUBE have no MaterialX projection nodedef in the
+            # manifest. They previously fell through to the FLAT path and
+            # silently exported a UV-sampled image in place of the projection.
+            return {
+                "kind": "unresolved",
+                "provenance": list(provenance),
+                "reason": (
+                    f"Image Texture projection {projection} has no MaterialX "
+                    "equivalent (only Flat and Box are exported); bake the "
+                    "material"
+                ),
+            }
         texture_info = _texture_info_from_image_node(from_node)
         if not texture_info:
             return None
@@ -2461,6 +2614,85 @@ def _image_node_sampling(image_node) -> Optional[Dict[str, str]]:
     if filtertype:
         sampling["filtertype"] = filtertype
     return sampling or None
+
+
+def _box_projection_expr(
+    image_node,
+    from_socket,
+    provenance,
+    expected_type: Optional[str],
+) -> Optional[Dict[str, Any]]:
+    """Author a BOX-projected Image Texture as a MaterialX triplanar.
+
+    ND_triplanarprojection_* samples the same file along X/Y/Z in object
+    space (its position/normal inputs default to Pobject/Nobject) and blends
+    the projections with ``blend``, which maps directly from Blender's
+    Projection Blend. The overlayed nodedef also declares ``upaxis``; its
+    default (Z) matches Blender's object axes, so it is left unauthored.
+
+    Refused precisely rather than approximated:
+    - a Mapping transform feeding the Vector - place2d transforms 2D texture
+      coordinates and cannot express a transform of a 3D projection;
+    - the Alpha output - the triplanar nodedefs have no alpha-splitting path.
+    """
+    from ..mapping import effective_texture_mapping_contract
+
+    texture_info = _texture_info_from_image_node(image_node)
+    if not texture_info:
+        return None
+    # An identity Mapping node is a no-op and stays allowed; any effective
+    # transform is refused because place2d cannot express it in 3D.
+    if effective_texture_mapping_contract(texture_info.get("mapping")) is not None:
+        return {
+            "kind": "unresolved",
+            "provenance": list(provenance),
+            "reason": (
+                "Box-projected Image Texture with a Mapping transform cannot "
+                "be expressed: RealityKit's one texture transform (place2d) "
+                "applies to 2D texture coordinates, not a 3D projection; "
+                "remove the Mapping node or bake the material"
+            ),
+        }
+    if _image_channel_from_output_socket(from_socket) == "a":
+        return {
+            "kind": "unresolved",
+            "provenance": list(provenance),
+            "reason": (
+                "Box-projected Image Texture Alpha output is not mapped; use "
+                "the Color output or bake the material"
+            ),
+        }
+
+    output_type = (
+        expected_type
+        if expected_type in {"float", "color3", "color4", "vector3"}
+        else "color3"
+    )
+    file_spec = {
+        "kind": "file_asset",
+        "type": "file_asset",
+        "path": texture_info["path"],
+        "colorspace": texture_info.get("colorspace"),
+        "current_pixel_snapshot": texture_info.get("current_pixel_snapshot"),
+    }
+    try:
+        blend = float(getattr(image_node, "projection_blend", 0.0) or 0.0)
+    except (TypeError, ValueError):
+        blend = 0.0
+    inputs: Dict[str, Any] = {
+        "filex": dict(file_spec),
+        "filey": dict(file_spec),
+        "filez": dict(file_spec),
+        "blend": _constant_expr(blend),
+    }
+    sampling = texture_info.get("sampling") or {}
+    filtertype = sampling.get("filtertype")
+    if filtertype:
+        inputs["filtertype"] = _constant_expr(filtertype)
+    return _make_node_expr(
+        _nodedef_for("triplanarprojection", output_type),
+        inputs,
+    )
 
 
 def _texture_info_from_image_node(image_node) -> Optional[Dict[str, Any]]:
@@ -2799,6 +3031,59 @@ _MATH_COMPOSED_OPS = frozenset({'MULTIPLY_ADD', 'LOGARITHM', 'ARCTANGENT'})
 _RGB_TO_GRAY = (0.2126, 0.7152, 0.0722)
 
 
+def _swizzle_color3_to_float_expr(expr: Dict[str, Any], channels: str) -> Dict[str, Any]:
+    """Read one channel of a color3 expression as a float."""
+    swizzle_node = select_nodedef_name_for_node(
+        _get_manifest(),
+        "swizzle",
+        signature="in[in:color3,channels:string]|out[out:float]",
+        output_type="float",
+    ) or "ND_swizzle_color3_float"
+    return _make_node_expr(
+        swizzle_node,
+        {"in": expr, "channels": _constant_expr(channels)},
+    )
+
+
+def _color_attribute_reaches_export(node, layer_name: str) -> bool:
+    """Whether a mesh using this node's material carries ``layer_name``.
+
+    Blender 5.2's USD exporter writes each mesh color attribute as
+    ``primvars:<attribute name>`` (verified against a real export). A
+    geompropvalue read must name an attribute that exists on a mesh using the
+    material, or the authored read dangles at runtime. Fails closed when no
+    owning material/mesh can be found (e.g. the node lives in a node group
+    tree). Outside a live Blender session (pure-Python unit doubles) the
+    graph is trusted; the real export path always runs inside Blender.
+    """
+    try:
+        import bpy
+        meshes = bpy.data.meshes
+        materials = bpy.data.materials
+    except Exception:
+        return True
+    node_tree = getattr(node, "id_data", None)
+    owners = [
+        material
+        for material in materials
+        if getattr(material, "node_tree", None) == node_tree
+    ]
+    if not owners:
+        return False
+    for mesh in meshes:
+        mesh_materials = list(getattr(mesh, "materials", []) or [])
+        if not any(
+            any(candidate == owner for owner in owners)
+            for candidate in mesh_materials
+            if candidate is not None
+        ):
+            continue
+        attributes = getattr(mesh, "color_attributes", None)
+        if attributes is not None and attributes.get(layer_name) is not None:
+            return True
+    return False
+
+
 def _float_math_input_expr(expr):
     """Coerce a resolved expression to an exact float for a Math input.
 
@@ -3067,9 +3352,38 @@ def _expr_from_socket(
     return _constant_expr(value)
 
 
-def _default_texcoord_expr(vector_dim: int = 2) -> Dict[str, Any]:
-    nodedef = _nodedef_for("texcoord", "vector3" if vector_dim == 3 else "vector2")
-    return _make_node_expr(nodedef, {})
+def _generated_coordinate_expr() -> Dict[str, Any]:
+    """Spatially varying stand-in for Blender's Generated coordinates.
+
+    Blender samples a procedural texture's unwired Vector with Generated
+    coordinates (object-bounding-box-normalized positions). The manifest's
+    closest runtime-resolvable signal is object-space position
+    (``ND_position_vector3``): it varies over the surface exactly where
+    Generated does, differing only by the bounding-box normalization, which
+    Blender applies per object and MaterialX cannot see. The procedural
+    warning in ``collect_material_warnings`` names this approximation.
+    """
+    return _make_node_expr(
+        _nodedef_for("position", "vector3"),
+        {"space": _constant_expr("object")},
+    )
+
+
+def _procedural_vector_expr(node, visited, channel, provenance, cache):
+    """Resolve the coordinate feeding a procedural texture node.
+
+    A wired Vector resolves through the expression tree (an unresolvable
+    chain propagates unresolved so the refusal fires). An unwired Vector must
+    NOT fold to the socket default: ``_expr_from_socket`` returns the default
+    (0, 0, 0) as a constant, which sampled every noise/voronoi/gradient at a
+    single point and exported the pattern flat with no warning.
+    """
+    socket = node.inputs.get('Vector') if hasattr(node, "inputs") else None
+    if socket is not None and getattr(socket, "is_linked", False):
+        resolved = _expr_from_socket(socket, visited, channel, provenance, cache)
+        if resolved is not None:
+            return resolved
+    return _generated_coordinate_expr()
 
 
 # Combining blends the resolver can author as a real MaterialX node instead of
@@ -3120,19 +3434,30 @@ def _is_supported_mix(node) -> bool:
 
     Either a pure passthrough, or a combining blend (multiply/add/subtract) /
     general plain mix whose inputs are both linked - those are authored as real
-    MaterialX nodes, so they do not require baking.
+    MaterialX nodes, so they do not require baking. The Factor may be a
+    constant or a linked expression: ND_mix_*'s ``mix`` input accepts a wired
+    float, and an unresolvable factor chain still fails the export loudly via
+    the resolver's unresolved propagation.
     """
     if _is_identity_mix(node):
         return True
     if not node or getattr(node, "type", "") not in {'MIX', 'MIX_RGB'}:
         return False
     blend, fac, a_socket, b_socket = _mix_node_params(node)
-    if fac is None:
+    if fac is None and not _mix_factor_is_linked(node):
         return False
     both_linked = bool(a_socket and b_socket and a_socket.is_linked and b_socket.is_linked)
     if blend == 'MIX':
         return both_linked
     return blend in _RESOLVABLE_MIX_BLENDS and both_linked
+
+
+def _mix_factor_is_linked(node) -> bool:
+    """Whether a Mix/MixRGB node's Factor socket is driven by a link."""
+    if not hasattr(node, "inputs"):
+        return False
+    fac_socket = node.inputs.get('Fac') or node.inputs.get('Factor')
+    return bool(fac_socket is not None and getattr(fac_socket, "is_linked", False))
 
 
 def _extract_mapping_from_node(node) -> Optional[Dict[str, Any]]:

@@ -396,6 +396,15 @@ class MaterialXGraphBuilder:
             return expr.get("value")
         if kind == "texture":
             return self._texture_spec_from_expr(expr, texture_role=texture_role)
+        if kind == "file_asset":
+            # A raw image file authored directly on a filename input (e.g.
+            # triplanarprojection's filex/filey/filez); the authoring stage
+            # sets the Asset path and its color-space token on the input
+            # itself instead of spawning an ND_image reader.
+            spec = {key: value for key, value in expr.items() if key != "kind"}
+            if texture_role and not spec.get("colorspace_role"):
+                spec["colorspace_role"] = texture_role
+            return spec
         if kind == "node":
             return None
         return None

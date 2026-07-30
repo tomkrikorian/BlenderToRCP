@@ -50,6 +50,12 @@ SUPPORTED_TYPES = {
     'NORMAL',
     'MAP_RANGE',
     'INVERT',
+    # Blender 5.2's Color Attribute node. Exported as a
+    # ND_geompropvalue_color3 read of the ``primvars:<attribute name>``
+    # primvar Blender's USD exporter writes for mesh color attributes;
+    # per-node gates below refuse an unnamed attribute, an Alpha-output use,
+    # and a name that reaches no mesh using the material.
+    'VERTEX_COLOR',
 }
 
 SHADERGRAPH_SUPPORTED_TYPES = {
@@ -184,7 +190,6 @@ UNSUPPORTED_TYPES = {
     'CURVE_INFO',
     'PARTICLE_INFO',
     'POINT_INFO',
-    'VERTEX_COLOR',
     'VOLUME_INFO',
     'WIREFRAME',
     'LIGHT_PATH',
@@ -458,6 +463,72 @@ def _unsupported_principled_inputs(
     return issues
 
 
+def _box_projection_has_mapping(node) -> bool:
+    """Whether a BOX-projected Image Texture is fed by a Mapping transform.
+
+    Mirrors the extraction-time refusal: place2d transforms 2D texture
+    coordinates and cannot express a transform of the 3D triplanar
+    projection. A Mapping chain the extractor cannot even parse counts as a
+    transform - the export refuses it, so the validator must too.
+    """
+    from ..export.materials.extract.core import _extract_mapping_from_node
+    from ..export.materials.mapping import effective_texture_mapping_contract
+
+    inputs = getattr(node, "inputs", None)
+    vector_socket = inputs.get("Vector") if inputs is not None else None
+    if not vector_socket or not getattr(vector_socket, "is_linked", False):
+        return False
+    links = list(getattr(vector_socket, "links", []) or [])
+    source_node = getattr(links[0], "from_node", None) if links else None
+    if source_node is None:
+        return False
+    try:
+        mapping = _extract_mapping_from_node(source_node)
+        return effective_texture_mapping_contract(mapping) is not None
+    except ValueError:
+        return True
+
+
+def _vertex_color_issues(node) -> List[str]:
+    """Mirror the extractor's Color Attribute refusals for `validate`.
+
+    Import shared with extraction so the two gates cannot drift: an export
+    that refuses (unnamed attribute, Alpha output, or an attribute no mesh
+    using the material carries) must be predicted here.
+    """
+    import re as _re
+
+    from ..export.materials.extract.core import _color_attribute_reaches_export
+
+    issues: List[str] = []
+    outputs = getattr(node, "outputs", None)
+    alpha_output = outputs.get("Alpha") if outputs is not None else None
+    if alpha_output is not None and getattr(alpha_output, "is_linked", False):
+        issues.append(
+            "Color Attribute Alpha output has no exact MaterialX read; use "
+            "the Color output or bake the material."
+        )
+    layer_name = (getattr(node, "layer_name", "") or "").strip()
+    if not layer_name:
+        issues.append(
+            "Color Attribute names no color attribute; pick the attribute "
+            "explicitly on the node so the exported primvar can be referenced."
+        )
+    elif not _re.match(r'^[A-Za-z_][A-Za-z0-9_]*$', layer_name):
+        issues.append(
+            f"Color attribute name '{layer_name}' is not a valid USD primvar "
+            "identifier (letters, digits, underscore; not starting with a "
+            "digit); rename the attribute."
+        )
+    elif not _color_attribute_reaches_export(node, layer_name):
+        issues.append(
+            f"Color attribute '{layer_name}' was not found on a mesh using "
+            "this material; the exported USD would carry no "
+            f"primvars:{layer_name} for the export to read."
+        )
+    return issues
+
+
 def _effective_texture_mapping_uses(nodes):
     """Collect non-default mappings that the material extractor will author."""
 
@@ -633,6 +704,41 @@ def validate_material(
                     "Image Texture node has no image.",
                     force_error=strict,
                 )
+            if node_type == 'TEX_IMAGE':
+                projection = str(
+                    getattr(node, "projection", "FLAT") or "FLAT"
+                ).upper()
+                if projection == 'BOX':
+                    if _box_projection_has_mapping(node):
+                        add_issue(
+                            "warnings",
+                            node,
+                            "Box projection with a Mapping transform cannot be "
+                            "expressed: RealityKit's one texture transform "
+                            "(place2d) applies to 2D texture coordinates, not a "
+                            "3D projection. Remove the Mapping node or bake the "
+                            "material.",
+                            force_error=strict,
+                            removable=False,
+                        )
+                elif projection != 'FLAT':
+                    add_issue(
+                        "warnings",
+                        node,
+                        f"Image Texture projection {projection} requires baking; "
+                        "only Flat and Box projections are exported.",
+                        force_error=strict,
+                        removable=False,
+                    )
+            if node_type == 'VERTEX_COLOR':
+                for issue in _vertex_color_issues(node):
+                    add_issue(
+                        "warnings",
+                        node,
+                        issue,
+                        force_error=strict,
+                        removable=False,
+                    )
             if node_type == 'BSDF_PRINCIPLED':
                 specular_tint_socket = node.inputs.get('Specular Tint')
                 normalization = safe_overbright_achromatic_specular_tint(
@@ -1009,14 +1115,28 @@ def _mix_node_params(node):
     return blend, fac, a_socket, b_socket
 
 
+def _mix_factor_is_linked(node) -> bool:
+    """Whether a Mix/MixRGB node's Factor socket is driven by a link."""
+    if not hasattr(node, "inputs"):
+        return False
+    fac_socket = node.inputs.get('Fac') or node.inputs.get('Factor')
+    return bool(fac_socket is not None and getattr(fac_socket, "is_linked", False))
+
+
 def _is_supported_mix(node) -> bool:
-    """Match the exact Mix subset implemented by material extraction."""
+    """Match the exact Mix subset implemented by material extraction.
+
+    A linked Factor is accepted: extraction resolves it through the supported
+    expression tree and wires it into ND_mix_*'s ``mix`` input; a factor chain
+    the resolver cannot express fails the export loudly, and the offending
+    nodes in that chain are each validated on their own type here.
+    """
     if _is_identity_mix(node):
         return True
     if not node or getattr(node, "type", "") not in {'MIX', 'MIX_RGB'}:
         return False
     blend, fac, a_socket, b_socket = _mix_node_params(node)
-    if fac is None:
+    if fac is None and not _mix_factor_is_linked(node):
         return False
     both_linked = bool(
         a_socket and b_socket and a_socket.is_linked and b_socket.is_linked
