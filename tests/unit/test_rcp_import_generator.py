@@ -252,8 +252,82 @@ def Xform "root"
     return source
 
 
-def _multi_material_source(tmp_path: Path, *, overlap: bool = False) -> Path:
-    blue_indices = "[0, 1]" if overlap else "[1]"
+def _multi_material_source(
+    tmp_path: Path,
+    *,
+    overlap: bool = False,
+    red_indices: str = "[0]",
+    blue_indices: str | None = "[1]",
+    blue_family: str = "materialBind",
+    face_count: int = 2,
+    third_subset: bool = False,
+    blue_binding: str = "Blue",
+    second_mesh_binding: str | None = None,
+    stray_subset: bool = False,
+) -> Path:
+    if overlap:
+        blue_indices = "[0, 1]"
+    counts = ", ".join(["3"] * face_count)
+    indices = ", ".join(("0, 1, 2", "1, 3, 2", "2, 3, 0")[:face_count])
+    blue_subset = (
+        f"""
+            def GeomSubset "BlueFaces" (
+                prepend apiSchemas = ["MaterialBindingAPI"]
+            )
+            {{
+                uniform token elementType = "face"
+                uniform token familyName = "{blue_family}"
+                int[] indices = {blue_indices}
+                rel material:binding = </root/Materials/{blue_binding}>
+            }}"""
+        if blue_indices is not None
+        else ""
+    )
+    green_subset = (
+        """
+            def GeomSubset "GreenFaces" (
+                prepend apiSchemas = ["MaterialBindingAPI"]
+            )
+            {
+                uniform token elementType = "face"
+                uniform token familyName = "materialBind"
+                int[] indices = [2]
+                rel material:binding = </root/Materials/Green>
+            }"""
+        if third_subset
+        else ""
+    )
+    second_mesh = (
+        f"""
+    def Xform "Second"
+    {{
+        def Mesh "SecondMesh" (
+            prepend apiSchemas = ["MaterialBindingAPI"]
+        )
+        {{
+            int[] faceVertexCounts = [3]
+            int[] faceVertexIndices = [0, 1, 2]
+            point3f[] points = [(0, 0, 5), (1, 0, 5), (0, 1, 5)]
+            rel material:binding = </root/Materials/{second_mesh_binding}>
+        }}
+    }}"""
+        if second_mesh_binding
+        else ""
+    )
+    stray = (
+        """
+    def Scope "Stray"
+    {
+        def GeomSubset "Orphan"
+        {
+            uniform token elementType = "face"
+            uniform token familyName = "materialBind"
+            int[] indices = [0]
+        }
+    }"""
+        if stray_subset
+        else ""
+    )
     source = tmp_path / "TwoMaterials.usda"
     source.write_text(
         f"""#usda 1.0
@@ -268,8 +342,8 @@ def Xform "root"
     {{
         def Mesh "PanelMesh"
         {{
-            int[] faceVertexCounts = [3, 3]
-            int[] faceVertexIndices = [0, 1, 2, 1, 3, 2]
+            int[] faceVertexCounts = [{counts}]
+            int[] faceVertexIndices = [{indices}]
             point3f[] points = [(0, 0, 0), (1, 0, 0), (0, 1, 0), (1, 1, 0)]
             def GeomSubset "RedFaces" (
                 prepend apiSchemas = ["MaterialBindingAPI"]
@@ -277,20 +351,11 @@ def Xform "root"
             {{
                 uniform token elementType = "face"
                 uniform token familyName = "materialBind"
-                int[] indices = [0]
+                int[] indices = {red_indices}
                 rel material:binding = </root/Materials/Red>
-            }}
-            def GeomSubset "BlueFaces" (
-                prepend apiSchemas = ["MaterialBindingAPI"]
-            )
-            {{
-                uniform token elementType = "face"
-                uniform token familyName = "materialBind"
-                int[] indices = {blue_indices}
-                rel material:binding = </root/Materials/Blue>
-            }}
+            }}{blue_subset}{green_subset}
         }}
-    }}
+    }}{second_mesh}{stray}
     def Scope "Materials"
     {{
         def Material "Red" (
@@ -316,6 +381,19 @@ def Xform "root"
             {{
                 uniform token info:id = "UsdPreviewSurface"
                 color3f inputs:diffuseColor = (0, 0, 1)
+                token outputs:surface
+            }}
+        }}
+        def Material "Green" (
+            prepend apiSchemas = ["ColorSpaceAPI"]
+        )
+        {{
+            uniform token colorSpace:name = "lin_rec709_scene"
+            token outputs:surface.connect = </root/Materials/Green/Preview.outputs:surface>
+            def Shader "Preview"
+            {{
+                uniform token info:id = "UsdPreviewSurface"
+                color3f inputs:diffuseColor = (0, 1, 0)
                 token outputs:surface
             }}
         }}
@@ -493,7 +571,12 @@ def _skinned_multi_material_source(
     single_source_mesh: bool = False,
     overlap: bool = False,
 ) -> Path:
-    """Extend the measured skeletal fixture with two face materials on Left."""
+    """Extend the measured skeletal fixture with two face materials on Left.
+
+    Left gets an exhaustive two-subset partition (Red faces plus an Accent
+    material used by no other mesh prim — the fail-closed boundary refuses
+    slot materials shared across prims).
+    """
 
     source = _multi_skeletal_source(tmp_path)
     text = source.read_text(encoding="utf-8")
@@ -544,19 +627,46 @@ def _skinned_multi_material_source(
         "                rel material:binding = </root/Materials/Red>\n"
         "                rel skel:skeleton = </root/Rig/Skeleton>\n"
         """
-                def GeomSubset "BlueFaces" (
+                def GeomSubset "RedFaces" (
+                    prepend apiSchemas = ["MaterialBindingAPI"]
+                )
+                {
+                    uniform token elementType = "face"
+                    uniform token familyName = "materialBind"
+                    int[] indices = [0]
+                    rel material:binding = </root/Materials/Red>
+                }
+                def GeomSubset "AccentFaces" (
                     prepend apiSchemas = ["MaterialBindingAPI"]
                 )
                 {
                     uniform token elementType = "face"
                     uniform token familyName = "materialBind"
                     int[] indices = [1]
-                    rel material:binding = </root/Materials/Blue>
+                    rel material:binding = </root/Materials/Accent>
                 }
 """
         + overlapping_subset
         + "            }\n"
         + '            def Mesh "Right" (',
+        1,
+    )
+    text = text.replace(
+        '        def Material "Blue" (',
+        """        def Material "Accent" (
+            prepend apiSchemas = ["ColorSpaceAPI"]
+        )
+        {
+            uniform token colorSpace:name = "lin_rec709_scene"
+            token outputs:surface.connect = </root/Materials/Accent/Preview.outputs:surface>
+            def Shader "Preview"
+            {
+                uniform token info:id = "UsdPreviewSurface"
+                color3f inputs:diffuseColor = (1, 1, 0)
+                token outputs:surface
+            }
+        }
+        def Material "Blue" (""",
         1,
     )
     if single_source_mesh:
@@ -667,24 +777,149 @@ def test_generate_multi_mesh_import_is_deterministic(tmp_path: Path) -> None:
     assert first_files == second_files
 
 
-def test_generate_multi_material_mesh_splits_faces_without_loss(
+def test_generate_multi_material_mesh_authors_single_descriptor_with_subsets(
+    tmp_path: Path,
+) -> None:
+    """One USD mesh with two material subsets stays ONE mesh with slots."""
+
+    source = _multi_material_source(tmp_path)
+
+    asset = load_static_asset(source)
+    assert len(asset.meshes) == 1
+    mesh = asset.meshes[0]
+    assert [slot.name for slot in mesh.material_slots] == ["Red", "Blue"]
+    # Full topology is retained once; subsets carry authored face ordinals
+    # and the full USD GeomSubset prim paths.
+    assert mesh.face_counts == (3, 3)
+    assert len(mesh.face_indices) == 6
+    assert [subset.name for subset in mesh.subsets] == [
+        "/root/Panel/PanelMesh/RedFaces",
+        "/root/Panel/PanelMesh/BlueFaces",
+    ]
+    assert mesh.subsets[0].face_indices == (0,)
+    assert mesh.subsets[1].face_indices == (1,)
+
+    destination = generate_static_import(source, tmp_path / "TwoMaterials.import")
+
+    report = build_report(inspect_import(destination), rcp_build="80.0.1.500.1")
+    assert report["record_types"]["tm_geometry"] == 1
+    assert report["record_types"]["tm_mesh_descriptor"] == 1
+    assert report["record_types"]["tm_mesh_resource"] == 1
+    assert report["record_types"]["tm_material"] == 2
+    assert report["counts"]["derived_or_unknown_hashed_buffers"] == 0
+    assert [
+        path.name
+        for path in (destination / "meshes").glob("*.tm_mesh_resource")
+    ] == ["Panel.tm_mesh_resource"]
+    entity = (destination / "__TwoMaterials.tm_entity").read_text()
+    assert entity.count('__type: "tm_model_component"') == 1
+
+
+def test_multi_material_descriptor_subsets_record_shape(tmp_path: Path) -> None:
+    """The subsets array matches the measured canonical record shape."""
+
+    source = _multi_material_source(tmp_path)
+
+    destination = generate_static_import(source, tmp_path / "TwoMaterials.import")
+
+    descriptor = (
+        destination / "mesh_descriptors" / "Panel.tm_mesh_descriptor"
+    ).read_text()
+    subsets_match = re.search(r"\nsubsets: \[\n(.*?)\n\]\n", descriptor, re.S)
+    assert subsets_match is not None
+    entries = re.findall(r"\t\{\n(.*?)\n\t\}", subsets_match.group(1), re.S)
+    assert len(entries) == 2
+    # Slot 0: index elided (defaulted uint32); slot 1: explicit index 1 —
+    # exactly the measured Robot capture shape.
+    assert 'name: "/root/Panel/PanelMesh/RedFaces"' in entries[0]
+    assert "index:" not in entries[0]
+    assert 'name: "/root/Panel/PanelMesh/BlueFaces"' in entries[1]
+    assert "\t\tindex: 1" in entries[1]
+    assert entries[0].count("face_count: 1") == 1
+    assert entries[1].count("face_count: 1") == 1
+    # No guessed material_bindings: its authored values were never captured.
+    assert "material_bindings" not in descriptor
+    # Deterministic per-subset UUIDs come from the namespaced machinery.
+    first_uuids = re.findall(r'__uuid: "([0-9a-f-]{36})"', subsets_match.group(1))
+    assert len(first_uuids) == len(set(first_uuids)) == 2
+
+
+def test_multi_material_subset_buffers_hold_little_endian_face_ordinals(
+    tmp_path: Path,
+) -> None:
+    """Subset payloads are packed uint32 face ordinals, content-hash named."""
+
+    from scripts._lib.rcp_import_format import buffer_content_hash
+
+    source = _multi_material_source(tmp_path)
+
+    destination = generate_static_import(source, tmp_path / "TwoMaterials.import")
+
+    descriptor = (
+        destination / "mesh_descriptors" / "Panel.tm_mesh_descriptor"
+    ).read_text()
+    buffer_ids = re.findall(r'face_indices: "([0-9a-f-]{36})"', descriptor)
+    assert len(buffer_ids) == 2
+    buffer_dir = destination / "mesh_descriptors" / "Panel.tm_buffers"
+    expected_payloads = (struct.pack("<I", 0), struct.pack("<I", 1))
+    for buffer_id, expected in zip(buffer_ids, expected_payloads):
+        payload_path = next(buffer_dir.glob(f"{buffer_id}.*"))
+        data = payload_path.read_bytes()
+        assert data == expected
+        name_hash = payload_path.name.split(".")[1]
+        assert int(name_hash, 16) == int(buffer_content_hash(data), 16)
+
+
+def test_multi_material_model_component_orders_materials_like_subsets(
     tmp_path: Path,
 ) -> None:
     source = _multi_material_source(tmp_path)
 
-    asset = load_static_asset(source)
-    assert len(asset.meshes) == 2
-    assert {mesh.material_name for mesh in asset.meshes} == {"Red", "Blue"}
-    assert all(mesh.face_counts == (3,) for mesh in asset.meshes)
-    assert sum(len(mesh.face_indices) for mesh in asset.meshes) == 6
-
     destination = generate_static_import(source, tmp_path / "TwoMaterials.import")
-    assert sorted(path.name for path in (destination / "meshes").glob("*.tm_mesh_resource")) == [
-        "Panel_Blue.tm_mesh_resource",
-        "Panel_Red.tm_mesh_resource",
-    ]
-    entity = (destination / "__TwoMaterials.tm_entity").read_text()
-    assert entity.count('__type: "tm_model_component"') == 2
+
+    red_uuid = re.search(
+        r'^__uuid: "([0-9a-f-]{36})"',
+        (destination / "materials" / "Red.tm_material").read_text(),
+        flags=re.MULTILINE,
+    ).group(1)
+    blue_uuid = re.search(
+        r'^__uuid: "([0-9a-f-]{36})"',
+        (destination / "materials" / "Blue.tm_material").read_text(),
+        flags=re.MULTILINE,
+    ).group(1)
+    for entity_name in ("__TwoMaterials.tm_entity", "__TwoMaterials_optimized.tm_entity"):
+        entity = (destination / entity_name).read_text()
+        materials_block = re.search(
+            r"materials: \[\n(.*?)\n\t{6}\]", entity, re.S
+        )
+        assert materials_block is not None
+        names = re.findall(r'name: "([^"]+)"\n\s*material: "([0-9a-f-]{36})"',
+                           materials_block.group(1))
+        # One entry per slot, in descriptor-subset order, named by material.
+        assert names == [("Red", red_uuid), ("Blue", blue_uuid)]
+
+
+def test_generate_multi_material_mesh_is_deterministic(tmp_path: Path) -> None:
+    source = _multi_material_source(tmp_path)
+
+    first = generate_static_import(
+        source, tmp_path / "First.import", asset_name="TwoMaterials"
+    )
+    second = generate_static_import(
+        source, tmp_path / "Second.import", asset_name="TwoMaterials"
+    )
+
+    first_files = {
+        path.relative_to(first): path.read_bytes()
+        for path in first.rglob("*")
+        if path.is_file()
+    }
+    second_files = {
+        path.relative_to(second): path.read_bytes()
+        for path in second.rglob("*")
+        if path.is_file()
+    }
+    assert first_files == second_files
 
 
 def test_generate_multi_material_mesh_rejects_overlapping_subsets(
@@ -697,6 +932,90 @@ def test_generate_multi_material_mesh_rejects_overlapping_subsets(
         generate_static_import(source, destination)
 
     assert not destination.exists()
+
+
+@pytest.mark.parametrize(
+    ("source_kwargs", "message"),
+    [
+        pytest.param(
+            {"blue_indices": "[5]"},
+            "invalid face index 5",
+            id="out-of-range-face-index",
+        ),
+        pytest.param(
+            {"blue_indices": "[]"},
+            "is empty; build-80 supports only non-empty face partitions",
+            id="empty-subset",
+        ),
+        pytest.param(
+            {"face_count": 3},
+            "leave 1 of 3 faces unassigned",
+            id="non-exhaustive-partition",
+        ),
+        pytest.param(
+            {"blue_family": "physics"},
+            "unmeasured family 'physics'",
+            id="unsupported-subset-family",
+        ),
+        pytest.param(
+            {"face_count": 3, "third_subset": True},
+            "3 material slots on /root/Panel/PanelMesh exceed the measured "
+            "2-slot build-80 corpus",
+            id="three-material-slots",
+        ),
+        pytest.param(
+            {"blue_binding": "Red"},
+            "share one material",
+            id="shared-material-across-subsets",
+        ),
+        pytest.param(
+            {"second_mesh_binding": "Blue"},
+            "shared between multi-material mesh",
+            id="shared-material-across-mesh-prims",
+        ),
+        pytest.param(
+            {"stray_subset": True},
+            "not a direct child of a mesh",
+            id="unsupported-subset-hierarchy",
+        ),
+    ],
+)
+def test_multi_material_mesh_fails_closed_on_unmeasured_subset_shapes(
+    tmp_path: Path,
+    source_kwargs: dict,
+    message: str,
+) -> None:
+    source = _multi_material_source(tmp_path, **source_kwargs)
+    destination = tmp_path / "Refused.import"
+
+    with pytest.raises(ImportGenerationError, match=re.escape(message)):
+        generate_static_import(source, destination)
+
+    assert not destination.exists()
+
+
+def test_single_exhaustive_subset_collapses_to_proven_single_material(
+    tmp_path: Path,
+) -> None:
+    """One subset covering every face is the single-material degenerate."""
+
+    source = _multi_material_source(
+        tmp_path, red_indices="[0, 1]", blue_indices=None
+    )
+
+    asset = load_static_asset(source)
+
+    assert len(asset.meshes) == 1
+    mesh = asset.meshes[0]
+    assert mesh.subsets == ()
+    assert [slot.name for slot in mesh.material_slots] == ["Red"]
+
+    destination = generate_static_import(source, tmp_path / "OneSubset.import")
+    descriptor = (
+        destination / "mesh_descriptors" / "Panel.tm_mesh_descriptor"
+    ).read_text()
+    assert "subsets" not in descriptor
+    assert inspect_import(destination).errors == []
 
 
 def test_generate_multi_mesh_import_rejects_unmeasured_animation(
@@ -771,10 +1090,12 @@ def test_generate_multi_skeletal_import_authors_shared_skeleton_and_materials(
 
 
 @pytest.mark.parametrize("single_source_mesh", [False, True])
-def test_generate_skeletal_material_subsets_split_faces_and_keep_skinning(
+def test_generate_skeletal_material_subsets_author_single_descriptor(
     tmp_path: Path,
     single_source_mesh: bool,
 ) -> None:
+    """A skinned mesh with two face materials stays one mesh with slots."""
+
     source = _skinned_multi_material_source(
         tmp_path,
         single_source_mesh=single_source_mesh,
@@ -782,28 +1103,25 @@ def test_generate_skeletal_material_subsets_split_faces_and_keep_skinning(
 
     asset = load_static_asset(source)
 
-    expected_meshes = 2 if single_source_mesh else 3
+    expected_meshes = 1 if single_source_mesh else 2
+    expected_materials = 2 if single_source_mesh else 3
     assert len(asset.meshes) == expected_meshes
-    assert {mesh.material_name for mesh in asset.meshes} == {"Red", "Blue"}
-    left_partitions = [
-        mesh for mesh in asset.meshes if mesh.source_prim_path.endswith("/Left")
+    multi_slot = [mesh for mesh in asset.meshes if len(mesh.material_slots) > 1]
+    assert len(multi_slot) == 1
+    left = multi_slot[0]
+    assert left.source_prim_path.endswith("/Left")
+    assert [slot.name for slot in left.material_slots] == ["Red", "Accent"]
+    assert [subset.name for subset in left.subsets] == [
+        "/root/Rig/Meshes/Left/RedFaces",
+        "/root/Rig/Meshes/Left/AccentFaces",
     ]
-    assert {mesh.material_name for mesh in left_partitions} == {"Red", "Blue"}
-    assert all(
-        mesh.mesh_name.endswith(f"_{mesh.material_name}")
-        for mesh in left_partitions
-    )
-    assert all(mesh.face_counts == (3,) for mesh in left_partitions)
-    assert sum(len(mesh.face_indices) for mesh in left_partitions) == 6
-    assert all(mesh.skinning is not None for mesh in asset.meshes)
-    # Left has 4 points across 2 faces; each partition keeps only the 3 it
-    # references, and its per-point skinning follows the same re-indexing.
-    assert all(len(mesh.points) == 3 for mesh in left_partitions)
-    assert all(
-        len(mesh.skinning.joint_indices) == len(mesh.points)
-        and len(mesh.skinning.joint_weights) == len(mesh.points)
-        for mesh in asset.meshes
-    )
+    # The mesh keeps its full topology and per-point skinning once: 4 points
+    # across 2 faces, influences in source point order.
+    assert left.face_counts == (3, 3)
+    assert len(left.points) == 4
+    assert left.skinning is not None
+    assert len(left.skinning.joint_indices) == 4
+    assert len(left.skinning.joint_weights) == 4
 
     destination = generate_static_import(
         source,
@@ -816,7 +1134,7 @@ def test_generate_skeletal_material_subsets_split_faces_and_keep_skinning(
     assert report["record_types"]["tm_geometry"] == expected_meshes
     assert report["record_types"]["tm_mesh_descriptor"] == expected_meshes
     assert report["record_types"]["tm_mesh_resource"] == expected_meshes + 1
-    assert report["record_types"]["tm_material"] == 2
+    assert report["record_types"]["tm_material"] == expected_materials
     assert report["counts"]["derived_or_unknown_hashed_buffers"] == 0
     source_entity = (
         destination / "__TwoSkinnedMeshes.tm_entity"
@@ -824,9 +1142,24 @@ def test_generate_skeletal_material_subsets_split_faces_and_keep_skinning(
     optimized_entity = (
         destination / "__TwoSkinnedMeshes_optimized.tm_entity"
     ).read_text()
+    # One skinning and one model component per SOURCE mesh; the skeleton and
+    # timeline resources are not multiplied by the material count.
     assert source_entity.count('__type: "tm_skinning_component"') == expected_meshes
     assert source_entity.count('__type: "tm_model_component"') == expected_meshes
     assert optimized_entity.count('__type: "tm_model_component"') == 1
+    # The optimized model component carries one material entry per slot,
+    # multi-slot entries named by material in subset order.
+    assert optimized_entity.count("material: ") == expected_materials
+    assert report["record_types"]["tm_skeleton_hierarchy"] == 1
+    assert report["record_types"]["tm_skeleton_definition"] == 1
+    left_descriptor = (
+        destination
+        / "mesh_descriptors"
+        / f"{left.mesh_name}.tm_mesh_descriptor"
+    ).read_text()
+    assert "\nsubsets: [" in left_descriptor
+    assert left_descriptor.count("vertex_count: 4") == 2
+    assert "material_bindings" not in left_descriptor
 
 
 def _split_bounds_source(tmp_path: Path) -> Path:
@@ -927,37 +1260,33 @@ def _resource_bounds(destination: Path, mesh_name: str) -> dict[str, dict[str, f
     return bounds
 
 
-def test_generate_static_import_reindexes_subset_points_and_bounds(
+def test_generate_static_import_keeps_full_topology_for_material_subsets(
     tmp_path: Path,
 ) -> None:
+    """The canonical form keeps one whole mesh: full points, full bounds."""
+
     source = _split_bounds_source(tmp_path)
 
     destination = generate_static_import(source, tmp_path / "Split.import")
 
-    for mesh_name in ("Plate_Red", "Plate_Blue"):
-        descriptor = (
-            destination / "mesh_descriptors" / f"{mesh_name}.tm_mesh_descriptor"
-        ).read_text()
-        assert "vertex_count: 3" in descriptor
-
-    assert _descriptor_points(destination, "Plate_Red") == [
+    descriptor = (
+        destination / "mesh_descriptors" / "Plate.tm_mesh_descriptor"
+    ).read_text()
+    assert "vertex_count: 6" in descriptor
+    assert "\nsubsets: [" in descriptor
+    assert _descriptor_points(destination, "Plate") == [
         (0.0, 0.0, 0.0),
         (1.0, 0.0, 0.0),
         (0.0, 1.0, 0.0),
-    ]
-    assert _descriptor_points(destination, "Plate_Blue") == [
         (100.0, 0.0, 0.0),
         (101.0, 0.0, 0.0),
         (100.0, 1.0, 0.0),
     ]
 
-    # Each entity must claim only its own extent, not the parent mesh's.
-    near = _resource_bounds(destination, "Plate_Red")
-    far = _resource_bounds(destination, "Plate_Blue")
-    assert near["bounds_max"].get("x", 0.0) == 1.0
-    assert near["bounds_min"].get("x", 0.0) == 0.0
-    assert far["bounds_max"].get("x", 0.0) == 101.0
-    assert far["bounds_min"].get("x", 0.0) == 100.0
+    # One mesh resource spanning the whole source mesh.
+    bounds = _resource_bounds(destination, "Plate")
+    assert bounds["bounds_min"].get("x", 0.0) == 0.0
+    assert bounds["bounds_max"].get("x", 0.0) == 101.0
 
     assert inspect_import(destination).errors == []
 
@@ -978,13 +1307,16 @@ def test_generate_static_import_reindexes_unsplit_mesh_to_itself(
     ]
 
 
-def test_generate_static_import_reindexes_subset_skinning_in_lockstep(
+def test_generate_static_import_keeps_subset_mesh_skinning_whole(
     tmp_path: Path,
 ) -> None:
+    """Material subsets must not clone or re-index per-point skinning."""
+
     source = _skinned_multi_material_source(tmp_path)
-    # Move each of Left's 4 points' weight into a different influence slot so a
-    # mis-mapped influence cannot pass unnoticed. The skeleton has one joint, so
-    # the slot is the only thing free to vary while every vertex still sums to 1.
+    # Move each of Left's 4 points' weight into a different influence slot so
+    # any re-indexing or duplication of the influence table cannot pass
+    # unnoticed. The skeleton has one joint, so the slot is the only thing
+    # free to vary while every vertex still sums to 1.
     text = source.read_text(encoding="utf-8")
     text = text.replace(
         "float[] primvars:skel:jointWeights = "
@@ -997,32 +1329,23 @@ def test_generate_static_import_reindexes_subset_skinning_in_lockstep(
 
     asset = load_static_asset(source)
 
-    partitions = {
-        mesh.material_name: mesh
-        for mesh in asset.meshes
-        if mesh.source_prim_path.endswith("/Left")
-    }
-    # Left's faces are [0, 1, 2] and [1, 3, 2]: Red keeps points 0/1/2 and
-    # Blue keeps 1/2/3, each with that point's own influences.
-    assert partitions["Red"].skinning.joint_weights == (
-        (1.0, 0.0, 0.0, 0.0),
-        (0.0, 1.0, 0.0, 0.0),
-        (0.0, 0.0, 1.0, 0.0),
+    left = next(
+        mesh for mesh in asset.meshes if mesh.source_prim_path.endswith("/Left")
     )
-    assert partitions["Blue"].skinning.joint_weights == (
+    # One influence table in source point order — not per-material clones.
+    assert left.skinning.joint_weights == (
+        (1.0, 0.0, 0.0, 0.0),
         (0.0, 1.0, 0.0, 0.0),
         (0.0, 0.0, 1.0, 0.0),
         (0.0, 0.0, 0.0, 1.0),
     )
 
     destination = generate_static_import(source, tmp_path / "Skinned.import")
-    for mesh in partitions.values():
-        descriptor = (
-            destination / "mesh_descriptors" / f"{mesh.mesh_name}.tm_mesh_descriptor"
-        ).read_text()
-        # skinning_data.vertex_count must agree with the re-indexed points, or
-        # RCP reads influences past the end of the array.
-        assert descriptor.count("vertex_count: 3") == 2
+    descriptor = (
+        destination / "mesh_descriptors" / f"{left.mesh_name}.tm_mesh_descriptor"
+    ).read_text()
+    # skinning_data.vertex_count must agree with the retained full points.
+    assert descriptor.count("vertex_count: 4") == 2
     assert inspect_import(destination).errors == []
 
 
@@ -1152,6 +1475,34 @@ def test_generate_multi_skeletal_import_is_deterministic(tmp_path: Path) -> None
     second = generate_static_import(
         source,
         tmp_path / "SecondSkinned.import",
+        asset_name="TwoSkinnedMeshes",
+    )
+
+    first_files = {
+        path.relative_to(first): path.read_bytes()
+        for path in first.rglob("*")
+        if path.is_file()
+    }
+    second_files = {
+        path.relative_to(second): path.read_bytes()
+        for path in second.rglob("*")
+        if path.is_file()
+    }
+    assert first_files == second_files
+
+
+def test_generate_skeletal_multi_material_import_is_deterministic(
+    tmp_path: Path,
+) -> None:
+    source = _skinned_multi_material_source(tmp_path)
+    first = generate_static_import(
+        source,
+        tmp_path / "FirstSkinnedMaterials.import",
+        asset_name="TwoSkinnedMeshes",
+    )
+    second = generate_static_import(
+        source,
+        tmp_path / "SecondSkinnedMaterials.import",
         asset_name="TwoSkinnedMeshes",
     )
 

@@ -88,9 +88,11 @@ TOP_LEVEL_FIELDS: dict[str, frozenset[str]] = {
             "face_vertex_counts",
             "indices",
             "attributes",
-            # RCP 3 build 80 authors face-material partitions here during
-            # reimport.  The writer does not synthesize this field until its
-            # nested buffer/UUID contract is independently understood.
+            # RCP 3 build 80's canonical face-material partition. Measured on
+            # the Robot second-reimport capture and pinned to the shipped type
+            # index (tm_mesh_descriptor_subset); the experimental writer now
+            # authors it for measured two-slot material-binding GeomSubsets
+            # (docs/RCP_IMPORT_MULTI_MATERIAL_MESH.md).
             "subsets",
             "skinning_data",
             "__asset_uuid",

@@ -38,6 +38,10 @@ _SUPPORTED_MATERIAL_COLOR_SPACES = frozenset(
         "lin_rec709_scene",
     }
 )
+# The multi-material corpus (docs/RCP_IMPORT_MULTI_MATERIAL_MESH.md) measured
+# exactly two material slots on one mesh. Widening this boundary requires a new
+# controlled fixture and RCP acceptance evidence, not just a bigger number.
+_MAX_MATERIAL_SLOTS = 2
 
 
 class ImportGenerationError(RuntimeError):
@@ -67,6 +71,20 @@ class MaterialData:
 
 
 @dataclass(frozen=True)
+class FaceSubset:
+    """One measured material-binding ``GeomSubset`` kept on its source mesh.
+
+    ``name`` is the full USD GeomSubset prim path (the measured descriptor
+    subset name, not the material display name). ``face_indices`` are the
+    authored face ordinals in authored order; the canonical buffer payload is
+    exactly these values packed as little-endian uint32.
+    """
+
+    name: str
+    face_indices: tuple[int, ...]
+
+
+@dataclass(frozen=True)
 class StaticMesh:
     asset_name: str
     root_name: str
@@ -93,6 +111,14 @@ class StaticMesh:
     skinning: SkinningData | None = None
     material_key: str = ""
     source_prim_path: str = ""
+    # Ordered material slots and face subsets for the canonical multi-material
+    # representation. A single-material mesh is the one-slot degenerate: either
+    # a one-element ``material_slots`` with empty ``subsets``, or the legacy
+    # empty tuple whose slot is derived from the flattened material fields
+    # above (see ``_mesh_material_slots``). ``subsets`` is non-empty only for
+    # a measured multi-slot mesh and is ordered exactly like the slots.
+    material_slots: tuple[MaterialData, ...] = ()
+    subsets: tuple[FaceSubset, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -100,6 +126,32 @@ class StaticAsset:
     asset_name: str
     root_name: str
     meshes: tuple[StaticMesh, ...]
+
+
+def _mesh_material_slots(mesh: StaticMesh) -> tuple[MaterialData, ...]:
+    """Return the ordered material slots, deriving the one-slot degenerate.
+
+    A StaticMesh constructed without explicit ``material_slots`` (the legacy
+    single-material contract) still describes exactly one material through its
+    flattened fields; represent it as one slot so every writer path can treat
+    slots uniformly.
+    """
+
+    if mesh.material_slots:
+        return mesh.material_slots
+    return (
+        MaterialData(
+            key=mesh.material_key or "__default__",
+            name=mesh.material_name,
+            base_color=mesh.base_color,
+            metallic=mesh.metallic,
+            roughness=mesh.roughness,
+            opacity=mesh.opacity,
+            profile=mesh.material_profile,
+            base_color_texture=mesh.base_color_texture,
+            roughness_texture=mesh.roughness_texture,
+        ),
+    )
 
 
 @dataclass(frozen=True)
@@ -378,6 +430,16 @@ def _write_mesh_buffers(destination: Path, mesh: StaticMesh, ids: _Ids) -> dict[
     descriptor_dir = destination / "mesh_descriptors" / f"{mesh.mesh_name}.tm_buffers"
     _write_buffer(descriptor_dir, buffer_ids["face_counts"], _pack_i32(mesh.face_counts))
     _write_buffer(descriptor_dir, buffer_ids["face_indices"], _pack_i32(mesh.face_indices))
+    for subset_index, subset in enumerate(mesh.subsets):
+        # Measured payload: the authored GeomSubset face ordinals packed as
+        # little-endian uint32, content-hash-named like every other buffer.
+        subset_buffer_id = ids(f"buffer.subset.{subset_index}.face_indices")
+        buffer_ids[f"subset.{subset_index}"] = subset_buffer_id
+        _write_buffer(
+            descriptor_dir,
+            subset_buffer_id,
+            _pack_u32(subset.face_indices),
+        )
     _write_buffer(
         descriptor_dir,
         buffer_ids["points"],
@@ -1390,18 +1452,6 @@ def _unique_record_name(
     return name
 
 
-def _face_corner_slices(
-    face_counts: Sequence[int],
-) -> tuple[tuple[int, int], ...]:
-    slices = []
-    start = 0
-    for count in face_counts:
-        end = start + int(count)
-        slices.append((start, end))
-        start = end
-    return tuple(slices)
-
-
 def load_static_asset(
     source: str | Path,
     *,
@@ -1409,9 +1459,11 @@ def load_static_asset(
 ) -> StaticAsset:
     """Load a measured static asset with many meshes and material subsets.
 
-    Each USD material subset is emitted as its own RCP mesh resource. This uses
-    the RCP-authored multi-model entity contract while avoiding an invented
-    private material-index buffer layout.
+    A USD mesh with material-binding ``GeomSubset`` children is kept as ONE
+    mesh carrying ordered material slots and face subsets — the canonical
+    representation RCP itself authors (one descriptor with a ``subsets``
+    array; see docs/RCP_IMPORT_MULTI_MATERIAL_MESH.md). Unmeasured subset
+    shapes fail closed.
     """
 
     try:
@@ -1442,6 +1494,20 @@ def load_static_asset(
     # source prims rather than the number of generated resources so those
     # partitions retain the measured shared-skeleton contract.
     skeletal_asset = all(skinned_flags)
+
+    # Fail-closed hierarchy boundary: material subsets are only measured as
+    # direct children of a handled mesh prim. A GeomSubset anywhere else would
+    # otherwise be silently ignored.
+    handled_mesh_prims = set(mesh_prims)
+    for prim in stage.Traverse():
+        if (
+            prim.GetTypeName() == "GeomSubset"
+            and prim.GetParent() not in handled_mesh_prims
+        ):
+            raise ImportGenerationError(
+                f"GeomSubset {prim.GetPath()} is not a direct child of a "
+                "mesh; build-80 supports only mesh-child material subsets"
+            )
 
     has_material_subsets = any(
         child.GetTypeName() == "GeomSubset"
@@ -1478,6 +1544,11 @@ def load_static_asset(
     meshes: list[StaticMesh] = []
     canonical_skinning: SkinningData | None = None
     skeletal_parent_path: str | None = None
+    # material key -> source mesh prim paths using it, and the multi-slot
+    # meshes whose slot materials must stay exclusive to their mesh prim
+    # (docs/RCP_IMPORT_MULTI_MATERIAL_MESH.md fail-closed boundary).
+    material_usage: dict[str, set[str]] = {}
+    multi_slot_prims: list[tuple[str, tuple[str, ...]]] = []
 
     def material_data(material) -> MaterialData:
         key = str(material.GetPath()) if material else "__default__"
@@ -1673,7 +1744,7 @@ def load_static_asset(
             mesh_prim
         ).ComputeBoundMaterial()[0]
         direct_data = material_data(direct_material) if direct_material else None
-        face_materials: list[MaterialData | None] = [direct_data] * len(face_counts)
+        accepted_subsets: list[tuple[MaterialData, FaceSubset]] = []
         assigned_faces: set[int] = set()
         for child in mesh_prim.GetChildren():
             if child.GetTypeName() != "GeomSubset":
@@ -1683,8 +1754,12 @@ def load_static_asset(
             subset_material = UsdShade.MaterialBindingAPI(
                 child
             ).ComputeBoundMaterial()[0]
-            if family_name != "materialBind" and not subset_material:
-                continue
+            if family_name != "materialBind":
+                raise ImportGenerationError(
+                    f"subset {child.GetPath()} uses unmeasured family "
+                    f"{family_name!r}; build-80 supports only materialBind "
+                    "subsets with a bound material"
+                )
             if str(subset.GetElementTypeAttr().Get() or "") != "face":
                 raise ImportGenerationError(
                     f"material subset {child.GetPath()} must target faces"
@@ -1693,9 +1768,15 @@ def load_static_asset(
                 raise ImportGenerationError(
                     f"material subset {child.GetPath()} has no bound material"
                 )
-            subset_data = material_data(subset_material)
-            for value in subset.GetIndicesAttr().Get() or ():
-                face_index = int(value)
+            subset_indices = tuple(
+                int(value) for value in (subset.GetIndicesAttr().Get() or ())
+            )
+            if not subset_indices:
+                raise ImportGenerationError(
+                    f"material subset {child.GetPath()} is empty; build-80 "
+                    "supports only non-empty face partitions"
+                )
+            for face_index in subset_indices:
                 if face_index < 0 or face_index >= len(face_counts):
                     raise ImportGenerationError(
                         f"material subset {child.GetPath()} has invalid face "
@@ -1707,111 +1788,138 @@ def load_static_asset(
                         f"{mesh_prim.GetPath()}"
                     )
                 assigned_faces.add(face_index)
-                face_materials[face_index] = subset_data
+            accepted_subsets.append(
+                (
+                    material_data(subset_material),
+                    FaceSubset(
+                        name=str(child.GetPath()),
+                        face_indices=subset_indices,
+                    ),
+                )
+            )
 
-        grouped_faces: dict[str, tuple[MaterialData, list[int]]] = {}
-        for face_index, assigned_material in enumerate(face_materials):
-            if assigned_material is None:
-                assigned_material = material_data(None)
-            group = grouped_faces.setdefault(
-                assigned_material.key,
-                (assigned_material, []),
-            )
-            group[1].append(face_index)
-
-        corner_slices = _face_corner_slices(face_counts)
-        model_base_name = _safe_name(model_prim.GetName(), "Mesh")
-        split_materials = len(grouped_faces) > 1
-        for assigned_material, selected_faces in grouped_faces.values():
-            selected_counts = tuple(face_counts[index] for index in selected_faces)
-            selected_indices = tuple(
-                face_indices[corner]
-                for face_index in selected_faces
-                for corner in range(*corner_slices[face_index])
-            )
-            selected_uvs = tuple(
-                tuple(uvs[corner])
-                for face_index in selected_faces
-                for corner in range(*corner_slices[face_index])
-            )
-            selected_normals = tuple(
-                tuple(normals[corner])
-                for face_index in selected_faces
-                for corner in range(*corner_slices[face_index])
-            )
-            # A split group only references part of the parent's points. Left
-            # unmapped, every submesh would carry the whole array and report
-            # the whole mesh's bounds, which is what RealityKit reads back as
-            # visualBounds. Keep the parent's point order so an unsplit mesh
-            # re-indexes to itself and its buffers stay byte-identical.
-            referenced_points = sorted(set(selected_indices))
-            if referenced_points == list(range(len(points))):
-                selected_points = points
-                selected_skinning = skinning
+        if accepted_subsets:
+            # The measured corpus covers only an exhaustive, disjoint,
+            # distinct-material partition of at most two slots. Everything
+            # else stays a research lane and fails closed.
+            if len(assigned_faces) != len(face_counts):
+                unassigned = len(face_counts) - len(assigned_faces)
+                raise ImportGenerationError(
+                    f"material subsets on {mesh_prim.GetPath()} leave "
+                    f"{unassigned} of {len(face_counts)} faces unassigned; "
+                    "build-80 requires an exhaustive subset partition"
+                )
+            slot_keys = [data.key for data, _ in accepted_subsets]
+            if len(set(slot_keys)) != len(slot_keys):
+                raise ImportGenerationError(
+                    f"multiple material subsets on {mesh_prim.GetPath()} "
+                    "share one material; build-80 measured only distinct "
+                    "per-slot materials"
+                )
+            if len(accepted_subsets) > _MAX_MATERIAL_SLOTS:
+                raise ImportGenerationError(
+                    f"{len(accepted_subsets)} material slots on "
+                    f"{mesh_prim.GetPath()} exceed the measured "
+                    f"{_MAX_MATERIAL_SLOTS}-slot build-80 corpus"
+                )
+            if len(accepted_subsets) == 1:
+                # One exhaustive subset is materially identical to a direct
+                # binding; keep the proven single-material representation.
+                material_slots: tuple[MaterialData, ...] = (
+                    accepted_subsets[0][0],
+                )
+                face_subsets: tuple[FaceSubset, ...] = ()
             else:
-                remapped = {
-                    old: new for new, old in enumerate(referenced_points)
-                }
-                selected_points = tuple(points[old] for old in referenced_points)
-                selected_indices = tuple(
-                    remapped[index] for index in selected_indices
+                material_slots = tuple(data for data, _ in accepted_subsets)
+                face_subsets = tuple(
+                    face_subset for _, face_subset in accepted_subsets
                 )
-                # Skinning is authored per point, so it has to follow the same
-                # map or every influence lands on the wrong vertex.
-                selected_skinning = (
-                    replace(
-                        skinning,
-                        joint_indices=tuple(
-                            skinning.joint_indices[old]
-                            for old in referenced_points
-                        ),
-                        joint_weights=tuple(
-                            skinning.joint_weights[old]
-                            for old in referenced_points
-                        ),
-                    )
-                    if skinning is not None
-                    else None
+        else:
+            material_slots = (
+                (direct_data,)
+                if direct_data is not None
+                else (material_data(None),)
+            )
+            face_subsets = ()
+
+        prim_path = str(mesh_prim.GetPath())
+        for slot in material_slots:
+            material_usage.setdefault(slot.key, set()).add(prim_path)
+        if len(material_slots) > 1:
+            multi_slot_prims.append(
+                (prim_path, tuple(slot.key for slot in material_slots))
+            )
+
+        # Retain the whole mesh once. Points no face references are dropped
+        # with a stable re-index (the identity map for a fully referenced
+        # mesh) so bounds and buffers only ever describe used geometry.
+        referenced_points = sorted(set(face_indices))
+        if referenced_points != list(range(len(points))):
+            remapped = {old: new for new, old in enumerate(referenced_points)}
+            points = tuple(points[old] for old in referenced_points)
+            face_indices = tuple(remapped[index] for index in face_indices)
+            # Skinning is authored per point, so it has to follow the same
+            # map or every influence lands on the wrong vertex.
+            if skinning is not None:
+                skinning = replace(
+                    skinning,
+                    joint_indices=tuple(
+                        skinning.joint_indices[old]
+                        for old in referenced_points
+                    ),
+                    joint_weights=tuple(
+                        skinning.joint_weights[old]
+                        for old in referenced_points
+                    ),
                 )
-            candidate_name = (
-                f"{model_base_name}_{assigned_material.name}"
-                if split_materials
-                else model_base_name
+
+        primary = material_slots[0]
+        mesh_name = _unique_record_name(
+            _safe_name(model_prim.GetName(), "Mesh"),
+            used=used_mesh_names,
+            fallback="Mesh",
+        )
+        meshes.append(
+            StaticMesh(
+                asset_name=resolved_asset_name,
+                root_name=_safe_name(root_prim.GetName(), "root"),
+                mesh_name=mesh_name,
+                material_name=primary.name,
+                points=points,
+                face_counts=face_counts,
+                face_indices=face_indices,
+                face_uvs=tuple(tuple(value) for value in uvs),
+                face_normals=tuple(tuple(value) for value in normals),
+                base_color=primary.base_color,
+                metallic=primary.metallic,
+                roughness=primary.roughness,
+                opacity=primary.opacity,
+                root_translation=root_translation,
+                root_rotation=root_rotation,
+                root_scale=root_scale,
+                mesh_translation=mesh_translation,
+                mesh_rotation=mesh_rotation,
+                mesh_scale=mesh_scale,
+                material_profile=primary.profile,
+                base_color_texture=primary.base_color_texture,
+                roughness_texture=primary.roughness_texture,
+                skinning=skinning,
+                material_key=primary.key,
+                source_prim_path=prim_path,
+                material_slots=material_slots,
+                subsets=face_subsets,
             )
-            mesh_name = _unique_record_name(
-                candidate_name,
-                used=used_mesh_names,
-                fallback="Mesh",
-            )
-            meshes.append(
-                StaticMesh(
-                    asset_name=resolved_asset_name,
-                    root_name=_safe_name(root_prim.GetName(), "root"),
-                    mesh_name=mesh_name,
-                    material_name=assigned_material.name,
-                    points=selected_points,
-                    face_counts=selected_counts,
-                    face_indices=selected_indices,
-                    face_uvs=selected_uvs,
-                    face_normals=selected_normals,
-                    base_color=assigned_material.base_color,
-                    metallic=assigned_material.metallic,
-                    roughness=assigned_material.roughness,
-                    opacity=assigned_material.opacity,
-                    root_translation=root_translation,
-                    root_rotation=root_rotation,
-                    root_scale=root_scale,
-                    mesh_translation=mesh_translation,
-                    mesh_rotation=mesh_rotation,
-                    mesh_scale=mesh_scale,
-                    material_profile=assigned_material.profile,
-                    base_color_texture=assigned_material.base_color_texture,
-                    roughness_texture=assigned_material.roughness_texture,
-                    skinning=selected_skinning,
-                    material_key=assigned_material.key,
-                    source_prim_path=str(mesh_prim.GetPath()),
+        )
+
+    for prim_path, slot_keys in multi_slot_prims:
+        for key in slot_keys:
+            other_prims = material_usage.get(key, set()) - {prim_path}
+            if other_prims:
+                raise ImportGenerationError(
+                    f"material {key} is shared between multi-material mesh "
+                    f"{prim_path} and {sorted(other_prims)[0]}; build-80 "
+                    "measured only per-mesh subset materials"
                 )
-            )
 
     return StaticAsset(
         asset_name=resolved_asset_name,
@@ -1927,6 +2035,28 @@ def load_transform_animation(
 
 def _mesh_descriptor_record(mesh: StaticMesh, ids: _Ids, buffers: dict[str, str]) -> str:
     corner_count = len(mesh.face_indices)
+    # Canonical multi-material form: one descriptor whose ``subsets`` set holds
+    # one entry per material-binding GeomSubset, named by the full USD prim
+    # path. ``index`` is a defaulted uint32 the serializer elides at 0, which
+    # is why slot 0 omits it (measured on the Robot capture). The schema also
+    # declares a singular ``material_bindings`` subobject, but no local capture
+    # preserves its authored VALUES (RCP's measured descriptor carried only
+    # ``subsets``), so the writer omits it rather than guessing a payload.
+    subsets_block = ""
+    if mesh.subsets:
+        subset_entries = []
+        for subset_index, subset in enumerate(mesh.subsets):
+            index_line = f"\n\t\tindex: {subset_index}" if subset_index else ""
+            subset_entries.append(
+                f'''\t{{
+\t\t__uuid: "{ids(f"mesh_descriptor.subset.{subset_index}")}"
+\t\tname: "{subset.name}"{index_line}
+\t\tface_indices: "{buffers[f"subset.{subset_index}"]}"
+\t\tface_count: {len(subset.face_indices)}
+\t}}'''
+            )
+        joined_subsets = "\n".join(subset_entries)
+        subsets_block = f"\nsubsets: [\n{joined_subsets}\n]"
     skinning_block = ""
     if mesh.skinning is not None:
         skinning_block = f'''
@@ -1992,7 +2122,7 @@ attributes: [
 \t\t\tvalue_count: {corner_count}
 \t\t}}
 \t}}
-]
+]{subsets_block}
 {skinning_block}
 __asset_uuid: "{ids("mesh_descriptor.asset")}"'''
 
@@ -2706,14 +2836,14 @@ def _material_wrap_data(
 \t\t\t}}'''
 
 
-def _textured_material_record(mesh: StaticMesh, ids: _Ids) -> str:
+def _textured_material_record(material: MaterialData, ids: _Ids) -> str:
     """Author only texture graphs measured in build-80 RCP fixtures."""
 
-    base = mesh.base_color_texture
+    base = material.base_color_texture
     if base is None:
         raise ImportGenerationError("textured material requires a base-color texture")
-    unlit = mesh.material_profile == "realitykit_unlit"
-    if unlit and mesh.roughness_texture is not None:
+    unlit = material.profile == "realitykit_unlit"
+    if unlit and material.roughness_texture is not None:
         raise ImportGenerationError("unlit material cannot consume a roughness texture")
 
     nodes = [
@@ -2861,14 +2991,14 @@ def _textured_material_record(mesh: StaticMesh, ids: _Ids) -> str:
                         label=f"{node}.metallic",
                         node=node,
                         connector="7da4d360d4218a66",
-                        value=mesh.metallic,
+                        value=material.metallic,
                     ),
                     _material_float_data(
                         ids,
                         label=f"{node}.opacity",
                         node=node,
                         connector="2bbe599c6c8fe881",
-                        value=mesh.opacity,
+                        value=material.opacity,
                     ),
                     _material_float_data(
                         ids,
@@ -2879,7 +3009,7 @@ def _textured_material_record(mesh: StaticMesh, ids: _Ids) -> str:
                     ),
                 ]
             )
-        if mesh.roughness_texture is None:
+        if material.roughness_texture is None:
             for node in ("surface_node", "preview_node"):
                 data.append(
                     _material_float_data(
@@ -2887,11 +3017,11 @@ def _textured_material_record(mesh: StaticMesh, ids: _Ids) -> str:
                         label=f"{node}.roughness",
                         node=node,
                         connector="ea2298b545b7e617",
-                        value=mesh.roughness,
+                        value=material.roughness,
                     )
                 )
 
-    roughness = mesh.roughness_texture
+    roughness = material.roughness_texture
     if roughness is not None:
         nodes.extend(
             [
@@ -3024,24 +3154,24 @@ __asset_thumbnail: {{
 }}'''
 
 
-def _material_record(mesh: StaticMesh, ids: _Ids) -> str:
-    if mesh.base_color_texture is not None:
-        return _textured_material_record(mesh, ids)
-    color = mesh.base_color
+def _material_record(material: MaterialData, ids: _Ids) -> str:
+    if material.base_color_texture is not None:
+        return _textured_material_record(material, ids)
+    color = material.base_color
     data_entries = (
         ("pbr", "base_color", "b25bebfe670e1bb3", "tm_color_aces2065_rgb", color),
-        ("pbr", "metallic", "7da4d360d4218a66", "tm_float", mesh.metallic),
-        ("pbr", "opacity", "2bbe599c6c8fe881", "tm_float", mesh.opacity),
+        ("pbr", "metallic", "7da4d360d4218a66", "tm_float", material.metallic),
+        ("pbr", "opacity", "2bbe599c6c8fe881", "tm_float", material.opacity),
         ("pbr", "opacity_threshold", "f949ab44d6ee04e9", "tm_float", 0.0),
-        ("pbr", "roughness", "ea2298b545b7e617", "tm_float", mesh.roughness),
+        ("pbr", "roughness", "ea2298b545b7e617", "tm_float", material.roughness),
         ("pbr", "specular", "b043861ba01513f5", "tm_float", 0.5),
         ("preview", "clearcoat", "f7f9e94981b63d28", "tm_float", 0.0),
         ("preview", "clearcoat_roughness", "eaa02bddffa7ad4d", "tm_float", 0.03),
         ("preview", "diffuse", "cb836048226639e6", "tm_color_aces2065_rgb", color),
         ("preview", "ior", "19494c8dda094901", "tm_float", 1.5),
-        ("preview", "metallic", "7da4d360d4218a66", "tm_float", mesh.metallic),
-        ("preview", "opacity", "2bbe599c6c8fe881", "tm_float", mesh.opacity),
-        ("preview", "roughness", "ea2298b545b7e617", "tm_float", mesh.roughness),
+        ("preview", "metallic", "7da4d360d4218a66", "tm_float", material.metallic),
+        ("preview", "opacity", "2bbe599c6c8fe881", "tm_float", material.opacity),
+        ("preview", "roughness", "ea2298b545b7e617", "tm_float", material.roughness),
         ("preview", "specular", "b043861ba01513f5", "tm_float", 0.5),
     )
     rendered_data = []
@@ -3233,6 +3363,47 @@ __asset_labels: [
 ]'''
 
 
+def _model_material_entries(
+    mesh: StaticMesh,
+    ids: _Ids,
+    material_ids: dict[str, _Ids],
+    *,
+    label: str,
+    indent: str,
+) -> str:
+    """Render one model component's materials array for a mesh's slots.
+
+    A single-slot mesh keeps the measured shape byte for byte (one entry named
+    after the mesh). A multi-slot mesh emits one entry per slot in exactly the
+    descriptor-subset order, named by the material display name — the ordering
+    and naming measured on the Robot two-slot capture.
+    """
+
+    slots = _mesh_material_slots(mesh)
+    if len(slots) == 1:
+        entries = [
+            (
+                f"{indent}{{\n"
+                f'{indent}\t__uuid: "{ids(f"{label}.material_binding")}"\n'
+                f'{indent}\tname: "{mesh.mesh_name}"\n'
+                f'{indent}\tmaterial: "{material_ids[slots[0].key]("material")}"\n'
+                f"{indent}}}"
+            )
+        ]
+    else:
+        entries = [
+            (
+                f"{indent}{{\n"
+                f'{indent}\t__uuid: "{ids(f"{label}.material_binding.{slot_index}")}"\n'
+                f'{indent}\tname: "{slot.name}"\n'
+                f'{indent}\tmaterial: "{material_ids[slot.key]("material")}"\n'
+                f"{indent}}}"
+            )
+            for slot_index, slot in enumerate(slots)
+        ]
+    return "\n".join(entries)
+
+
 def _multi_entity_record(
     asset: StaticAsset,
     ids: _Ids,
@@ -3254,13 +3425,19 @@ def _multi_entity_record(
     children = []
     for index, mesh in enumerate(asset.meshes):
         mesh_scope = mesh_ids[mesh.mesh_name]
-        material_scope = material_ids[mesh.material_key]
         label = f"{prefix}.mesh.{index}"
         mesh_transform = _transform_component(
             ids,
             f"{label}.transform",
             mesh,
             False,
+        )
+        material_entries = _model_material_entries(
+            mesh,
+            ids,
+            material_ids,
+            label=label,
+            indent="\t" * 7,
         )
         children.append(
             f'''\t\t\t{{
@@ -3277,11 +3454,7 @@ def _multi_entity_record(
 \t\t\t\t\t\t\tmesh_resource: "{mesh_scope("mesh_resource")}"
 \t\t\t\t\t\t}}
 \t\t\t\t\t\tmaterials: [
-\t\t\t\t\t\t\t{{
-\t\t\t\t\t\t\t\t__uuid: "{ids(f"{label}.material_binding")}"
-\t\t\t\t\t\t\t\tname: "{mesh.mesh_name}"
-\t\t\t\t\t\t\t\tmaterial: "{material_scope("material")}"
-\t\t\t\t\t\t\t}}
+{material_entries}
 \t\t\t\t\t\t]
 \t\t\t\t\t}}
 \t\t\t\t]
@@ -3363,14 +3536,29 @@ def _multi_skeletal_entity_record(
     )
 
     if optimized:
-        material_bindings = "\n".join(
-            f'''\t\t\t\t\t\t\t\t\t{{
+        binding_entries: list[str] = []
+        for index, mesh in enumerate(asset.meshes):
+            slots = _mesh_material_slots(mesh)
+            if len(slots) == 1:
+                binding_entries.append(
+                    f'''\t\t\t\t\t\t\t\t\t{{
 \t\t\t\t\t\t\t\t\t\t__uuid: "{ids(f"optimized.material_binding.{index}")}"
 \t\t\t\t\t\t\t\t\t\tname: "{mesh.mesh_name}"
-\t\t\t\t\t\t\t\t\t\tmaterial: "{material_ids[mesh.material_key]("material")}"
+\t\t\t\t\t\t\t\t\t\tmaterial: "{material_ids[slots[0].key]("material")}"
 \t\t\t\t\t\t\t\t\t}}'''
-            for index, mesh in enumerate(asset.meshes)
-        )
+                )
+            else:
+                # Multi-slot mesh: one entry per slot in descriptor-subset
+                # order, named by the material (measured Robot two-slot shape).
+                binding_entries.extend(
+                    f'''\t\t\t\t\t\t\t\t\t{{
+\t\t\t\t\t\t\t\t\t\t__uuid: "{ids(f"optimized.material_binding.{index}.{slot_index}")}"
+\t\t\t\t\t\t\t\t\t\tname: "{slot.name}"
+\t\t\t\t\t\t\t\t\t\tmaterial: "{material_ids[slot.key]("material")}"
+\t\t\t\t\t\t\t\t\t}}'''
+                    for slot_index, slot in enumerate(slots)
+                )
+        material_bindings = "\n".join(binding_entries)
         model_component = f'''
 \t\t\t\t\t\t\t{{
 \t\t\t\t\t\t\t\t__type: "tm_model_component"
@@ -3395,13 +3583,19 @@ def _multi_skeletal_entity_record(
                     "multi-mesh skeletal entity cannot mix skinned meshes"
                 )
             mesh_scope = mesh_ids[mesh.mesh_name]
-            material_scope = material_ids[mesh.material_key]
             label = f"source.mesh.{index}"
             mesh_transform = _transform_component(
                 ids,
                 f"{label}.transform",
                 mesh,
                 False,
+            )
+            material_entries = _model_material_entries(
+                mesh,
+                ids,
+                material_ids,
+                label=label,
+                indent="\t" * 9,
             )
             bone_names = "\n".join(
                 f'''\t\t\t\t\t\t\t\t\t{{
@@ -3440,11 +3634,7 @@ def _multi_skeletal_entity_record(
 \t\t\t\t\t\t\t\t\tmesh_resource: "{mesh_scope("mesh_resource")}"
 \t\t\t\t\t\t\t\t}}
 \t\t\t\t\t\t\t\tmaterials: [
-\t\t\t\t\t\t\t\t\t{{
-\t\t\t\t\t\t\t\t\t\t__uuid: "{ids(f"{label}.material_binding")}"
-\t\t\t\t\t\t\t\t\t\tname: "{mesh.mesh_name}"
-\t\t\t\t\t\t\t\t\t\tmaterial: "{material_scope("material")}"
-\t\t\t\t\t\t\t\t\t}}
+{material_entries}
 \t\t\t\t\t\t\t\t]
 \t\t\t\t\t\t\t}}
 \t\t\t\t\t\t]
@@ -4233,14 +4423,15 @@ def _generate_multi_static_import(
         )
         for mesh in asset.meshes
     }
-    material_meshes: dict[str, StaticMesh] = {}
+    materials_by_key: dict[str, MaterialData] = {}
     for mesh in asset.meshes:
-        material_meshes.setdefault(mesh.material_key, mesh)
+        for slot in _mesh_material_slots(mesh):
+            materials_by_key.setdefault(slot.key, slot)
     material_ids = {
         key: _Ids(
             f"{RCP_BUILD}|{identity}|{asset.asset_name}|material|{key}"
         )
-        for key in material_meshes
+        for key in materials_by_key
     }
 
     destination_path.mkdir(parents=True)
@@ -4253,11 +4444,11 @@ def _generate_multi_static_import(
             )
             for mesh in asset.meshes
         }
-        for key, mesh in material_meshes.items():
+        for key, material in materials_by_key.items():
             material_scope = material_ids[key]
             for texture in (
-                mesh.base_color_texture,
-                mesh.roughness_texture,
+                material.base_color_texture,
+                material.roughness_texture,
             ):
                 if texture is not None:
                     _write_texture_buffer(
@@ -4345,14 +4536,14 @@ def _generate_multi_static_import(
                 }
             )
         has_textures = False
-        for key, mesh in material_meshes.items():
+        for key, material in materials_by_key.items():
             material_scope = material_ids[key]
-            records[f"materials/{mesh.material_name}.tm_material"] = (
-                _material_record(mesh, material_scope)
+            records[f"materials/{material.name}.tm_material"] = (
+                _material_record(material, material_scope)
             )
             for texture in (
-                mesh.base_color_texture,
-                mesh.roughness_texture,
+                material.base_color_texture,
+                material.roughness_texture,
             ):
                 if texture is None:
                     continue
@@ -4398,18 +4589,19 @@ def _generate_multi_skeletal_import(
         )
         for mesh in asset.meshes
     }
-    material_meshes: dict[str, StaticMesh] = {}
+    materials_by_key: dict[str, MaterialData] = {}
     for mesh in asset.meshes:
         if mesh.skinning is None:
             raise ImportGenerationError(
                 "multi-mesh skeletal package cannot mix skinned meshes"
             )
-        material_meshes.setdefault(mesh.material_key, mesh)
+        for slot in _mesh_material_slots(mesh):
+            materials_by_key.setdefault(slot.key, slot)
     material_ids = {
         key: _Ids(
             f"{RCP_BUILD}|{identity}|{asset.asset_name}|material|{key}"
         )
-        for key in material_meshes
+        for key in materials_by_key
     }
     first_mesh = asset.meshes[0]
     skeletal = first_mesh.skinning
@@ -4434,11 +4626,11 @@ def _generate_multi_skeletal_import(
             ids,
         )
         _write_skeletal_scene_tree_buffers(destination_path, skeletal, ids)
-        for key, mesh in material_meshes.items():
+        for key, material in materials_by_key.items():
             material_scope = material_ids[key]
             for texture in (
-                mesh.base_color_texture,
-                mesh.roughness_texture,
+                material.base_color_texture,
+                material.roughness_texture,
             ):
                 if texture is not None:
                     _write_texture_buffer(
@@ -4559,14 +4751,14 @@ def _generate_multi_skeletal_import(
                 }
             )
         has_textures = False
-        for key, mesh in material_meshes.items():
+        for key, material in materials_by_key.items():
             material_scope = material_ids[key]
-            records[f"materials/{mesh.material_name}.tm_material"] = (
-                _material_record(mesh, material_scope)
+            records[f"materials/{material.name}.tm_material"] = (
+                _material_record(material, material_scope)
             )
             for texture in (
-                mesh.base_color_texture,
-                mesh.roughness_texture,
+                material.base_color_texture,
+                material.roughness_texture,
             ):
                 if texture is None:
                     continue
@@ -4622,7 +4814,10 @@ def generate_static_import(
         raise ImportGenerationError(f"refusing to overwrite {destination_path}")
 
     asset = load_static_asset(source_path, asset_name=asset_name)
-    if len(asset.meshes) > 1:
+    multi_slot = any(
+        len(mesh.material_slots) > 1 for mesh in asset.meshes
+    )
+    if len(asset.meshes) > 1 or multi_slot:
         if all(mesh.skinning is not None for mesh in asset.meshes):
             return _generate_multi_skeletal_import(
                 source_path,
@@ -4692,7 +4887,7 @@ def generate_static_import(
                 ids, "directory.geometry", "geometry", root_dir_id
             ),
             f"materials/{mesh.material_name}.tm_material": _material_record(
-                mesh, ids
+                _mesh_material_slots(mesh)[0], ids
             ),
             "materials/__tm_directory.tm_dir": _directory_record(
                 ids, "directory.materials", "materials", root_dir_id
