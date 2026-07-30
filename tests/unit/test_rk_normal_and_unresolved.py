@@ -58,6 +58,28 @@ def test_the_nodedef_overrides_a_misleading_name():
     assert core._input_expects_decoded_normal(RK_PBR, "baseColor") is False
 
 
+def test_a_unit_z_default_alone_is_not_a_normal_socket():
+    """``ND_transformnormal_vector3.in`` defaults to the unit Z vector but
+    receives an ordinary direction, not an encoded normal map. The manifest
+    spells it "0.0, 0.0, 1.0" while the surface normals use "0, 0, 1", so a
+    literal string comparison got the right answer by formatting coincidence —
+    any manifest regeneration that normalizes number formatting would have
+    silently started decoding normals into transformnormal. The rule must
+    judge the value numerically AND require the socket name to say normal."""
+    assert core._input_expects_decoded_normal("ND_transformnormal_vector3", "in") is False
+    # The same socket judged numerically: still unit Z.
+    assert core._is_unit_z_vector(
+        core._input_mtlx_default("ND_transformnormal_vector3", "in")
+    )
+
+
+def test_formatting_variants_of_unit_z_are_equivalent():
+    for spelling in ("0, 0, 1", "0.0, 0.0, 1.0", "0,0,1", " 0.0 ,0 , 1 "):
+        assert core._is_unit_z_vector(spelling), spelling
+    for spelling in ("0, 1, 0", "0.5, 0.5, 1.0", "", "0, 0", "a, b, c", None):
+        assert not core._is_unit_z_vector(spelling), spelling
+
+
 # --- 2. unresolved children propagate ---------------------------------------
 
 

@@ -1144,23 +1144,41 @@ def _is_normal_socket(socket) -> bool:
     return "normal" in name
 
 
-#: A MaterialX vector3 input whose declared default is the unit Z vector is a
-#: tangent-space normal: the surface receives a decoded direction, while an
-#: image supplies 0-1 encoded RGB, so a texture wired there must pass through
-#: ND_normalmap. Measured across the shipped manifest, this is exact - all 5
-#: vector3 inputs defaulting to "0, 0, 1" carry "normal" in their name, and no
-#: other vector3 input has that default.
-_DECODED_NORMAL_DEFAULT = "0,0,1"
+def _is_unit_z_vector(value) -> bool:
+    """Whether a nodedef default spells the unit Z vector, in any formatting.
+
+    Judged numerically: the manifest carries both "0, 0, 1" (the surface
+    normals) and "0.0, 0.0, 1.0" (transformnormal), and a literal string
+    comparison would flip answers under any regeneration that renumbers
+    defaults.
+    """
+    if value is None:
+        return False
+    parts = str(value).split(",")
+    if len(parts) != 3:
+        return False
+    try:
+        numbers = [float(part) for part in parts]
+    except ValueError:
+        return False
+    return numbers == [0.0, 0.0, 1.0]
 
 
 def _input_expects_decoded_normal(node_id: Optional[str], input_name: str) -> bool:
     """Whether ``input_name`` on ``node_id`` receives a decoded normal.
 
-    Answered from the nodedef rather than the socket name so both RK
+    Answered from the nodedef rather than the socket name alone so both RK
     extraction paths reach the same conclusion. _extract_group_inputs decided
     this by name and got a normal_map_decode; _build_rk_node_graph never
     decided it at all and authored a raw colour->vector convert, so the same RK
     PBR Surface group produced different normals depending on which path ran.
+
+    A vector3 input is a decoded-normal socket when its declared default is
+    the unit Z vector AND its name says normal. Both conditions are load
+    bearing: measured across the shipped manifest, the five real normal
+    sockets (normal, clearcoatNormal, bentNormal on the RK surfaces) satisfy
+    both, while ``ND_transformnormal_vector3.in`` also defaults to unit Z but
+    receives an ordinary direction — the default alone is not a semantic.
 
     Falls back to the name when the nodedef cannot be resolved - a user node
     group with no manifest entry - which is the only signal available there.
@@ -1171,7 +1189,10 @@ def _input_expects_decoded_normal(node_id: Optional[str], input_name: str) -> bo
     if declared_type == "vector3":
         default = _input_mtlx_default(node_id, input_name)
         if default is not None:
-            return str(default).replace(" ", "") == _DECODED_NORMAL_DEFAULT
+            return (
+                _is_unit_z_vector(default)
+                and "normal" in input_name.lower()
+            )
     if declared_type is not None:
         # The nodedef resolved and this is not a decoded-normal input.
         return False
