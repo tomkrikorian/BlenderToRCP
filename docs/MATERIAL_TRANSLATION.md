@@ -319,6 +319,11 @@ warning; **Info** = diagnostics sidecar only; **Silent** = no record anywhere.
 | Any input, colour space outside the verified set | **export fails** | **Error** | retag to sRGB / Non-Color / Linear Rec.709 |
 | Baked AO texture | forced `Non-Color` | **Silent** | — |
 
+The token set the preflight accepts, and the postprocess rename of Blender's
+ColorSpaceAPI opinion `srgb_rec709_display` → `srgb_texture`, are grounded in
+what the RealityKit engine's alias table actually contains — see
+[APPLE_PLATFORM_CONTRACT.md](APPLE_PLATFORM_CONTRACT.md), "Colour management".
+
 Roles come from `texture_colorspace_role` (`Plugin/export/materials/graph.py:41-50`):
 `color` for the twelve names at `:25-38` (`baseColor`, `emissiveColor`, `subsurfaceColor`,
 `sheenColor`, `specularColor`, `coat_color`, `fuzz_color`, and the snake_case variants),
@@ -640,6 +645,13 @@ Four places encode "what can this exporter handle", and they are independent cop
 
 Only the first decides whether your export runs. Only the third decides what the output
 actually contains.
+
+The manifest itself is measured against the installed platform: of its 928
+nodedefs, 872 resolve in the runtime's own ShaderGraph libraries and 56 are
+flagged `policy.editor_unresolvable` — unrenderable on every Apple 27
+runtime, refused by selection and preflight. See
+[APPLE_PLATFORM_CONTRACT.md](APPLE_PLATFORM_CONTRACT.md) for the measurement
+and the drift-detection tests.
 
 ### 4.2 The categories
 

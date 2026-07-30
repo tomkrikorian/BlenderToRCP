@@ -7,6 +7,7 @@
 | [ARCHITECTURE.MD](ARCHITECTURE.MD) | How the codebase is laid out and which module owns what |
 | [CLI.md](CLI.md) | Every command, flag, exit code, and the JSON envelope |
 | [SETTINGS.md](SETTINGS.md) | What every toggle actually changes, and which ones override each other |
+| [APPLE_PLATFORM_CONTRACT.md](APPLE_PLATFORM_CONTRACT.md) | What OS 27 / RCP 3 actually support: OpenUSD versions and file-format ceilings, the MaterialX nodedef universe, and the editor-vs-runtime split — all measured from the shipped binaries |
 
 ## What the exporter does to your scene
 

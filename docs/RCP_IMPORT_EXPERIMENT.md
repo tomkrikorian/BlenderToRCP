@@ -106,7 +106,12 @@ fixture and RCP acceptance establish their semantics.
 ## Ground truth: the shipped Truth schema
 
 Binary reconnaissance of the installed app (2026-07-30, build `80.0.1.500.1`)
-replaced several of the sample-measured findings above with first-party facts:
+replaced several of the sample-measured findings above with first-party facts.
+For the wider platform picture — the finding that the entire Truth/`libtm`
+engine is RCP-only editor infrastructure while USDZ + MaterialX is the shared
+OS-runtime contract, and the measured OpenUSD/MaterialX support ceilings —
+see [APPLE_PLATFORM_CONTRACT.md](APPLE_PLATFORM_CONTRACT.md). The
+app-specific facts:
 
 - **The format is Our Machinery's "The Truth".** RCP is built on the The
   Machinery engine; `CoreRealityTools.framework` embeds `the_truth.c` /
