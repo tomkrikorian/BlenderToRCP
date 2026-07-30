@@ -296,8 +296,6 @@ def export_blender_scene(
     _require_supported_scene_unit_scale(context)
 
     export_format = getattr(settings, "export_format", "USDA")
-    if export_format == 'USD':
-        export_format = 'USDC'
 
     # Stage all exports in an export-specific temp directory. This prevents
     # Blender's USD exporter from resolving relative texture paths against an

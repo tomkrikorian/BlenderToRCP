@@ -120,7 +120,7 @@ class BLENDERTORCP_OT_bake_export_background(Operator, ExportHelper):
     def invoke(self, context, event):
         settings = context.scene.blender_to_rcp_export_settings
         _apply_persisted_settings(context, settings)
-        export_format = BLENDERTORCP_OT_export._normalize_export_format(settings.export_format)
+        export_format = settings.export_format
         settings.export_format = export_format
         self.filepath = _resolve_output_path_from_settings(context, settings, export_format)
         if not self.filepath:
@@ -134,7 +134,7 @@ class BLENDERTORCP_OT_bake_export_background(Operator, ExportHelper):
         if not self._apply_ui_profile(settings):
             return {'CANCELLED'}
 
-        export_format = BLENDERTORCP_OT_export._normalize_export_format(settings.export_format)
+        export_format = settings.export_format
         settings.export_format = export_format
         self.filepath = _resolve_output_path_from_settings(
             context,

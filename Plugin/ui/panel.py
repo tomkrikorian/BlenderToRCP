@@ -48,18 +48,12 @@ def _persist_settings(context, settings) -> None:
     addon_prefs.persist_export_settings(context, settings)
 
 
-def _normalize_export_format(export_format: str) -> str:
-    if export_format == "USD":
-        return "USDC"
-    return export_format
-
-
 def _output_path_with_format_extension(filepath: str, export_format: str) -> str:
     filepath = str(filepath or "").strip()
     if not filepath:
         return ""
 
-    extension = _EXPORT_FORMAT_EXTENSIONS.get(_normalize_export_format(export_format), ".usdz")
+    extension = _EXPORT_FORMAT_EXTENSIONS.get(export_format, ".usdz")
     try:
         return str(Path(filepath).with_suffix(extension))
     except ValueError:

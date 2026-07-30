@@ -67,13 +67,6 @@ class BLENDERTORCP_OT_export(Operator, ExportHelper):
     )
 
     @staticmethod
-    def _normalize_export_format(export_format: str) -> str:
-        """Normalize export format values from older enum entries."""
-        if export_format == 'USD':
-            return 'USDC'
-        return export_format
-
-    @staticmethod
     def _format_extension(export_format: str) -> str:
         """Map export format to a file extension."""
         return {
@@ -96,8 +89,7 @@ class BLENDERTORCP_OT_export(Operator, ExportHelper):
         """Called when operator is invoked"""
         settings = context.scene.blender_to_rcp_export_settings
         _apply_persisted_settings(context, settings)
-        export_format = self._normalize_export_format(settings.export_format)
-        settings.export_format = export_format
+        export_format = settings.export_format
         self.filepath = _resolve_output_path_from_settings(context, settings, export_format)
         if not self.filepath:
             self.report({'ERROR'}, "Set Output Path before exporting.")
@@ -115,8 +107,7 @@ class BLENDERTORCP_OT_export(Operator, ExportHelper):
             self.report({'ERROR'}, blocked)
             return {'CANCELLED'}
         _apply_persisted_settings(context, settings)
-        export_format = self._normalize_export_format(settings.export_format)
-        settings.export_format = export_format
+        export_format = settings.export_format
         self.filepath = _resolve_output_path_from_settings(
             context,
             settings,
