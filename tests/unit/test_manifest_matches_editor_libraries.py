@@ -36,7 +36,9 @@ pytestmark = pytest.mark.skipif(
     reason="RealityComposerPro.app ShaderGraph libraries not installed",
 )
 
-_NODEDEF_RE = re.compile(r'<nodedef\s+name="(ND_[^"]+)"')
+# `name` is not always the first attribute (apple_integer_ops.mtlx orders
+# apple_availability first), so match it anywhere inside the tag.
+_NODEDEF_RE = re.compile(r'<nodedef\b[^>]*?\bname="(ND_[^"]+)"')
 
 
 @pytest.fixture(scope="module")

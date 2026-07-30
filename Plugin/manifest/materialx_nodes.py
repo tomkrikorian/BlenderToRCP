@@ -63,10 +63,20 @@ def get_node_defs_for_node(manifest: Dict[str, Any], node_name: str) -> List[Dic
 
 
 def _declared_types(node_def: Optional[Dict[str, Any]], key: str) -> set:
+    """Types a nodedef declares on the given axis, for constraint checks.
+
+    Inputs marked ``runtime_overlay`` were measured from the installed
+    ShaderGraph libraries and appended to a References-era entry (e.g. the
+    noise ``style`` or triplanar ``blend`` inputs). They are uniform across
+    the type-suffixed variants of a node, so they carry no
+    variant-discriminating information — counting them would let e.g. a
+    ``float`` request match ND_triplanarprojection_color3 through its added
+    ``blend:float`` input. Selection keys off the References-era interface.
+    """
     return {
         _normalize_type(entry.get("type"))
         for entry in ((node_def or {}).get(key) or [])
-        if entry.get("type")
+        if entry.get("type") and not entry.get("runtime_overlay")
     }
 
 
@@ -224,11 +234,24 @@ def _pick_nodedef(
 ) -> Optional[str]:
     if not candidates:
         return None
+
+    def _policy(name: str) -> Dict[str, Any]:
+        return (manifest.get("nodes", {}).get(name) or {}).get("policy", {})
+
+    # Runtime-overlay entries (measured from the installed ShaderGraph
+    # libraries, not Apple's public References bundle) are only considered
+    # when no References-backed candidate remains: selections that resolved
+    # before the overlay landed must keep resolving to the same nodedef.
+    references_backed = [
+        name for name in candidates if not _policy(name).get("runtime_overlay")
+    ]
+    if references_backed:
+        candidates = references_backed
+
     if not prefer_non_half:
         return candidates[0]
 
     for name in candidates:
-        node = manifest.get("nodes", {}).get(name)
-        if node and not node.get("policy", {}).get("half_type"):
+        if not _policy(name).get("half_type"):
             return name
     return candidates[0]

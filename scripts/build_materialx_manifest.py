@@ -129,6 +129,49 @@ REALITY_COMPOSER_PRO_VERSION = "3.0"
 REALITY_COMPOSER_PRO_BUILD = "80.0.1.500.1"
 APPLE_PLATFORM_GENERATION = "27.0"
 
+# ---------------------------------------------------------------------------
+# Runtime overlay
+#
+# The installed OS/RCP ShaderGraph.framework ships a MaterialX library tree
+# (a 1.38 + 1.39.4 hybrid) that is a strict superset of Apple's public
+# References bundle. An optional overlay stage measures that tree and
+# (a) adds inputs the shipped signatures gained (e.g. the noise `style`
+# input), and (b) records nodedefs the runtime can resolve that the
+# References bundle omits. Only interface facts (names, types, defaults)
+# are recorded — no .mtlx file is copied into the repository.
+#
+# Overlay entries carry policy.runtime_overlay = true and a
+# "measured:ShaderGraph.framework/<relpath>" source_file marker.
+# ---------------------------------------------------------------------------
+
+# Prefer the OS copy; the RCP.app copy is byte-identical (verified 2026-07-30).
+RUNTIME_LIBRARY_ROOTS = (
+    Path(
+        "/System/Library/SubFrameworks/ShaderGraph.framework/"
+        "Versions/A/Resources/MaterialX"
+    ),
+    Path(
+        "/Applications/RealityComposerPro.app/Contents/SystemFrameworks/"
+        "ShaderGraph.framework/Versions/A/Resources/MaterialX"
+    ),
+)
+
+RUNTIME_OVERLAY_SOURCE = "ShaderGraph.framework/Versions/A/Resources/MaterialX"
+# Measured from RealityComposerPro 3.0 build 80.0.1.500.1;
+# ShaderGraph.framework CFBundleVersion 159.0.5.
+RUNTIME_OVERLAY_RCP_BUILD = "80.0.1.500.1"
+RUNTIME_OVERLAY_SHADERGRAPH_VERSION = "159.0.5"
+
+# Directory ranking for choosing the canonical declaration when the runtime
+# tree declares one nodedef in several files. Self-contained declarations
+# (no `inherit`) always beat inherit-based stubs; then newer trees win.
+_RUNTIME_DIR_RANKS = (
+    ("MaterialX-1.39.4/", 0),
+    ("Apple/apple_nodedefs_overrides/", 1),
+    ("Apple/", 2),
+    ("MaterialX-1.38/", 3),
+)
+
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Build rk_nodes_manifest.json from MaterialX .mtlx files.")
@@ -147,6 +190,19 @@ def main() -> int:
         action="store_true",
         help="Include .mtlx files with 'half' in their filename (RealityKit half libraries).",
     )
+    parser.add_argument(
+        "--runtime-library",
+        default=None,
+        help=(
+            "Installed ShaderGraph MaterialX library tree to overlay "
+            "(default: auto-detect the OS copy, then the RCP.app copy)."
+        ),
+    )
+    parser.add_argument(
+        "--no-runtime-overlay",
+        action="store_true",
+        help="Skip the runtime overlay stage even if a ShaderGraph library tree is installed.",
+    )
     args = parser.parse_args()
 
     repo_root = Path(__file__).resolve().parents[1]
@@ -161,15 +217,42 @@ def main() -> int:
         output_path = repo_root / output_path
     output_path = output_path.resolve()
 
-    manifest = build_manifest(repo_root, source_dir, include_half=bool(args.include_half))
+    runtime_library: Optional[Path] = None
+    if not args.no_runtime_overlay:
+        if args.runtime_library:
+            runtime_library = Path(args.runtime_library).resolve()
+            if not runtime_library.is_dir():
+                raise SystemExit(f"Runtime library tree not found: {runtime_library}")
+        else:
+            runtime_library = _find_runtime_library()
+
+    manifest = build_manifest(
+        repo_root,
+        source_dir,
+        include_half=bool(args.include_half),
+        runtime_library=runtime_library,
+    )
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(json.dumps(manifest, indent=2))
 
+    overlay = manifest.get("metadata", {}).get("runtime_overlay")
+    if overlay:
+        print(
+            f"Runtime overlay: {overlay['entries_added']} nodedefs added, "
+            f"{len(overlay['updated_nodedefs'])} updated from {overlay['source']}"
+        )
+    else:
+        print("Runtime overlay: skipped (no ShaderGraph library tree)")
     print(f"Wrote {len(manifest.get('nodes', {}))} nodedefs -> {output_path}")
     return 0
 
 
-def build_manifest(repo_root: Path, source_dir: Path, include_half: bool) -> Dict[str, Any]:
+def build_manifest(
+    repo_root: Path,
+    source_dir: Path,
+    include_half: bool,
+    runtime_library: Optional[Path] = None,
+) -> Dict[str, Any]:
     if not source_dir.exists():
         raise SystemExit(f"MaterialX source directory not found: {source_dir}")
 
@@ -224,6 +307,14 @@ def build_manifest(repo_root: Path, source_dir: Path, include_half: bool) -> Dic
         if document_version:
             manifest["metadata"]["document_versions"][source_path] = document_version
 
+    if runtime_library is not None:
+        _apply_runtime_overlay(manifest, runtime_library)
+
+    # Index at the end: the overlay may append inputs to existing entries,
+    # which changes their signatures.
+    for node_info in manifest["nodes"].values():
+        _index_node(manifest, node_info)
+
     return manifest
 
 
@@ -248,30 +339,12 @@ def _parse_mtlx_file(repo_root: Path, manifest: Dict[str, Any], filepath: Path) 
                     f"{existing.get('source_file')} and {_format_source_path(repo_root, filepath)}"
                 )
             manifest["nodes"][nodedef_name] = node_info
-            _index_node(manifest, node_info)
     except ET.ParseError as exc:
         print(f"Warning: Failed to parse {filepath}: {exc}")
 
 
-def _extract_nodedef_info(
-    repo_root: Path,
-    nodedef,
-    ns,
-    filepath: Path,
-) -> Optional[Dict[str, Any]]:
-    nodedef_name = nodedef.get("name", "") or ""
-    if not nodedef_name:
-        return None
-
-    node_name = (nodedef.get("node", "") or "").strip()
-    nodegroup = (nodedef.get("nodegroup", "") or "").strip()
-    node_version = (nodedef.get("version", "") or "").strip()
-    target = (nodedef.get("target", "") or "").strip()
-    availability = (nodedef.get("available", "") or "").strip()
-    apple_availability = (nodedef.get("apple_availability", "") or "").strip()
-    is_default_version = (nodedef.get("isdefaultversion", "false") or "").lower() == "true"
-
-    # Inputs
+def _parse_io_from_element(nodedef, ns) -> tuple:
+    """Return (inputs, outputs) lists parsed from a <nodedef> element."""
     inputs: List[Dict[str, Any]] = []
     input_elems = nodedef.findall(".//mx:input", ns) if ns else nodedef.findall(".//input")
     for input_elem in input_elems:
@@ -286,7 +359,6 @@ def _extract_nodedef_info(
             input_info["enum"] = enum.split(",")
         inputs.append(input_info)
 
-    # Outputs
     outputs: List[Dict[str, Any]] = []
     output_elems = nodedef.findall(".//mx:output", ns) if ns else nodedef.findall(".//output")
     for output_elem in output_elems:
@@ -296,8 +368,30 @@ def _extract_nodedef_info(
                 "type": output_elem.get("type", ""),
             }
         )
+    return inputs, outputs
 
-    is_half = "half" in filepath.name.lower()
+
+def _nodedef_info_from_element(
+    nodedef,
+    ns,
+    source_file: str,
+    is_half: bool,
+    runtime_overlay: bool,
+) -> Optional[Dict[str, Any]]:
+    nodedef_name = nodedef.get("name", "") or ""
+    if not nodedef_name:
+        return None
+
+    node_name = (nodedef.get("node", "") or "").strip()
+    nodegroup = (nodedef.get("nodegroup", "") or "").strip()
+    node_version = (nodedef.get("version", "") or "").strip()
+    target = (nodedef.get("target", "") or "").strip()
+    availability = (nodedef.get("available", "") or "").strip()
+    apple_availability = (nodedef.get("apple_availability", "") or "").strip()
+    is_default_version = (nodedef.get("isdefaultversion", "false") or "").lower() == "true"
+
+    inputs, outputs = _parse_io_from_element(nodedef, ns)
+
     is_omitted = nodedef_name in GEOMETRY_MODIFIER_NODEDEFS
     requires_ktx = nodedef_name.lower() in {n.lower() for n in KTX_REQUIRED_NODEDEFS}
     is_fallback = nodedef_name in FALLBACK_NODEDEFS
@@ -319,10 +413,12 @@ def _extract_nodedef_info(
             "requires_ktx": requires_ktx,
             "half_type": is_half,
             "fallback": is_fallback,
-            "editor_unresolvable": nodedef_name in EDITOR_UNRESOLVABLE_NODEDEFS,
+            "editor_unresolvable": (
+                not runtime_overlay and nodedef_name in EDITOR_UNRESOLVABLE_NODEDEFS
+            ),
+            "runtime_overlay": runtime_overlay,
         },
-        # Keep stable paths (avoid machine-specific absolute paths).
-        "source_file": _format_source_path(repo_root, filepath),
+        "source_file": source_file,
     }
     if node_version:
         result["node_version"] = node_version
@@ -335,6 +431,236 @@ def _extract_nodedef_info(
     if is_default_version:
         result["is_default_version"] = True
     return result
+
+
+def _extract_nodedef_info(
+    repo_root: Path,
+    nodedef,
+    ns,
+    filepath: Path,
+) -> Optional[Dict[str, Any]]:
+    return _nodedef_info_from_element(
+        nodedef,
+        ns,
+        # Keep stable paths (avoid machine-specific absolute paths).
+        source_file=_format_source_path(repo_root, filepath),
+        is_half="half" in filepath.name.lower(),
+        runtime_overlay=False,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Runtime overlay stage
+# ---------------------------------------------------------------------------
+
+
+def _find_runtime_library() -> Optional[Path]:
+    """Return the installed ShaderGraph MaterialX tree, preferring the OS copy."""
+    for root in RUNTIME_LIBRARY_ROOTS:
+        if root.is_dir():
+            return root
+    return None
+
+
+def _runtime_file_excluded(relpath: str) -> bool:
+    """Files whose declarations are never overlay material."""
+    lower = relpath.lower()
+    if "private" in lower or "internal" in lower:
+        return True
+    if "_old" in Path(relpath).name.lower():
+        return True
+    if "apple_metal" in Path(relpath).name.lower():
+        return True
+    return False
+
+
+def _runtime_name_excluded(nodedef_name: str) -> bool:
+    return (
+        nodedef_name.startswith("_")
+        or "ND_Internal" in nodedef_name
+        or "ND_MTL_" in nodedef_name
+        or "apple_metal" in nodedef_name
+    )
+
+
+def _runtime_nodegroup_excluded(decl: Dict[str, Any]) -> bool:
+    """Implementation-only nodegroups (realitykit_private, realitykit_internal)
+    are not authorable interface — the RCP editor never surfaces them."""
+    nodegroup = (decl["info"].get("nodegroup") or "").lower()
+    return "private" in nodegroup or "internal" in nodegroup
+
+
+def _decl_has_half_types(decl: Dict[str, Any]) -> bool:
+    types = [item.get("type") for item in decl["info"].get("inputs", [])]
+    types += [item.get("type") for item in decl["info"].get("outputs", [])]
+    return any("half" in _normalize_type(t) for t in types)
+
+
+def _decl_rank(decl: Dict[str, Any]) -> tuple:
+    """Deterministic canonical-declaration ordering (lower wins).
+
+    Self-contained declarations beat `inherit` stubs (the stubs list only the
+    child's own inputs; this script does not resolve inheritance), then the
+    1.39.4 tree beats Apple's override/extension files, which beat the 1.38
+    tree, with the relative path as the final tiebreak.
+    """
+    dir_rank = 4
+    for prefix, rank in _RUNTIME_DIR_RANKS:
+        if decl["relpath"].startswith(prefix):
+            dir_rank = rank
+            break
+    return (1 if decl["inherit"] else 0, dir_rank, decl["relpath"])
+
+
+def _parse_runtime_nodedefs(runtime_root: Path) -> Dict[str, List[Dict[str, Any]]]:
+    """Parse every nodedef declaration in the installed library tree.
+
+    Returns name -> list of declaration records sorted by relative path.
+    Only interface facts are retained; nothing is copied into the repo.
+    """
+    decls: Dict[str, List[Dict[str, Any]]] = {}
+    for mtlx_file in sorted(runtime_root.rglob("*.mtlx")):
+        relpath = mtlx_file.relative_to(runtime_root).as_posix()
+        try:
+            root = ET.parse(mtlx_file).getroot()
+        except ET.ParseError as exc:
+            print(f"Warning: Failed to parse runtime library {mtlx_file}: {exc}")
+            continue
+        ns_uri = _get_namespace_uri(root.tag)
+        ns = {"mx": ns_uri} if ns_uri else None
+        nodedefs = root.findall(".//mx:nodedef", ns) if ns else root.findall(".//nodedef")
+        for nodedef in nodedefs:
+            info = _nodedef_info_from_element(
+                nodedef,
+                ns,
+                source_file=f"measured:ShaderGraph.framework/{relpath}",
+                is_half=False,
+                runtime_overlay=True,
+            )
+            if not info:
+                continue
+            decls.setdefault(info["nodedef_name"], []).append(
+                {
+                    "info": info,
+                    "relpath": relpath,
+                    "inherit": bool((nodedef.get("inherit", "") or "").strip()),
+                    "deprecated": "deprecated"
+                    in (nodedef.get("apple_availability", "") or ""),
+                }
+            )
+    return decls
+
+
+def _merge_shipped_inputs(
+    entry: Dict[str, Any],
+    decl: Dict[str, Any],
+    conflicts: List[tuple],
+) -> List[str]:
+    """Add inputs the shipped declaration gained; never remove or retype.
+
+    The declaration must be a strict superset of the manifest entry: every
+    manifest input/output present with the same type. A type disagreement on
+    a shared name is recorded as a conflict and the References version is
+    left untouched.
+    """
+    manifest_inputs = {item["name"]: item for item in entry.get("inputs", [])}
+    manifest_outputs = {item["name"]: item for item in entry.get("outputs", [])}
+    shipped_inputs = {item["name"]: item for item in decl["info"].get("inputs", [])}
+    shipped_outputs = {item["name"]: item for item in decl["info"].get("outputs", [])}
+
+    typed_conflicts = [
+        (name, manifest_inputs[name]["type"], shipped_inputs[name]["type"])
+        for name in manifest_inputs
+        if name in shipped_inputs
+        and _normalize_type(manifest_inputs[name]["type"])
+        != _normalize_type(shipped_inputs[name]["type"])
+    ] + [
+        (name, manifest_outputs[name]["type"], shipped_outputs[name]["type"])
+        for name in manifest_outputs
+        if name in shipped_outputs
+        and _normalize_type(manifest_outputs[name]["type"])
+        != _normalize_type(shipped_outputs[name]["type"])
+    ]
+    if typed_conflicts:
+        conflicts.append((entry["nodedef_name"], decl["relpath"], typed_conflicts))
+        return []
+
+    if any(name not in shipped_inputs for name in manifest_inputs):
+        return []  # not a superset; additions would be ambiguous
+    if any(name not in shipped_outputs for name in manifest_outputs):
+        return []
+
+    added: List[str] = []
+    for item in decl["info"].get("inputs", []):
+        if item["name"] in manifest_inputs:
+            continue
+        merged = dict(item)
+        # Mark measured additions so selection keeps keying off the
+        # References-era interface (see materialx_nodes._declared_types).
+        merged["runtime_overlay"] = True
+        entry["inputs"].append(merged)
+        manifest_inputs[item["name"]] = merged
+        added.append(item["name"])
+    return added
+
+
+def _apply_runtime_overlay(manifest: Dict[str, Any], runtime_root: Path) -> None:
+    decls = _parse_runtime_nodedefs(runtime_root)
+    conflicts: List[tuple] = []
+
+    # (a) Update existing entries whose shipped signature gained inputs.
+    updated: Dict[str, List[str]] = {}
+    for nodedef_name, entry in manifest["nodes"].items():
+        for decl in decls.get(nodedef_name, []):
+            if _runtime_file_excluded(decl["relpath"]) or decl["deprecated"]:
+                continue
+            added = _merge_shipped_inputs(entry, decl, conflicts)
+            if added:
+                updated.setdefault(nodedef_name, [])
+                updated[nodedef_name].extend(
+                    name for name in added if name not in updated[nodedef_name]
+                )
+        if nodedef_name in updated:
+            entry["signature"] = _signature_from_io(entry["inputs"], entry["outputs"])
+
+    for nodedef_name, relpath, details in conflicts:
+        print(
+            f"Warning: type conflict for {nodedef_name} in {relpath}: {details}; "
+            f"keeping the References signature"
+        )
+
+    # (b) Add runtime-resolvable nodedefs the References bundle omits.
+    added_names: List[str] = []
+    for nodedef_name in sorted(decls):
+        if nodedef_name in manifest["nodes"]:
+            continue
+        if _runtime_name_excluded(nodedef_name):
+            continue
+        kept = [
+            decl
+            for decl in decls[nodedef_name]
+            if not _runtime_file_excluded(decl["relpath"])
+            and not decl["deprecated"]
+            and not _decl_has_half_types(decl)
+            and not _runtime_nodegroup_excluded(decl)
+        ]
+        if not kept:
+            continue
+        canonical = min(kept, key=_decl_rank)
+        manifest["nodes"][nodedef_name] = canonical["info"]
+        added_names.append(nodedef_name)
+
+    manifest["metadata"]["runtime_overlay"] = {
+        "source": RUNTIME_OVERLAY_SOURCE,
+        "reality_composer_pro_build": RUNTIME_OVERLAY_RCP_BUILD,
+        "shadergraph_version": RUNTIME_OVERLAY_SHADERGRAPH_VERSION,
+        "entries_added": len(added_names),
+        "updated_nodedefs": {name: updated[name] for name in sorted(updated)},
+        "provenance": (
+            "Interface facts (names, types, defaults) measured from the installed "
+            "ShaderGraph.framework MaterialX libraries; no .mtlx content is vendored."
+        ),
+    }
 
 
 def _index_node(manifest: Dict[str, Any], node_info: Dict[str, Any]) -> None:
