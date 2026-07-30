@@ -1,31 +1,29 @@
-# BlenderToRCP CLI Reference
+# BlenderToRCP CLI reference
 
-Command-line interface for BlenderToRCP. Run exports, bake textures, validate materials, and manage settings — all from your terminal, scripts, or AI agents.
+This page documents the BlenderToRCP command-line interface: every command, flag, exit code, and error envelope. Use the CLI to run exports, bake textures, validate materials, and manage settings from a terminal, a script, or an automation agent.
 
-Every command spawns Blender in background mode and prints structured JSON to stdout on success. Human-readable status goes to stderr. Bake/export uses Blender factory-startup mode to avoid unrelated user add-ons polluting the bake session. On failure, use `--json` when automation needs the structured error envelope on stdout; without `--json`, failures are summarized on stderr with diagnostics and support-bundle hints when available.
+How the CLI runs:
 
-Every command also runs in its own short-lived Blender process. Nothing you do
-in one invocation carries over to the next unless it was written to disk — see
-[`settings set --save`](#settings-set).
+- Every command spawns Blender in background mode. On success, the command prints structured JSON to stdout. Human-readable status goes to stderr.
+- Bake and export commands start Blender with factory startup, so unrelated user add-ons cannot affect the bake session.
+- On failure, pass `--json` when automation needs the structured error envelope on stdout. Without `--json`, failures are summarized on stderr, with diagnostics and support-bundle hints when available.
+- Each invocation runs in its own short-lived Blender process. Nothing carries over to the next invocation unless it was written to disk — see [`settings set --save`](#settings-set).
 
 ## Installation
 
-The CLI ships inside the BlenderToRCP plugin — no separate installation needed. Once the addon is installed in Blender, the CLI is ready to use.
+The CLI ships inside the BlenderToRCP plugin. There is no separate installation: once the add-on is installed in Blender, the CLI is ready to use.
 
 ### 1. Tell the CLI where Blender is
 
 ```bash
-# Add to your shell profile (.zshrc, .bashrc), or pass --blender each time
 export BLENDERTORCP_BLENDER=/Applications/Blender.app/Contents/MacOS/Blender
 ```
 
+Add this line to your shell profile (`.zshrc`, `.bashrc`), or pass `--blender` on each command instead.
+
 ### 2. Find your extension root
 
-The CLI lives directly in the Blender extension root. Blender names an installed
-extension directory from its manifest ID, so the canonical directory is
-`blender_to_rcp` even though the display name is `BlenderToRCP`. The repository
-directory is usually `user_default`, but it can be another configured repository
-module.
+The CLI lives directly in the Blender extension root. Blender names an installed extension directory after its manifest ID, so the directory is `blender_to_rcp` even though the display name is BlenderToRCP. The repository directory is usually `user_default`, but it can be another configured repository module.
 
 | Workflow | Path |
 |----------|------|
@@ -36,45 +34,61 @@ module.
 | Windows installed extension | `%APPDATA%\Blender Foundation\Blender\<version>\extensions\<repository>\blender_to_rcp\` |
 | Windows development symlink | `%APPDATA%\Blender Foundation\Blender\<version>\extensions\user_default\blender_to_rcp\` |
 
-Look for `cli/__main__.py` and `api/runner.py` directly under that
-`blender_to_rcp/` directory. An older development symlink may still use the
-display-name directory `BlenderToRCP`; it remains a useful fallback when
-searching, but new installs and symlinks should use the manifest ID. In a
-repository checkout, the equivalent directory is `<repo>/Plugin/`.
+Look for `cli/__main__.py` and `api/runner.py` directly under that `blender_to_rcp/` directory. An older development symlink may still use the display-name directory `BlenderToRCP`; check it as a fallback when searching, but use the manifest ID for new installs and symlinks. In a repository checkout, the equivalent directory is `<repo>/Plugin/`.
 
 ### 3. Run the CLI
 
-```bash
-# Installed extension root
-python3 /path/to/blender_to_rcp version
-python3 /path/to/blender_to_rcp preferences get
-python3 /path/to/blender_to_rcp settings list
+Run the CLI by pointing Python at the extension root:
 
-# Development checkout
+```bash
+python3 /path/to/blender_to_rcp version
+```
+
+```bash
+python3 /path/to/blender_to_rcp preferences get
+```
+
+```bash
+python3 /path/to/blender_to_rcp settings list
+```
+
+In a development checkout, use the `Plugin` directory instead:
+
+```bash
 python3 /path/to/repo/Plugin version
+```
+
+```bash
 python3 /path/to/repo/Plugin preferences get
+```
+
+```bash
 python3 /path/to/repo/Plugin settings list
 ```
 
 ### 4. (Optional) Create an alias for convenience
 
+Add an alias to your shell profile:
+
 ```bash
-# Add to your shell profile for easy access
 alias blendertorcp="python3 /path/to/blender_to_rcp"
-# Or for a repository checkout:
-# alias blendertorcp="python3 /path/to/repo/Plugin"
 ```
 
-Then use it as:
+For a repository checkout:
+
+```bash
+alias blendertorcp="python3 /path/to/repo/Plugin"
+```
+
+Then run commands as:
 
 ```bash
 blendertorcp <command> [options]
 ```
 
-
 ---
 
-## Global Options
+## Global options
 
 These flags are available on every command.
 
@@ -86,24 +100,25 @@ These flags are available on every command.
 | `--quiet` | off | Suppress the CLI's own progress messages. Does **not** suppress failure messages |
 | `--timeout <SEC>` | `600` | Overall Blender subprocess timeout in seconds; `0` disables the limit |
 
-**All five are top-level flags and must appear _before_ the subcommand.**
-Placing one after the subcommand is an argument error:
+All five are top-level flags and must appear **before** the subcommand. Placing one after the subcommand is an argument error (exit 1):
 
 ```bash
-$ blendertorcp version --timeout 30
-Error: unrecognized arguments: --timeout 30      # exit 1
+blendertorcp version --timeout 30
 ```
 
-`--timeout` rejects negative and non-integer values with exit 1 and
-`INVALID_ARGUMENTS`:
+```
+Error: unrecognized arguments: --timeout 30
+```
+
+`--timeout` rejects negative and non-integer values with exit 1 and `INVALID_ARGUMENTS`:
 
 ```bash
-$ blendertorcp --json --timeout -5 version
-# error.message: "argument --timeout: timeout must be 0 or a positive number of seconds"
+blendertorcp --json --timeout -5 version
 ```
 
-See [Output Format](#output-format) for exactly what each of `--json`,
-`--verbose`, and `--quiet` does to each stream.
+The envelope reports `error.message: "argument --timeout: timeout must be 0 or a positive number of seconds"`.
+
+See [Output format](#output-format) for exactly what each of `--json`, `--verbose`, and `--quiet` does to each stream.
 
 ---
 
@@ -127,8 +142,7 @@ blendertorcp version
 }
 ```
 
-`version` is the only command that does not need the addon to load, so it is the
-quickest way to check that `--blender` points at a working Blender.
+`version` is the only command that does not need the add-on to load, so it is the quickest way to check that `--blender` points at a working Blender.
 
 ---
 
@@ -161,8 +175,7 @@ blendertorcp info <file.blend>
 }
 ```
 
-`material_count` counts materials assigned to scene objects, not every material
-datablock in the file. Use `list-materials --unused` to see the rest.
+`material_count` counts materials assigned to scene objects, not every material datablock in the file. Use `list-materials --unused` to see the rest.
 
 ---
 
@@ -187,24 +200,36 @@ blendertorcp list-objects <file.blend> [options]
 | `--type <TYPE>` | Filter by object type. Repeatable. Matched case-insensitively |
 | `--selected` | Only list objects that are selected in the scene |
 
-`--type` takes Blender's own `Object.type` identifiers. On Blender 5.2 the
-complete set is:
+`--type` takes Blender's own `Object.type` identifiers. On Blender 5.2 the complete set is:
 
-`MESH`, `CURVE`, `SURFACE`, `META`, `FONT`, `CURVES`, `POINTCLOUD`, `VOLUME`,
-`GREASEPENCIL`, `ARMATURE`, `LATTICE`, `EMPTY`, `LIGHT`, `LIGHT_PROBE`,
-`CAMERA`, `SPEAKER`.
+`MESH`, `CURVE`, `SURFACE`, `META`, `FONT`, `CURVES`, `POINTCLOUD`, `VOLUME`, `GREASEPENCIL`, `ARMATURE`, `LATTICE`, `EMPTY`, `LIGHT`, `LIGHT_PROBE`, `CAMERA`, `SPEAKER`.
 
-Note `GREASEPENCIL` — the pre-4.3 spelling `GPENCIL` is not a Blender 5.2
-identifier. The filter is **not** validated: an identifier that does not exist
-simply matches nothing and the command still exits 0 with `[]`.
+Note `GREASEPENCIL` — the pre-4.3 spelling `GPENCIL` is not a Blender 5.2 identifier. The filter is **not** validated: an identifier that does not exist simply matches nothing, and the command still exits 0 with `[]`.
 
 **Examples:**
 
+List every object:
+
 ```bash
 blendertorcp list-objects scene.blend
+```
+
+List one type:
+
+```bash
 blendertorcp list-objects scene.blend --type MESH
+```
+
+Repeat `--type` to combine filters:
+
+```bash
 blendertorcp list-objects scene.blend --type MESH --type LIGHT
-blendertorcp list-objects scene.blend --type mesh          # case-insensitive
+```
+
+Matching is case-insensitive:
+
+```bash
+blendertorcp list-objects scene.blend --type mesh
 ```
 
 **Output:**
@@ -237,9 +262,7 @@ blendertorcp list-objects scene.blend --type mesh          # case-insensitive
 ]
 ```
 
-`vertices` is present only for `MESH` objects and `light_type` only for `LIGHT`
-objects; every other entry carries just `name`, `type`, `visible`, `selected`,
-and `materials`.
+`vertices` is present only for `MESH` objects and `light_type` only for `LIGHT` objects. Every other entry carries just `name`, `type`, `visible`, `selected`, and `materials`.
 
 ---
 
@@ -282,15 +305,13 @@ blendertorcp list-materials <file.blend> [options]
 ]
 ```
 
-Only materials that survived the last save are listed. Blender drops zero-user
-datablocks when a `.blend` is written, so an "unused" material shows up here
-only if it was given a fake user (the shield icon) before saving.
+Only materials that survived the last save are listed. Blender drops zero-user datablocks when a `.blend` is written, so an "unused" material shows up here only if it was given a fake user (the shield icon) before saving.
 
 ---
 
 ### `validate`
 
-Check materials with the same strict compatibility policy used by direct export. Reports errors that block export and informational warnings that do not.
+Check materials with the same strict compatibility policy used by direct export. The report contains errors that block export and informational warnings that do not.
 
 ```bash
 blendertorcp validate <file.blend> [options]
@@ -313,14 +334,31 @@ blendertorcp validate <file.blend> [options]
 
 **Examples:**
 
+Validate every scene material:
+
 ```bash
 blendertorcp validate scene.blend
+```
+
+Validate one material:
+
+```bash
 blendertorcp validate scene.blend --material "Wood"
+```
+
+Validate against a different surface profile for this run:
+
+```bash
 blendertorcp validate scene.blend --materialx-surface-profile realitykit_pbr2
+```
+
+Preview the normalization policy:
+
+```bash
 blendertorcp validate scene.blend --normalize-unsupported-values
 ```
 
-`realitykit_portable` is the production default. The PBR Surface 2 and OpenPBR profiles are experimental and should be selected only for a pinned, validated OS 27 toolchain.
+`realitykit_portable` is the production default. The PBR Surface 2 and OpenPBR profiles are experimental; select them only for a pinned, validated OS 27 toolchain.
 
 **Output:**
 
@@ -348,10 +386,7 @@ blendertorcp validate scene.blend --normalize-unsupported-values
 }
 ```
 
-`materialx_surface_profile` and `normalize_unsupported_values` echo the policy
-the run was validated under, so a captured report is self-describing.
-`--only-errors` drops the `warnings` arrays and the top-level `warning_count`
-key entirely rather than zeroing them.
+`materialx_surface_profile` and `normalize_unsupported_values` echo the policy the run was validated under, so a captured report is self-describing. `--only-errors` drops the `warnings` arrays and the top-level `warning_count` key entirely rather than zeroing them.
 
 **Exit codes:**
 
@@ -360,10 +395,7 @@ key entirely rather than zeroing them.
 | 0 | All materials are compatible |
 | 1 | One or more export-blocking errors found, **or** the run itself failed |
 
-A failing *validation* is not a failing *command*: `validate` still prints the
-report above on stdout and only the top-level `ok` field is `false`. There is no
-`error` object, and `--json` changes nothing about the shape. Distinguish the
-two cases by testing for the `error` key:
+A failing *validation* is not a failing *command*: `validate` still prints the report above on stdout and only the top-level `ok` field is `false`. There is no `error` object, and `--json` changes nothing about the shape. Distinguish the two cases by testing for the `error` key:
 
 ```bash
 blendertorcp --json validate scene.blend > report.json
@@ -376,12 +408,13 @@ else
 fi
 ```
 
-`--material <name>` with a name that is not in the file *is* a command failure
-(exit 1) and reports the generic `VALUEERROR` code with a Python traceback in
-the envelope, not a dedicated error code:
+`--material <name>` with a name that is not in the file *is* a command failure (exit 1). It reports the generic `VALUEERROR` code with a Python traceback in the envelope, not a dedicated error code:
 
 ```bash
-$ blendertorcp validate scene.blend --material NoSuchMat
+blendertorcp validate scene.blend --material NoSuchMat
+```
+
+```
 Error: Material not found: 'NoSuchMat'
 ```
 
@@ -408,14 +441,21 @@ blendertorcp settings get <file.blend> [options]
 | `--keys <key> [<key> ...]` | Return only these specific setting keys |
 | `--group <name>` | Return settings from a panel group: `general`, `geometry`, `rigging`, `texture`, `materials`, `bake`, `diagnostics`, or `all` (default) |
 
-`--keys` wins if both are given — `--group` is then ignored. An unknown key or
-group is a hard failure (exit 1):
+`--keys` wins if both are given — `--group` is then ignored. An unknown key or group is a hard failure (exit 1):
 
 ```bash
-$ blendertorcp settings get scene.blend --keys export_format nope_key
-Error: Unknown setting key(s): nope_key. Use 'settings list' to see valid keys.
+blendertorcp settings get scene.blend --keys export_format nope_key
+```
 
-$ blendertorcp settings get scene.blend --group bogus
+```
+Error: Unknown setting key(s): nope_key. Use 'settings list' to see valid keys.
+```
+
+```bash
+blendertorcp settings get scene.blend --group bogus
+```
+
+```
 Error: Unknown group: 'bogus'. Available: ['bake', 'diagnostics', 'general', 'geometry', 'materials', 'rigging', 'texture']
 ```
 
@@ -433,11 +473,29 @@ Error: Unknown group: 'bogus'. Available: ['bake', 'diagnostics', 'general', 'ge
 
 **Examples:**
 
+Read every setting:
+
 ```bash
 blendertorcp settings get scene.blend
+```
+
+Read one group:
+
+```bash
 blendertorcp settings get scene.blend --group bake
+```
+
+```bash
 blendertorcp settings get scene.blend --group texture
+```
+
+```bash
 blendertorcp settings get scene.blend --group materials
+```
+
+Read specific keys:
+
+```bash
 blendertorcp settings get scene.blend --keys export_format bake_resolution
 ```
 
@@ -450,8 +508,7 @@ blendertorcp settings get scene.blend --keys export_format bake_resolution
 }
 ```
 
-Values come back in their native JSON types — booleans as `true`/`false`,
-`bake_resolution` and the other enums as strings.
+Values come back in their native JSON types — booleans as `true`/`false`, `bake_resolution` and the other enums as strings.
 
 ---
 
@@ -479,23 +536,27 @@ blendertorcp settings set <file.blend> <key>=<value> [...] [options]
 
 > ### `--save` is required to change the file
 >
-> Every command runs in a short-lived `blender --background` worker. Without
-> `--save` the values are applied to that worker and discarded when it exits.
-> The command still exits 0 and still lists the keys under `updated`, so
-> `updated` alone is not evidence that anything was written — check `saved`.
-> Without `--save` the result carries `"saved": false` plus an explicit warning.
+> Every command runs in a short-lived `blender --background` worker. Without `--save`, the values are applied to that worker and discarded when it exits. The command still exits 0 and still lists the keys under `updated`, so `updated` alone is not evidence that anything was written — check `saved`. Without `--save`, the result carries `"saved": false` plus an explicit warning.
 
-Boolean `key=value` settings accept only `true`, `1`, or `yes` and `false`,
-`0`, or `no` (case-insensitive, with surrounding whitespace ignored). Other
-spellings such as `on`, `off`, or a typo fail with `INVALID_SETTING_VALUE`;
-they are never silently treated as false. The same contract applies to
-positional setting overrides for `export` and `bake-export`.
+Boolean `key=value` settings accept only `true`, `1`, or `yes` and `false`, `0`, or `no` (case-insensitive, with surrounding whitespace ignored). Other spellings such as `on`, `off`, or a typo fail with `INVALID_SETTING_VALUE`; they are never silently treated as false. The same contract applies to positional setting overrides for `export` and `bake-export`.
 
 **Examples:**
 
+Change one setting and save:
+
 ```bash
 blendertorcp settings set scene.blend export_format=USDZ --save
+```
+
+Change several settings at once:
+
+```bash
 blendertorcp settings set scene.blend export_texture_settings_enabled=true bake_resolution=4096 bake_image_format=PNG --save
+```
+
+Validate without writing:
+
+```bash
 blendertorcp settings set scene.blend triangulate_meshes=true quad_method=BEAUTY --dry-run
 ```
 
@@ -531,32 +592,31 @@ With `--dry-run`:
 }
 ```
 
-`--dry-run` implies "do not write" and takes precedence over `--save`. `valid`
-is only ever `true`: an unknown key or a rejected value is a command *failure*
-(exit 1) whether or not `--dry-run` was passed, so a `--dry-run` that exits 0 is
-the pass signal.
+`--dry-run` implies "do not write" and takes precedence over `--save`. `valid` is only ever `true`: an unknown key or a rejected value is a command *failure* (exit 1) whether or not `--dry-run` was passed, so a `--dry-run` that exits 0 is the pass signal.
 
 ```bash
-$ blendertorcp settings set scene.blend export_format=FOO --dry-run
-Error: Invalid setting value.                                    # exit 1
+blendertorcp settings set scene.blend export_format=FOO --dry-run
 ```
 
-Note that the plain-stderr message is only the summary line. The actionable
-part — which key, which value, which values were allowed — lives in
-`error.details` and is visible only with `--json`:
+```
+Error: Invalid setting value.
+```
+
+The plain-stderr message is only the summary line. The actionable part — which key, which value, which values were allowed — lives in `error.details` and is visible only with `--json`:
 
 ```bash
-$ blendertorcp --json settings set scene.blend export_animation=on
-# error.details[0].reason:
-#   "Invalid boolean value 'on' for 'export_animation'.
-#    Allowed true tokens: ['true', '1', 'yes']; allowed false tokens: ['false', '0', 'no']"
+blendertorcp --json settings set scene.blend export_animation=on
 ```
 
-**Error codes:** `INVALID_SETTING_FORMAT` (a token with no `=`, raised by the
-CLI before Blender starts), `INVALID_SETTING_OVERRIDE` (unknown or internal
-key), `INVALID_SETTING_VALUE` (value rejected for a known key),
-`SETTINGS_SAVE_FAILED` (`--save` given but the save was refused, or the
-`.blend` has no filepath).
+The envelope reports:
+
+```
+error.details[0].reason:
+  "Invalid boolean value 'on' for 'export_animation'.
+   Allowed true tokens: ['true', '1', 'yes']; allowed false tokens: ['false', '0', 'no']"
+```
+
+**Error codes:** `INVALID_SETTING_FORMAT` (a token with no `=`, raised by the CLI before Blender starts), `INVALID_SETTING_OVERRIDE` (unknown or internal key), `INVALID_SETTING_VALUE` (value rejected for a known key), `SETTINGS_SAVE_FAILED` (`--save` given but the save was refused, or the `.blend` has no filepath).
 
 ---
 
@@ -568,9 +628,7 @@ List all available setting keys with their types and allowed values.
 blendertorcp settings list
 ```
 
-This command takes no arguments and does not require a `.blend` file — it still
-spawns Blender, because the schema is read from the registered addon. It prints
-one record for each of the 40 export settings.
+This command takes no arguments and does not require a `.blend` file. It still spawns Blender, because the schema is read from the registered add-on. It prints one record for each of the 40 export settings.
 
 **Output** (abridged):
 
@@ -601,10 +659,7 @@ one record for each of the 40 export settings.
 ]
 ```
 
-`type` is one of `BOOLEAN`, `INT`, `FLOAT`, `STRING`, or `ENUM` (upper case).
-`values` is present only for `ENUM`. `group` matches the `--group` names used
-by `settings get`. This command is the authoritative list of setting keys —
-prefer it over any table in the docs.
+`type` is one of `BOOLEAN`, `INT`, `FLOAT`, `STRING`, or `ENUM` (upper case). `values` is present only for `ENUM`. `group` matches the `--group` names used by `settings get`. This command is the authoritative list of setting keys — prefer it over any table in the docs.
 
 ---
 
@@ -632,73 +687,85 @@ blendertorcp export <file.blend> [setting=value ...] -o <output_path> [options]
 | `--diagnostics` | Keep `<output>.diagnostics.json` after a successful export |
 | `--no-diagnostics` | Do not keep success diagnostics, even if enabled by settings. Failures still write diagnostics |
 
-If both `--diagnostics` and `--no-diagnostics` are given, `--no-diagnostics`
-wins.
+If both `--diagnostics` and `--no-diagnostics` are given, `--no-diagnostics` wins.
 
 #### The format decides the extension, not `-o`
 
-`-o` names the output *stem*. The exporter then forces the extension that
-matches the effective format — `--format` if given, otherwise the `.blend`'s
-saved `export_format` setting. Passing an extension that disagrees does not
-change the format and does not warn; the extension is simply rewritten:
+`-o` names the output *stem*. The exporter then forces the extension that matches the effective format — `--format` if given, otherwise the `.blend`'s saved `export_format` setting. Passing an extension that disagrees does not change the format and does not warn; the extension is simply rewritten.
+
+For example, with `export_format=USDA` saved in the scene (the default):
 
 ```bash
-# scene.blend has export_format=USDA (the default)
-$ blendertorcp export scene.blend -o /output/scene.usdz
-  "export_path": "/output/scene.usda",
-  "format": "USDA",
+blendertorcp export scene.blend -o /output/scene.usdz
 ```
 
-Extension replacement is applied to the last dot in the name, so a versioned
-stem loses its suffix:
+The result reports:
+
+```
+"export_path": "/output/scene.usda",
+"format": "USDA",
+```
+
+Extension replacement is applied to the last dot in the name, so a versioned stem loses its suffix:
 
 ```bash
-$ blendertorcp export scene.blend -o /output/my.scene.v2
-  "export_path": "/output/my.scene.usda",
+blendertorcp export scene.blend -o /output/my.scene.v2
 ```
 
-Pass `--format` (or set `export_format`) whenever the format matters, and read
-`export_path` from the result rather than assuming the path you passed.
+```
+"export_path": "/output/my.scene.usda",
+```
+
+Pass `--format` (or set `export_format`) whenever the format matters, and read `export_path` from the result rather than assuming the path you passed.
 
 #### Positional `key=value` overrides
 
-Any key from `settings list` can be passed as a positional `key=value` token.
-Overrides apply to this run only and never modify the `.blend`.
+Any key from `settings list` can be passed as a positional `key=value` token. Overrides apply to this run only and never modify the `.blend`.
 
-Both spellings of a key are accepted — hyphens are folded to underscores before
-lookup, so `bake-resolution=1024` and `bake_resolution=1024` are the same
-override. Values are **not** transformed: enum values keep their exact spelling
-and case.
+Both spellings of a key are accepted — hyphens are folded to underscores before lookup, so `bake-resolution=1024` and `bake_resolution=1024` are the same override. Values are **not** transformed: enum values keep their exact spelling and case.
 
-**Argument order:** `<file.blend>` and the override tokens are positionals, and
-argparse needs them as one uninterrupted run. Flags may come before or after
-that run, but never inside it.
+**Argument order:** `<file.blend>` and the override tokens are positionals, and argparse needs them as one uninterrupted run. Flags may come before or after that run, but never inside it.
+
+Blend file, then overrides, with flags afterwards:
 
 ```bash
-# OK — blend file then overrides, flags afterwards
 blendertorcp export scene.blend export-animation=true triangulate_meshes=true \
   -o out.usda --format USDA
-
-# OK — flags first, then the positional run
-blendertorcp export --selected-only scene.blend export-animation=true -o out.usda
-blendertorcp export -o out.usda scene.blend export-animation=true
-
-# FAILS — a flag splits the positional run
-$ blendertorcp export scene.blend -o out.usda export-animation=true
-Error: unrecognized arguments: export-animation=true      # exit 1
 ```
 
-A token with no `=` is rejected by the CLI before Blender starts, with
-`INVALID_OVERRIDE`. An unknown key is rejected by Blender with
-`INVALID_SETTING_OVERRIDE`, and a bad value with `INVALID_SETTING_VALUE` —
-both list the offending key in `error.details` when `--json` is used:
+Flags first, then the positional run:
 
 ```bash
-$ blendertorcp --json export scene.blend bake-resolution=true -o out.usda
-# error.code:    "INVALID_SETTING_VALUE"
-# error.details[0].reason:
-#   "Invalid value 'true' for 'bake_resolution'.
-#    Allowed: ['1024', '2048', '4096', '512', 'CUSTOM', 'ORIGINAL']"
+blendertorcp export --selected-only scene.blend export-animation=true -o out.usda
+```
+
+```bash
+blendertorcp export -o out.usda scene.blend export-animation=true
+```
+
+A flag inside the positional run fails:
+
+```bash
+blendertorcp export scene.blend -o out.usda export-animation=true
+```
+
+```
+Error: unrecognized arguments: export-animation=true
+```
+
+A token with no `=` is rejected by the CLI before Blender starts, with `INVALID_OVERRIDE`. An unknown key is rejected by Blender with `INVALID_SETTING_OVERRIDE`, and a bad value with `INVALID_SETTING_VALUE` — both list the offending key in `error.details` when `--json` is used:
+
+```bash
+blendertorcp --json export scene.blend bake-resolution=true -o out.usda
+```
+
+The envelope reports:
+
+```
+error.code:    "INVALID_SETTING_VALUE"
+error.details[0].reason:
+  "Invalid value 'true' for 'bake_resolution'.
+   Allowed: ['1024', '2048', '4096', '512', 'CUSTOM', 'ORIGINAL']"
 ```
 
 A worked example that runs as written:
@@ -717,26 +784,31 @@ blendertorcp export scene.blend \
 
 **Examples:**
 
-```bash
-# Simple USDZ export
-blendertorcp export scene.blend -o /output/scene.usdz --format USDZ
+Simple USDZ export:
 
-# Export with overrides
+```bash
+blendertorcp export scene.blend -o /output/scene.usdz --format USDZ
+```
+
+Export with overrides:
+
+```bash
 blendertorcp export scene.blend \
   export-animation=true \
   -o /output/scene.usda \
   --format USDA \
   --selected-only
+```
 
-# Experimental RCP3 private package plus its adjacent USDA source
+Experimental RCP 3 private package plus its adjacent USDA source:
+
+```bash
 blendertorcp export scene.blend \
   -o /output/scene.import \
   --format RCP_IMPORT
 ```
 
-Every export uses the non-configurable Apple spatial contract: Blender's
-native orientation conversion, `-Z` forward, `Y` up, meters at
-`metersPerUnit=1`, relative dependencies, and mesh/UV/normal export.
+Every export uses the non-configurable Apple spatial contract: Blender's native orientation conversion, `-Z` forward, `Y` up, meters at `metersPerUnit=1`, relative dependencies, and mesh/UV/normal export.
 
 **Output:**
 
@@ -751,9 +823,7 @@ native orientation conversion, `-Z` forward, `Y` up, meters at
 }
 ```
 
-`diagnostics_path` is `null` unless success diagnostics were retained. For
-`RCP_IMPORT`, `export_path` is the `.import` directory and the post-processed
-`.usda` is published beside it.
+`diagnostics_path` is `null` unless success diagnostics were retained. For `RCP_IMPORT`, `export_path` is the `.import` directory and the post-processed `.usda` is published beside it.
 
 **Exit codes:**
 
@@ -780,13 +850,17 @@ native orientation conversion, `-Z` forward, `Y` up, meters at
 | `POSTPROCESS_FAILED` | Blender | USD post-processing failed |
 | `EXPORT_FAILED` | Blender | Catch-all for anything else in the export stage |
 
-`RCP_IMPORT_EXISTS` is a deliberate refusal, not a crash — remove or rename the
-existing directory and rerun:
+`RCP_IMPORT_EXISTS` is a deliberate refusal, not a crash — remove or rename the existing directory and rerun:
 
 ```bash
-$ blendertorcp --json export scene.blend -o /output/pkg.import --format RCP_IMPORT
-# error.code:    "RCP_IMPORT_EXISTS"
-# error.message: "Refusing to overwrite existing .import directory: /output/pkg.import"
+blendertorcp --json export scene.blend -o /output/pkg.import --format RCP_IMPORT
+```
+
+The envelope reports:
+
+```
+error.code:    "RCP_IMPORT_EXISTS"
+error.message: "Refusing to overwrite existing .import directory: /output/pkg.import"
 ```
 
 ---
@@ -795,7 +869,7 @@ $ blendertorcp --json export scene.blend -o /output/pkg.import --format RCP_IMPO
 
 Bake textures and export the scene. The Blender UI reaches this command through its single Export button whenever the selected material type and profile options require baking.
 
-Which option should I choose?
+Choose a bake mode by goal:
 
 | Goal | Use |
 |------|-----|
@@ -804,9 +878,11 @@ Which option should I choose?
 | Export unlit material color | `bake-export --bake-mode UNLIT_ALBEDO` / `RealityKit Unlit` → `Material Color Only` |
 | Preserve Blender lighting and shadows | `bake-export --bake-mode LIT_IBL` / `RealityKit Unlit` → `Lighting & Shadows` |
 
-All three bake modes bake material color or lighting into the texture. `UNLIT_ALBEDO` and `LIT_IBL` export the final result as RealityKit Unlit materials; `LIT_ALBEDO` exports Lit PBR materials so Reality Composer Pro or RealityKit lights the baked color.
+All three bake modes bake material color or lighting into the texture. `UNLIT_ALBEDO` and `LIT_IBL` export the final result as RealityKit Unlit materials. `LIT_ALBEDO` exports Lit PBR materials, so Reality Composer Pro or RealityKit lights the baked color.
 
-Bake/export preflights external dependencies used by the dependency-closed export scope, including collection prototypes, material and Geometry Nodes images, classic modifier textures, linked libraries, caches, Scene World lighting when active, and an explicit bake HDRI. Missing unpacked images fail with `MISSING_EXTERNAL_TEXTURES`; any missing non-image dependency fails with `MISSING_EXTERNAL_ASSETS`. Pack or relink textures, and relink libraries or caches, before retrying. Bake/export intentionally skips source material graph validation because unsupported Blender node groups are resolved by baking. Strict graph validation remains part of `blendertorcp export` and `blendertorcp validate`.
+Before baking, the command preflights the external dependencies used by the dependency-closed export scope: collection prototypes, material and Geometry Nodes images, classic modifier textures, linked libraries, caches, Scene World lighting when active, and an explicit bake HDRI. Missing unpacked images fail with `MISSING_EXTERNAL_TEXTURES`; any missing non-image dependency fails with `MISSING_EXTERNAL_ASSETS`. Pack or relink textures, and relink libraries or caches, before retrying.
+
+`bake-export` intentionally skips source material-graph validation, because baking is what resolves unsupported Blender node groups. Strict graph validation remains part of `blendertorcp export` and `blendertorcp validate`.
 
 ```bash
 blendertorcp bake-export <file.blend> -o <output_path> [options]
@@ -855,121 +931,127 @@ blendertorcp bake-export <file.blend> -o <output_path> [options]
 |------|---------|-------------|
 | `--keep-materials` | off | Keep baked materials assigned after export |
 | `--roughness-mode <MODE>` | `TEXTURE` | LIT_ALBEDO roughness output: `TEXTURE` (full map) or `AVERAGE` (constant) |
-| `--step-timeout <SEC>` | `0` (disabled) | Per-step worker timeout. Each bake, USD export, post-process, package, and cleanup step gets this budget independently. The CLI always emits a structured timeout error and failure diagnostics; UI background jobs also persist terminal status. For the whole Blender process use global `--timeout` |
+| `--step-timeout <SEC>` | `0` (disabled) | Per-step worker timeout. Each bake, USD export, post-process, package, and cleanup step gets this budget independently. The CLI always emits a structured timeout error and failure diagnostics; UI background jobs also persist terminal status. For the whole Blender process, use the global `--timeout` |
 
-`bake-export` also accepts positional `key=value` overrides on exactly the same
-terms as [`export`](#positional-keyvalue-overrides), and `-o` names a stem whose
-extension is rewritten to match the effective format in exactly the same way.
-`--roughness-mode` is sugar for the `bake_roughness_mode` override.
+`bake-export` also accepts positional `key=value` overrides on exactly the same terms as [`export`](#positional-keyvalue-overrides), and `-o` names a stem whose extension is rewritten to match the effective format in exactly the same way. `--roughness-mode` is shorthand for the `bake_roughness_mode` override.
 
-`--resolution` is not constrained by argparse — anything that is not
-`ORIGINAL` (or its alias `KEEP_ORIGINAL`) or one of `512`/`1024`/`2048`/`4096`
-is parsed as a custom integer. A non-numeric value therefore fails inside
-Blender with `INVALID_SETTING_OVERRIDE`, not `INVALID_SETTING_VALUE`:
+`--resolution` is not constrained by argparse — anything that is not `ORIGINAL` (or its alias `KEEP_ORIGINAL`) or one of `512`/`1024`/`2048`/`4096` is parsed as a custom integer. A non-numeric value therefore fails inside Blender with `INVALID_SETTING_OVERRIDE`, not `INVALID_SETTING_VALUE`:
 
 ```bash
-$ blendertorcp --json bake-export scene.blend -o out.usdz --format USDZ --resolution abc
-# error.code:              "INVALID_SETTING_OVERRIDE"
-# error.details[0].reason: "invalid literal for int() with base 10: 'abc'"
+blendertorcp --json bake-export scene.blend -o out.usdz --format USDZ --resolution abc
 ```
 
-`--step-timeout` and the global `--timeout` are different budgets and produce
-different errors. A step timeout terminates the Blender worker (which exits
-`124`) and surfaces as a structured `BAKE_STEP_TIMEOUT` error naming the step;
-the CLI process still exits `1`:
+The envelope reports:
+
+```
+error.code:              "INVALID_SETTING_OVERRIDE"
+error.details[0].reason: "invalid literal for int() with base 10: 'abc'"
+```
+
+`--step-timeout` and the global `--timeout` are different budgets and produce different errors. A step timeout terminates the Blender worker (which exits `124`) and surfaces as a structured `BAKE_STEP_TIMEOUT` error naming the step; the CLI process still exits `1`:
 
 ```bash
-$ blendertorcp --json bake-export scene.blend -o /output/scene.usdz \
+blendertorcp --json bake-export scene.blend -o /output/scene.usdz \
     --resolution 4096 --step-timeout 1
-# error.code:    "BAKE_STEP_TIMEOUT"
-# error.stage:   "Step 1/1 - Baking lighting and shadows [1/1] - Cube"
-# error.details: {"timeout_seconds": 1, "elapsed_seconds": 1.02}
-# context.returncode: 124        <- Blender's exit code, not the CLI's
 ```
 
-A global `--timeout` expiry kills Blender before it can report anything, so
-there is no diagnostics sidecar and no stage — only `BLENDER_TIMEOUT`, also
-exit `1`.
+The envelope reports:
+
+```
+error.code:    "BAKE_STEP_TIMEOUT"
+error.stage:   "Step 1/1 - Baking lighting and shadows [1/1] - Cube"
+error.details: {"timeout_seconds": 1, "elapsed_seconds": 1.02}
+context.returncode: 124        <- Blender's exit code, not the CLI's
+```
+
+A global `--timeout` expiry kills Blender before it can report anything, so there is no diagnostics sidecar and no stage — only `BLENDER_TIMEOUT`, also exit `1`.
 
 **Examples:**
 
-Pass `--format` in every example below that names a `.usdz` output: without it
-the format comes from the `.blend`'s `export_format` setting, and a scene left
-at the `USDA` default silently writes `scene.usda` instead.
+Pass `--format` in every example below that names a `.usdz` output: without it, the format comes from the `.blend`'s `export_format` setting, and a scene left at the `USDA` default silently writes `scene.usda` instead.
+
+Lighting & Shadows bake at default settings:
 
 ```bash
-# Lighting & Shadows bake at default settings
 blendertorcp bake-export scene.blend -o /output/scene.usdz --format USDZ
+```
 
-# Material Color Only - Unlit bake
+Material Color Only - Unlit bake:
+
+```bash
 blendertorcp bake-export scene.blend -o /output/scene.usdz --format USDZ \
   --bake-mode UNLIT_ALBEDO
+```
 
-# Material Color Only - Lit PBR bake (RealityKit lights the baked color)
+Material Color Only - Lit PBR bake (RealityKit lights the baked color):
+
+```bash
 blendertorcp bake-export scene.blend -o /output/scene.usdz --format USDZ \
   --bake-mode LIT_ALBEDO \
   --roughness-mode AVERAGE
+```
 
-# High-res bake with PNG textures
+High-resolution bake with PNG textures:
+
+```bash
 blendertorcp bake-export scene.blend -o /output/scene.usdz --format USDZ \
   --resolution 4096 \
   --image-format PNG \
   --margin 4
+```
 
-# Experimental RCP3 private package plus its adjacent USDA source
+Experimental RCP 3 private package plus its adjacent USDA source:
+
+```bash
 blendertorcp bake-export scene.blend -o /output/scene.import \
   --format RCP_IMPORT \
   --bake-mode LIT_IBL
+```
 
-# Lighting & Shadows bake with custom HDRI
+Lighting & Shadows bake with a custom HDRI:
+
+```bash
 blendertorcp bake-export scene.blend -o /output/scene.usdz --format USDZ \
   --ibl-source HDRI_FILE \
   --ibl-filepath /hdris/studio.hdr \
   --ibl-strength 1.5 \
   --ibl-rotation 0.785 \
   --isolate-meshes
+```
 
-# Skip the opacity channel and keep the baked materials in the session
+Skip the opacity channel and keep the baked materials in the session:
+
+```bash
 blendertorcp bake-export scene.blend -o /output/scene.usdz --format USDZ \
   --resolution 512 \
   --no-opacity \
   --keep-materials
+```
 
-# Bake only selected objects at low resolution for preview
+Bake only selected objects at low resolution for preview:
+
+```bash
 blendertorcp bake-export scene.blend -o /tmp/preview.usdz --format USDZ \
   --resolution 512 \
   --selected-only
+```
 
-# Allow up to 15 minutes overall, but stop an individual stalled step after 5 minutes
+Allow up to 15 minutes overall, but stop an individual stalled step after 5 minutes:
+
+```bash
 blendertorcp --timeout 900 bake-export scene.blend -o /output/scene.usdz --format USDZ \
   --step-timeout 300
 ```
 
 **Output:**
 
-For `RCP_IMPORT`, the output path is a directory and the command also publishes
-the post-processed `.usda` source beside it. This lane is pinned to RCP 3.0
-build `80.0.1.500.1`. Static scenes may contain multiple mesh objects and
-shared materials. Single- or multi-mesh skeletal inputs are structurally
-generated only when every mesh shares the measured rig, skeleton, and
-animation contract; the multi-mesh skeletal lane still needs its own RCP
-reimport and Sequence Editor acceptance.
+For `RCP_IMPORT`, the output path is a directory and the command also publishes the post-processed `.usda` source beside it. This lane is pinned to RCP 3.0 build `80.0.1.500.1`. Its current limits:
 
-A USD mesh with multiple face materials is currently split into one generated
-RCP mesh resource per material. That representation preserves faces, UVs,
-normals, skin weights, and material appearance, opens and renders in RCP, and
-passes public RealityKit source-runtime checks. It is not RCP-compatible yet:
-the second genuine reimport duplicates resources and RCP authors a different
-combined descriptor with nested `subsets`. The next writer must use the
-measured one-descriptor subset representation documented in
-[`RCP_IMPORT_MULTI_MATERIAL_MESH.md`](RCP_IMPORT_MULTI_MATERIAL_MESH.md), then
-pass two non-growing reimports.
-
-Baked RGBA base color (including merged opacity) is supported per material for
-all three bake modes; `LIT_ALBEDO` also supports each material's baked
-roughness map. Normal, metallic, occlusion, and independent opacity texture
-records remain unsupported. Multi-mesh transform animation and mixed rig or
-skeleton contracts fail closed.
+- Static scenes may contain multiple mesh objects and shared materials.
+- Single- or multi-mesh skeletal inputs are structurally generated only when every mesh shares the same rig, skeleton, and animation contract. The multi-mesh skeletal lane has not yet been verified through Reality Composer Pro reimport and Sequence Editor playback.
+- A USD mesh with multiple face materials is currently split into one generated RCP mesh resource per material. That representation preserves faces, UVs, normals, skin weights, and material appearance; opens and renders in Reality Composer Pro; and passes public RealityKit source-runtime checks. It is not RCP-compatible yet: a second genuine reimport duplicates resources, because Reality Composer Pro itself authors a different combined descriptor with nested `subsets`. The single-descriptor subset representation the writer needs to adopt is documented in [`RCP_IMPORT_MULTI_MATERIAL_MESH.md`](RCP_IMPORT_MULTI_MATERIAL_MESH.md); the acceptance bar is two reimports that do not grow the project.
+- Baked RGBA base color (including merged opacity) is supported per material for all three bake modes; `LIT_ALBEDO` also supports each material's baked roughness map. Normal, metallic, occlusion, and independent opacity texture records remain unsupported.
+- Multi-mesh transform animation and mixed rig or skeleton contracts fail closed.
 
 ```json
 {
@@ -987,9 +1069,7 @@ skeleton contracts fail closed.
 }
 ```
 
-`bake_stats` is present only on `bake-export` results. `resolution` is reported
-as an integer even though `--resolution` accepts the `ORIGINAL`/`512`/… enum
-spellings.
+`bake_stats` is present only on `bake-export` results. `resolution` is reported as an integer even though `--resolution` accepts the `ORIGINAL`/`512`/… enum spellings.
 
 **Exit codes:**
 
@@ -1017,9 +1097,7 @@ spellings.
 | `POSTPROCESS_FAILED` | USD post-processing failed |
 | `BAKE_EXPORT_FAILED` | Catch-all for anything else in the bake/export stage |
 
-Unlike `export`, `bake-export` never emits `UNSUPPORTED_MATERIAL_NODES` — it
-skips strict material-graph validation on purpose, because baking is what
-resolves unsupported node groups.
+Unlike `export`, `bake-export` never emits `UNSUPPORTED_MATERIAL_NODES` — it skips strict material-graph validation on purpose, because baking is what resolves unsupported node groups.
 
 ---
 
@@ -1031,7 +1109,7 @@ Create a redacted ZIP with the files support needs to diagnose an export or bake
 blendertorcp support-bundle <file.blend> [options]
 ```
 
-Support bundles include `diagnostics/assets.json` for missing external image dependencies. `diagnostics/validate.json` is included for `Export Scene` failures, but omitted for Bake Textures & Export jobs because baking does not require the source material graph to be RealityKit-compatible.
+Support bundles include `diagnostics/assets.json` for missing external image dependencies. `diagnostics/validate.json` is included for `Export Scene` failures, but omitted for Bake Textures & Export jobs, because baking does not require the source material graph to be RealityKit-compatible.
 
 **Options:**
 
@@ -1046,8 +1124,7 @@ Support bundles include `diagnostics/assets.json` for missing external image dep
 | `--full-log` | Include full redacted logs instead of the last 2000 lines |
 | `--no-redact` | Disable redaction |
 
-The `.blend` file is the only required argument; every other input is optional
-and the command succeeds with whatever it was given.
+The `.blend` file is the only required argument; every other input is optional, and the command succeeds with whatever it was given.
 
 By default, bundles redact absolute paths, including JSON-escaped Windows path strings, and do not include the source `.blend` or exported assets. The default ZIP name is `BlenderToRCP-support-<blend-stem>-<YYYYMMDD-HHMMSS>.zip`, written next to `--output` when given.
 
@@ -1065,8 +1142,7 @@ By default, bundles redact absolute paths, including JSON-escaped Windows path s
 
 Without `--json` or `--quiet`, the resolved ZIP path is also echoed to stderr.
 
-Note that `--diagnostics` here **takes a path**, unlike the boolean
-`--diagnostics` switch on `export` and `bake-export`.
+Note that `--diagnostics` here **takes a path**, unlike the boolean `--diagnostics` switch on `export` and `bake-export`:
 
 ```bash
 blendertorcp support-bundle scene.blend \
@@ -1086,7 +1162,7 @@ blendertorcp support-bundle scene.blend \
 
 ### `preferences get`
 
-Read addon-level preferences.
+Read add-on-level preferences.
 
 ```bash
 blendertorcp preferences get
@@ -1104,7 +1180,7 @@ blendertorcp preferences get
 
 ### `preferences set`
 
-Modify addon-level preferences.
+Modify add-on-level preferences.
 
 ```bash
 blendertorcp preferences set <key>=<value> [...]
@@ -1118,10 +1194,15 @@ blendertorcp preferences set <key>=<value> [...]
 
 **Examples:**
 
+Set a preference:
+
 ```bash
 blendertorcp preferences set usdzip_path=/opt/usd/bin/usdzip
+```
 
-# Clear a preference by assigning an empty value
+Clear a preference by assigning an empty value:
+
+```bash
 blendertorcp preferences set usdzip_path=
 ```
 
@@ -1133,45 +1214,35 @@ blendertorcp preferences set usdzip_path=
 }
 ```
 
-> **`preferences set` writes immediately — there is no `--save` and no
-> `--dry-run`.** Unlike `settings set`, which needs `--save` to touch the
-> `.blend`, this command calls Blender's *Save Preferences* on your real user
-> preferences file before returning. The change is global to your Blender
-> install and survives the process. Re-read with `preferences get` to confirm,
-> and re-run with the previous value to undo.
+> **`preferences set` writes immediately — there is no `--save` and no `--dry-run`.** Unlike `settings set`, which needs `--save` to touch the `.blend`, this command calls Blender's *Save Preferences* on your real user preferences file before returning. The change is global to your Blender install and survives the process. Re-read with `preferences get` to confirm, and re-run with the previous value to undo.
 
-An unknown key aborts the whole call before anything is saved, and reports the
-generic `VALUEERROR` code:
+An unknown key aborts the whole call before anything is saved, and reports the generic `VALUEERROR` code:
 
 ```bash
-$ blendertorcp preferences set bogus_key=1
+blendertorcp preferences set bogus_key=1
+```
+
+```
 Error: Unknown preference key: 'bogus_key'. Available: ['usdzip_path']
 ```
 
 ---
 
-## Setting Keys
+## Setting keys
 
-Every export setting can be read with `settings get`, written with
-`settings set`, or applied to a single run as a positional `key=value` override
-on `export` and `bake-export`.
+Every export setting can be read with `settings get`, written with `settings set`, or applied to a single run as a positional `key=value` override on `export` and `bake-export`.
 
-**`settings list` is the authoritative reference.** It prints the live schema —
-key, type, allowed values, default, and group — straight out of the registered
-addon, so it can never drift from the build you are running:
+**`settings list` is the authoritative reference.** It prints the live schema — key, type, allowed values, default, and group — straight out of the registered add-on, so it can never drift from the build you are running:
 
 ```bash
 blendertorcp settings list | jq '.[] | select(.group == "bake")'
 ```
 
-For prose describing what each setting *means*, see
-[`SETTINGS.md`](SETTINGS.md). This page covers only how settings reach the
-command line.
+For prose describing what each setting *means*, see [`SETTINGS.md`](SETTINGS.md). This page covers only how settings reach the command line.
 
 ### Value syntax on the command line
 
-Everything on the command line arrives as a string and is coerced by the
-setting's declared type.
+Everything on the command line arrives as a string and is coerced by the setting's declared type.
 
 | Type | Accepted spelling |
 |------|-------------------|
@@ -1180,14 +1251,11 @@ setting's declared type.
 | `INT`, `FLOAT` | A plain number |
 | `STRING` | Taken literally; quote it if it contains spaces |
 
-A rejected value is a hard failure (exit 1, `INVALID_SETTING_VALUE`) — a
-booleanish typo is never silently read as `false`. Key names accept hyphens or
-underscores interchangeably; values never do.
+A rejected value is a hard failure (exit 1, `INVALID_SETTING_VALUE`) — a booleanish typo is never silently read as `false`. Key names accept hyphens or underscores interchangeably; values never do.
 
 ### Groups
 
-`settings get --group <name>` accepts `all` (the default) plus the seven
-groups below. They match the panel layout in the Blender UI.
+`settings get --group <name>` accepts `all` (the default) plus the seven groups below. They match the panel layout in the Blender UI.
 
 | Group | Settings |
 |-------|----------|
@@ -1201,8 +1269,7 @@ groups below. They match the panel layout in the Blender UI.
 
 ### Settings with a dedicated flag
 
-Some settings have a flag on `export` or `bake-export`. The flag and the
-override are two routes to the same value; use whichever reads better.
+Some settings have a flag on `export` or `bake-export`. The flag and the override are two routes to the same value; use whichever reads better.
 
 | Flag | Equivalent setting |
 |------|--------------------|
@@ -1222,9 +1289,7 @@ override are two routes to the same value; use whichever reads better.
 | `--materialx-surface-profile` (`validate`) | `materialx_surface_profile` |
 | `--normalize-unsupported-values` (`validate`) | `normalize_unsupported_values` |
 
-`--resolution`, `--image-format`, and `--margin` also switch
-`export_texture_settings_enabled` on for the run — that is why they work on a
-scene where texture overrides are off.
+`--resolution`, `--image-format`, and `--margin` also switch `export_texture_settings_enabled` on for the run — that is why they work on a scene where texture overrides are off.
 
 `validate` has no flag for the rest; use overrides on `export` instead:
 
@@ -1234,11 +1299,7 @@ blendertorcp export scene.blend normalize-unsupported-values=true -o scene.usdc 
 
 ### Diagnostics sidecars
 
-Failures **always** write `<output>.diagnostics.json`, including failures
-rejected before any geometry is touched (a bad override, `RCP_IMPORT_EXISTS`).
-`diagnostics_enabled`, `--diagnostics`, and `--no-diagnostics` only decide
-whether a *successful* run keeps its sidecar, and `--no-diagnostics` wins if
-both flags are passed.
+Failures **always** write `<output>.diagnostics.json`, including failures rejected before any geometry is touched (a bad override, `RCP_IMPORT_EXISTS`). `diagnostics_enabled`, `--diagnostics`, and `--no-diagnostics` only decide whether a *successful* run keeps its sidecar, and `--no-diagnostics` wins if both flags are passed.
 
 ### Bake mode names
 
@@ -1250,32 +1311,19 @@ The `--bake-mode` / `bake_mode` identifiers map to these Blender UI labels:
 | `LIT_ALBEDO` | Material Color Only - Lit PBR |
 | `LIT_IBL` | Lighting & Shadows |
 
-`bake_roughness_mode` applies to `LIT_ALBEDO` only: `TEXTURE` bakes a per-texel
-roughness map, `AVERAGE` uses one averaged constant and exports no roughness
-texture.
+`bake_roughness_mode` applies to `LIT_ALBEDO` only: `TEXTURE` bakes a per-texel roughness map, `AVERAGE` uses one averaged constant and exports no roughness texture.
 
 ### Materials profiles
 
-`realitykit_portable` is the verified default for current RealityKit and
-Reality Composer Pro workflows. `realitykit_pbr2` (PBR Surface 2) and
-`openpbr_1_1` (OpenPBR 1.1 / MaterialX 1.39) are experimental OS 27 profiles;
-opt into them only when the target Apple toolchain and runtime have been
-validated for the asset. The exporter does not weaken USDZ validation for
-experimental profiles.
+`realitykit_portable` is the verified default for current RealityKit and Reality Composer Pro workflows. `realitykit_pbr2` (PBR Surface 2) and `openpbr_1_1` (OpenPBR 1.1 / MaterialX 1.39) are experimental OS 27 profiles; opt into them only when the target Apple toolchain and runtime have been validated for the asset. The exporter does not weaken USDZ validation for experimental profiles.
 
-`normalize_unsupported_values=false` preserves the fail-closed default. When
-enabled, the exporter may clamp only an unlinked constant achromatic Principled
-`Specular Tint` above `1` to `[1, 1, 1]` in temporary export data. It emits a
-prominent warning and does not assign to the Blender node or save the `.blend`.
-Colored, linked, negative, non-finite, and other unsupported values remain
-errors.
+`normalize_unsupported_values=false` preserves the fail-closed default. When enabled, the exporter may clamp only an unlinked constant achromatic Principled `Specular Tint` above `1` to `[1, 1, 1]` in temporary export data. It emits a prominent warning and does not assign to the Blender node or save the `.blend`. Colored, linked, negative, non-finite, and other unsupported values remain errors.
 
 ---
 
-## Exit Codes
+## Exit codes
 
-These four codes plus `0` are the complete set the CLI can return. There is no
-`124` and no `4`+.
+These four codes plus `0` are the complete set the CLI can return. There is no `124` and no `4`+.
 
 | Code | Meaning | Reached by |
 |------|---------|-----------|
@@ -1287,23 +1335,21 @@ These four codes plus `0` are the complete set the CLI can return. There is no
 
 `--help` exits `0`, like any other successful command.
 
-Worth knowing what is **not** distinguished by exit code:
+Three things are **not** distinguished by exit code:
 
-- A timeout is exit `1`, not `124`. When `--step-timeout` fires, the *Blender
-  worker* exits `124`; that value surfaces only as `context.returncode` inside
-  the envelope. The CLI process itself still returns `1`.
-- A `validate` run that finds material errors is exit `1`, the same as a
-  `validate` run that could not execute at all. Test for the `error` key to
-  tell them apart — see [`validate`](#validate).
-- Bad arguments are exit `1`, not the conventional argparse `2`. `2` is
-  reserved for "Blender did not start".
+- A timeout is exit `1`, not `124`. When `--step-timeout` fires, the *Blender worker* exits `124`; that value surfaces only as `context.returncode` inside the envelope. The CLI process itself still returns `1`.
+- A `validate` run that finds material errors is exit `1`, the same as a `validate` run that could not execute at all. Test for the `error` key to tell them apart — see [`validate`](#validate).
+- Bad arguments are exit `1`, not the conventional argparse `2`. `2` is reserved for "Blender did not start".
 
-Exit code 130 is produced for a Ctrl-C at any point, including while Blender is
-mid-bake:
+Exit code 130 is produced for a Ctrl-C at any point, including while Blender is mid-bake. For example, interrupting this command:
 
 ```bash
-$ blendertorcp --json bake-export scene.blend -o out.usdz --format USDZ
-^C
+blendertorcp --json bake-export scene.blend -o out.usdz --format USDZ
+```
+
+prints this envelope on stdout:
+
+```json
 {
   "ok": false,
   "schema_version": "1.0",
@@ -1318,15 +1364,13 @@ $ blendertorcp --json bake-export scene.blend -o out.usdz --format USDZ
 }
 ```
 
-Without `--json` the same interrupt prints `Aborted.` to stderr and nothing to
-stdout.
+Without `--json`, the same interrupt prints `Aborted.` to stderr and nothing to stdout.
 
 ---
 
-## Error Codes
+## Error codes
 
-`error.code` is the stable machine-readable identifier; `error.message` is not.
-Branch on the code.
+`error.code` is the stable machine-readable identifier; `error.message` is not. Branch on the code.
 
 **Raised by the CLI, before Blender starts** (no `context`, no `artifacts`):
 
@@ -1364,38 +1408,24 @@ Branch on the code.
 | `EXPORT_FAILED` | `export` |
 | `BAKE_EXPORT_FAILED` | `bake-export` |
 
-`COMMAND_FAILED` is the fallback code for a structured error raised without an
-explicit one. No current call site relies on it, so treat it as reserved rather
-than expected.
+`COMMAND_FAILED` is the fallback code for a structured error raised without an explicit one. No current call site relies on it, so treat it as reserved rather than expected.
 
-**Unclassified failures.** A command that raises a plain Python exception
-instead of a structured error reports the exception class name upper-cased —
-`VALUEERROR`, `RUNTIMEERROR`, and so on — plus a `traceback` field. Treat these
-as internal faults rather than a stable contract. They currently show up for
-`validate --material <unknown name>`, `settings get` with an unknown key or
-group, and `preferences set` with an unknown key.
+**Unclassified failures.** A command that raises a plain Python exception instead of a structured error reports the exception class name upper-cased — `VALUEERROR`, `RUNTIMEERROR`, and so on — plus a `traceback` field. Treat these as internal faults rather than a stable contract. They currently show up for `validate --material <unknown name>`, `settings get` with an unknown key or group, and `preferences set` with an unknown key.
 
-`INVALID_EXPORT_SETTINGS`, `ASSET_PREFLIGHT_FAILED`, `SCENE_SNAPSHOT_FAILED`,
-`JOB_SETTINGS_WRITE_FAILED`, `BACKGROUND_RUNNER_MISSING`, and
-`BACKGROUND_LAUNCH_FAILED` belong to the Blender UI's background job operator.
-They never appear as CLI exit envelopes, but they do appear in job `status.json`
-and in support bundles.
+`INVALID_EXPORT_SETTINGS`, `ASSET_PREFLIGHT_FAILED`, `SCENE_SNAPSHOT_FAILED`, `JOB_SETTINGS_WRITE_FAILED`, `BACKGROUND_RUNNER_MISSING`, and `BACKGROUND_LAUNCH_FAILED` belong to the Blender UI's background job operator. They never appear as CLI exit envelopes, but they do appear in job `status.json` and in support bundles.
 
 ---
 
-## Output Format
+## Output format
 
 The two streams have distinct jobs and are never interleaved:
 
-- **stdout** — JSON only. The command's result on success; with `--json`, the
-  error envelope on failure. Safe to redirect straight into `jq`.
-- **stderr** — human-readable progress, failure summaries, and (with
-  `--verbose`) whatever Blender wrote to *its* stderr.
+- **stdout** — JSON only. The command's result on success; with `--json`, the error envelope on failure. Safe to redirect straight into `jq`.
+- **stderr** — human-readable progress, failure summaries, and (with `--verbose`) whatever Blender wrote to *its* stderr.
 
 ### What each flag actually does
 
-Write `E` for the `Error:` summary plus its optional `Diagnostics:` and
-`Support bundle:` lines, and `P` for the CLI's own progress lines.
+Write `E` for the `Error:` summary plus its optional `Diagnostics:` and `Support bundle:` lines, and `P` for the CLI's own progress lines.
 
 | | stdout on success | stderr on success | stdout on failure | stderr on failure |
 |---|---|---|---|---|
@@ -1407,24 +1437,13 @@ Write `E` for the `Error:` summary plus its optional `Diagnostics:` and
 
 Three consequences are easy to get wrong:
 
-1. **`--json` implies `--quiet`, but neither silences `--verbose`.** The
-   Blender-stderr forward is unconditional, so `--json --verbose` still writes
-   to stderr — and, unlike the `process_output` fields inside the envelope, that
-   forwarded text is *not* `$HOME`-redacted. Do not combine them when capturing
-   output for a public issue.
-2. **`--quiet` does not silence failures.** It suppresses the CLI's own
-   progress lines only; the `Error:`, `Diagnostics:`, and `Support bundle:`
-   lines still go to stderr. Redirect with `2>/dev/null` if you truly want
-   silence, and rely on the exit code.
-3. **`--verbose` shows nothing on a clean run.** It forwards Blender's
-   *stderr*, and Blender's startup banner goes to its *stdout*, which the bridge
-   consumes to find the result. In practice `--verbose` surfaces Blender
-   tracebacks and warnings, not a startup log.
+1. **`--json` implies `--quiet`, but neither silences `--verbose`.** The Blender-stderr forward is unconditional, so `--json --verbose` still writes to stderr — and, unlike the `process_output` fields inside the envelope, that forwarded text is *not* `$HOME`-redacted. Do not combine them when capturing output for a public issue.
+2. **`--quiet` does not silence failures.** It suppresses the CLI's own progress lines only; the `Error:`, `Diagnostics:`, and `Support bundle:` lines still go to stderr. Redirect with `2>/dev/null` if you truly want silence, and rely on the exit code.
+3. **`--verbose` shows nothing on a clean run.** It forwards Blender's *stderr*, and Blender's startup banner goes to its *stdout*, which the bridge consumes to find the result. In practice `--verbose` surfaces Blender tracebacks and warnings, not a startup log.
 
 ### Failure envelope
 
-Without `--json`, a failure prints a short summary to stderr and nothing to
-stdout:
+Without `--json`, a failure prints a short summary to stderr and nothing to stdout:
 
 ```
 Error: Unsupported nodes in material 'SimpleMat'.
@@ -1432,8 +1451,7 @@ Diagnostics: /output/scene.diagnostics.json
 Support bundle: blendertorcp support-bundle scene.blend -o /output/scene.usda --diagnostics /output/scene.diagnostics.json
 ```
 
-The `Diagnostics:` and `Support bundle:` lines appear only when the Blender
-runner returned them.
+The `Diagnostics:` and `Support bundle:` lines appear only when the Blender runner returned them.
 
 With `--json`, the failure goes to stdout as a structured envelope:
 
@@ -1481,10 +1499,7 @@ Field notes:
 | `artifacts` | yes | `{}` for CLI-side errors; otherwise may carry `diagnostics_path` and `support_bundle_hint` |
 | `process_output` | no | `stdout_tail` / `stderr_tail`, last 500 characters each, `$HOME`-redacted |
 
-**The success envelope is a different shape.** A successful command prints its
-result payload directly, with no `ok`, `schema_version`, or `context` wrapper.
-The one nuance is `validate`, whose result payload has its own `ok` field —
-see [`validate`](#validate).
+**The success envelope is a different shape.** A successful command prints its result payload directly, with no `ok`, `schema_version`, or `context` wrapper. The one nuance is `validate`, whose result payload has its own `ok` field — see [`validate`](#validate).
 
 ### Capturing output for support
 
@@ -1494,26 +1509,36 @@ blendertorcp --verbose export scene.blend -o output.usdz --format USDZ \
   2> blendertorcp-stderr.log
 ```
 
-If the command returns a `diagnostics_path`, attach that file. If the failure happened in Blender UI background bake/export, attach the job `settings.json`, `status.json`, and `log.txt`, or create a redacted ZIP with `support-bundle`.
+If the command returns a `diagnostics_path`, attach that file. If the failure happened in a Blender UI background bake/export, attach the job `settings.json`, `status.json`, and `log.txt`, or create a redacted ZIP with `support-bundle`.
 
 ### Pipe-friendly
 
-```bash
-# Parse output with jq
-blendertorcp info scene.blend | jq '.object_count'
+Parse output with `jq`:
 
-# Chain commands
+```bash
+blendertorcp info scene.blend | jq '.object_count'
+```
+
+Chain commands:
+
+```bash
 FORMAT=$(blendertorcp settings get scene.blend --keys export_format | jq -r '.export_format')
 echo "Current format: $FORMAT"
+```
 
-# Use in scripts
+Use exit codes in scripts:
+
+```bash
 if blendertorcp validate scene.blend; then
   blendertorcp export scene.blend -o output.usdz
 else
   echo "Validation failed" >&2
 fi
+```
 
-# Read the real output path rather than assuming -o was honoured verbatim
+Read the real output path rather than assuming `-o` was honored verbatim:
+
+```bash
 OUT=$(blendertorcp --json export scene.blend -o /output/scene --format USDZ | jq -r '.export_path')
 echo "Wrote $OUT"
 ```

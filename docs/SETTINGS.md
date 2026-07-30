@@ -1,10 +1,8 @@
-# BlenderToRCP Settings Reference
+# BlenderToRCP settings reference
 
-Every user-facing toggle in BlenderToRCP, what it actually changes in the exporter, and where it lives.
+Every user-facing setting in BlenderToRCP: what it changes in the exporter, which UI control exposes it, and which other settings override it.
 
-This document is the behavioural companion to [`CLI.md`](CLI.md). `CLI.md` tells you how to
-*pass* a setting; this file tells you what the exporter *does* with it, which control exposes
-it, and which other settings silently override it.
+This page is the behavioral companion to [`CLI.md`](CLI.md). `CLI.md` tells you how to *pass* a setting; this page tells you what the exporter *does* with it.
 
 All line references are against the code as of this document's revision.
 
@@ -12,7 +10,7 @@ All line references are against the code as of this document's revision.
 
 ## Two independent stores
 
-BlenderToRCP has two kinds of configuration and they behave very differently.
+BlenderToRCP has two kinds of configuration, and they behave very differently.
 
 | | Per-scene export settings | Add-on preferences |
 |---|---|---|
@@ -24,37 +22,23 @@ BlenderToRCP has two kinds of configuration and they behave very differently.
 
 ### How per-scene settings persist
 
-Every public property declares `update=_on_settings_changed` (`Plugin/ui/panel.py:89`). On any
-UI edit that callback:
+Every public property declares `update=_on_settings_changed` (`Plugin/ui/panel.py:89`). On any UI edit, that callback:
 
 1. rewrites `filepath` so its extension matches `export_format` (`Plugin/ui/panel.py:69`), then
-2. serialises **all** settings except `filepath` and the internal keys into the add-on
-   preference `last_export_settings_json` (`Plugin/prefs.py:24`, `:222`, `:336`).
+2. serializes **all** settings except `filepath` and the internal keys into the add-on preference `last_export_settings_json` (`Plugin/prefs.py:24`, `:222`, `:336`).
 
-Consequences worth knowing:
+Consequences:
 
-- Export settings are **sticky across scenes and .blend files**, because the payload lives in
-  user preferences, not in the scene. A new scene inherits your last-used values
-  (`Plugin/prefs.py:355`).
-- `filepath` is deliberately excluded from that payload and is instead remembered *per .blend*
-  in `last_export_paths_json` (`Plugin/prefs.py:424`).
-- The payload is version- and profile-stamped (`schema` `blendertorcp.export-settings`,
-  `version` 3, `profile` `REALITYKIT_OS27`). A payload from an older add-on build, a different
-  profile, or with a missing/extra key is **discarded wholesale** and the scene is reset to RNA
-  defaults (`Plugin/prefs.py:294`, `:377`).
-- CLI commands suspend this persistence for the duration of the command
-  (`Plugin/api/commands/_settings_common.py:192`), so a CLI override never leaks into your saved
-  preferences.
+- Export settings are **sticky across scenes and .blend files**, because the payload lives in user preferences, not in the scene. A new scene inherits your last-used values (`Plugin/prefs.py:355`).
+- `filepath` is deliberately excluded from that payload. It is instead remembered *per .blend* in `last_export_paths_json` (`Plugin/prefs.py:424`).
+- The payload is version- and profile-stamped (`schema` `blendertorcp.export-settings`, `version` 3, `profile` `REALITYKIT_OS27`). A payload from an older add-on build, a different profile, or with a missing or extra key is **discarded wholesale**, and the scene is reset to RNA defaults (`Plugin/prefs.py:294`, `:377`).
+- CLI commands suspend this persistence for the duration of the command (`Plugin/api/commands/_settings_common.py:192`), so a CLI override never leaks into your saved preferences.
 
 ---
 
 ## Read this first: the UI does not expose `bake_mode`, it computes it
 
-`bake_mode` is the single most important setting for baked exports, and it is **not drawn
-anywhere in the Blender UI**. The panel presents three artist-facing controls instead —
-`ui_material_type`, `ui_pbr_processing`, `ui_unlit_appearance` — and
-`export_profile.resolve_ui_export_route()` (`Plugin/export_profile.py:32`) maps them onto a
-pipeline plus a `bake_mode`:
+`bake_mode` is the single most important setting for baked exports, and it is **not drawn anywhere in the Blender UI**. The panel presents three artist-facing controls instead — `ui_material_type`, `ui_pbr_processing`, `ui_unlit_appearance` — and `export_profile.resolve_ui_export_route()` (`Plugin/export_profile.py:32`) maps them onto a pipeline plus a `bake_mode`:
 
 | `ui_material_type` | `ui_pbr_processing` | `ui_unlit_appearance` | Pipeline | Resulting `bake_mode` |
 |---|---|---|---|---|
@@ -63,35 +47,21 @@ pipeline plus a `bake_mode`:
 | `REALITYKIT_UNLIT` | — | `MATERIAL_COLOR` | `BAKE` | `UNLIT_ALBEDO` |
 | `REALITYKIT_UNLIT` | — | `LIGHTING_SHADOWS` | `BAKE` | `LIT_IBL` |
 
-> **`bake_mode` is unconditionally overwritten when you press Export in the panel.**
-> The panel sets `operator.apply_ui_profile = True` on the bake operator
-> (`Plugin/ui/panel.py:638`), and `_apply_ui_profile()` then executes
-> `settings.bake_mode = route.bake_mode` (`Plugin/ops/bake_export_operator.py:116`).
-> Whatever you set via `blendertorcp settings set scene.blend bake_mode=… --save` is replaced
-> the moment the artist clicks Export. **Set `bake_mode` from the CLI only for
-> `blendertorcp bake-export`, which honours it** (`Plugin/api/commands/bake_export.py:118`).
+> **`bake_mode` is unconditionally overwritten when you press Export in the panel.** The panel sets `operator.apply_ui_profile = True` on the bake operator (`Plugin/ui/panel.py:638`), and `_apply_ui_profile()` then executes `settings.bake_mode = route.bake_mode` (`Plugin/ops/bake_export_operator.py:116`). Whatever you set via `blendertorcp settings set scene.blend bake_mode=… --save` is replaced the moment the artist clicks Export. **Set `bake_mode` from the CLI only for `blendertorcp bake-export`, which honors it** (`Plugin/api/commands/bake_export.py:118`).
 
-The same operator path also forces `export_texture_settings_enabled = True` into the background
-job payload (`Plugin/ops/bake_export_operator.py:183` → `:730`). See
-[`export_texture_settings_enabled`](#export_texture_settings_enabled) — this is why the
-Optimization panel's fields work in the UI bake route even though the toggle is not drawn there.
+The same operator path also forces `export_texture_settings_enabled = True` into the background job payload (`Plugin/ops/bake_export_operator.py:183` → `:730`). See [`export_texture_settings_enabled`](#export_texture_settings_enabled) — this is why the Optimization panel's fields work in the UI bake route even though the toggle is not drawn there.
 
 Three further derived values are never user-editable:
 
-- `force_unlit_materials` is recomputed from `bake_mode` before every export
-  (`Plugin/export/bake_finalize.py:17`, `:22`).
-- `export_format` is rewritten to `USDA` whenever `RCP_IMPORT` is requested, because the
-  `.import` package is generated from the post-processed USDA
-  (`Plugin/api/commands/export.py:107`, `Plugin/api/commands/bake_export.py:307`).
-- The legacy value `USD` is silently normalised to `USDC`
-  (`Plugin/ops/export_operator.py:33`).
+- `force_unlit_materials` is recomputed from `bake_mode` before every export (`Plugin/export/bake_finalize.py:17`, `:22`).
+- `export_format` is rewritten to `USDA` whenever `RCP_IMPORT` is requested, because the `.import` package is generated from the post-processed USDA (`Plugin/api/commands/export.py:107`, `Plugin/api/commands/bake_export.py:307`).
+- The legacy value `USD` is silently normalized to `USDC` (`Plugin/ops/export_operator.py:33`).
 
 ---
 
 ## Summary table
 
-40 public settings. `Group` is the `settings get --group` / `settings list` membership defined in
-`Plugin/api/commands/_settings_common.py:63`.
+40 public settings. `Group` is the `settings get --group` / `settings list` membership defined in `Plugin/api/commands/_settings_common.py:63`.
 
 | Key | Type | Default | Group | UI control | Applies to |
 |-----|------|---------|-------|-----------|-----------|
@@ -171,8 +141,7 @@ Shader Editor ▸ N-panel ▸ "RCP Exporter"
    reads materialx_surface_profile and normalize_unsupported_values; writes nothing
 ```
 
-Every panel below the job monitor greys out while a background bake job runs
-(`Plugin/ui/panel.py:728`, `:805`, `:872`, `:944`).
+Every panel below the job monitor grays out while a background bake job runs (`Plugin/ui/panel.py:728`, `:805`, `:872`, `:944`).
 
 ---
 
@@ -187,18 +156,11 @@ Every panel below the job monitor greys out while a background bake job runs
 | Declared | `Plugin/ui/panel.py:158` |
 | UI | Export box ▸ Output Path, placeholder `//export/scene.usdz` (`Plugin/ui/panel.py:617`) |
 
-Output path for the export. **The extension is not yours to choose** — it is rewritten to match
-`export_format` on every settings change (`Plugin/ui/panel.py:69`), on operator invoke
-(`Plugin/ops/export_operator.py:50`), and in both CLI commands
-(`Plugin/api/commands/export.py:123`, `Plugin/api/commands/bake_export.py:317`).
+Output path for the export. **The extension is not yours to choose** — it is rewritten to match `export_format` on every settings change (`Plugin/ui/panel.py:69`), on operator invoke (`Plugin/ops/export_operator.py:50`), and in both CLI commands (`Plugin/api/commands/export.py:123`, `Plugin/api/commands/bake_export.py:317`).
 
-On the CLI this setting is not passed with `filepath=…`; use `-o/--output`, which lands in the
-same field (`Plugin/cli/__main__.py:234`). It also seeds the diagnostics sidecar path
-(`<output>.diagnostics.json`) and the Diagnostics panel's path preview
-(`Plugin/ui/panel.py:977`).
+On the CLI, do not pass this setting as `filepath=…`; use `-o/--output`, which lands in the same field (`Plugin/cli/__main__.py:234`). It also seeds the diagnostics sidecar path (`<output>.diagnostics.json`) and the Diagnostics panel's path preview (`Plugin/ui/panel.py:977`).
 
-Excluded from the persisted settings payload; remembered per-.blend instead
-(`Plugin/prefs.py:24`, `:406`).
+Excluded from the persisted settings payload; remembered per-.blend instead (`Plugin/prefs.py:24`, `:406`).
 
 ### `export_format`
 
@@ -210,22 +172,13 @@ Excluded from the persisted settings payload; remembered per-.blend instead
 | Declared | `Plugin/ui/panel.py:167` |
 | UI | Export box ▸ Format (`Plugin/ui/panel.py:618`) |
 
-Selects the output container and drives the enforced file extension
-(`.usda` / `.usdc` / `.usdz` / `.import`, `Plugin/ops/export_operator.py:40`).
+Selects the output container and drives the enforced file extension (`.usda` / `.usdc` / `.usdz` / `.import`, `Plugin/ops/export_operator.py:40`).
 
-Behavioural differences:
+Behavioral differences:
 
-- `USDA` / `USDC` — Blender's native USD export writes this format directly, then the
-  post-processed result is published to the final path
-  (`Plugin/export/blender_usd_export.py:270`).
-- `USDZ` — Blender exports `.usdc` into a temp location, post-processing runs, then
-  `pack_usdz.create_usdz()` packages and *compliance-checks* the archive
-  (`Plugin/api/commands/export.py:289`). This is also the only format that triggers the USDZ
-  branch of the RealityKit preflight (`Plugin/export/realitykit_preflight.py:1337`).
-- `RCP_IMPORT` — **experimental.** The property is internally coerced to `USDA` for the Blender
-  export step, and the `.import` directory is generated from the post-processed USDA
-  (`Plugin/api/commands/export.py:106`). The command refuses to overwrite an existing `.import`
-  directory (`Plugin/api/commands/export.py:128`). Unsupported geometry fails closed.
+- `USDA` / `USDC` — Blender's native USD export writes this format directly, then the post-processed result is published to the final path (`Plugin/export/blender_usd_export.py:270`).
+- `USDZ` — Blender exports `.usdc` into a temp location, post-processing runs, then `pack_usdz.create_usdz()` packages and *compliance-checks* the archive (`Plugin/api/commands/export.py:289`). This is also the only format that triggers the USDZ branch of the RealityKit preflight (`Plugin/export/realitykit_preflight.py:1337`).
+- `RCP_IMPORT` — **experimental.** The property is internally coerced to `USDA` for the Blender export step, and the `.import` directory is generated from the post-processed USDA (`Plugin/api/commands/export.py:106`). The command refuses to overwrite an existing `.import` directory (`Plugin/api/commands/export.py:128`). Unsupported geometry fails closed.
 
 ### `root_prim_name`
 
@@ -236,12 +189,7 @@ Behavioural differences:
 | Declared | `Plugin/ui/panel.py:184` |
 | UI | Advanced USD ▸ General (`Plugin/ui/panel.py:877`) |
 
-Name or absolute path of the USD root prim. A value without a leading `/` is prefixed with one
-(`Plugin/export/blender_usd_export.py:280`), and the result is passed to Blender's
-`wm.usd_export` as `root_prim_path` (`:1153`). Post-processing then guarantees the stage's
-`defaultPrim` points at it, defining an `Xform` if the export did not create one
-(`Plugin/export/usd_scene.py:43`). An empty value falls back to `Scene`
-(`Plugin/export/blender_usd_export.py:280`) — which is why the UI placeholder reads `Scene`.
+Name or absolute path of the USD root prim. A value without a leading `/` is prefixed with one (`Plugin/export/blender_usd_export.py:280`), and the result is passed to Blender's `wm.usd_export` as `root_prim_path` (`:1153`). Post-processing then guarantees the stage's `defaultPrim` points at it, defining an `Xform` if the export did not create one (`Plugin/export/usd_scene.py:43`). An empty value falls back to `Scene` (`Plugin/export/blender_usd_export.py:280`) — which is why the UI placeholder reads `Scene`.
 
 ### `export_animation`
 
@@ -252,10 +200,7 @@ Name or absolute path of the USD root prim. A value without a leading `/` is pre
 | Declared | `Plugin/ui/panel.py:192` |
 | UI | Advanced USD ▸ General ▸ Include row (`Plugin/ui/panel.py:882`) |
 
-Master switch for animation. Passed to `wm.usd_export`
-(`Plugin/export/blender_usd_export.py:1127`) and gates BlenderToRCP's own animation passes:
-`animation_export` returns immediately when off (`Plugin/export/animation_export.py:182`), as
-does the RCP AnimationLibrary author pass (`Plugin/export/usd_animation_library.py:19`).
+Master switch for animation. Passed to `wm.usd_export` (`Plugin/export/blender_usd_export.py:1127`) and gates BlenderToRCP's own animation passes: `animation_export` returns immediately when off (`Plugin/export/animation_export.py:182`), as does the RCP AnimationLibrary author pass (`Plugin/export/usd_animation_library.py:19`).
 
 ### `author_animation_library`
 
@@ -267,19 +212,15 @@ does the RCP AnimationLibrary author pass (`Plugin/export/usd_animation_library.
 | UI | Advanced USD ▸ General — **only drawn when `export_animation` is on** (`Plugin/ui/panel.py:883`) |
 | Status | **Experimental** |
 
-Authors Reality Composer Pro `RealityKit.AnimationLibrary` clip metadata with per-clip start
-times (`Plugin/export/usd_animation_library.py:17`).
+Authors Reality Composer Pro `RealityKit.AnimationLibrary` clip metadata with per-clip start times (`Plugin/export/usd_animation_library.py:17`).
 
 Interactions:
 
 - Requires `export_animation`; returns early otherwise (`:19`).
-- Requires diagnostics to be collecting animation segments — the pass reads
-  `diagnostics.data["animations"]["segments"]` and does nothing if there are none (`:24`).
-- When **off**, it is not merely a no-op: it actively *removes* any pre-existing
-  AnimationLibrary from the stage and emits a warning (`:29`).
+- Requires diagnostics to be collecting animation segments — the pass reads `diagnostics.data["animations"]["segments"]` and does nothing if there are none (`:24`).
+- When **off**, it is not merely a no-op: it actively *removes* any pre-existing AnimationLibrary from the stage and emits a warning (`:29`).
 
-On the pinned RCP 3 build, supported USD import recognises the schema but flattens named clips
-to the aggregate animation. Leave it off for RealityKit runtime exports.
+On the pinned RCP 3 build, supported USD import recognizes the schema but flattens named clips to the aggregate animation. Leave it off for RealityKit runtime exports.
 
 ### `selected_objects_only`
 
@@ -291,18 +232,12 @@ to the aggregate animation. Leave it off for RealityKit runtime exports.
 | UI | Advanced USD ▸ General ▸ Include row (`Plugin/ui/panel.py:881`) |
 | CLI shortcut | `--selected-only` on `export` and `bake-export` |
 
-Restricts the export scope to the current selection. This is not just a flag forwarded to
-Blender (`Plugin/export/blender_usd_export.py:1126`) — it changes several behaviours:
+Restricts the export scope to the current selection. This is not just a flag forwarded to Blender (`Plugin/export/blender_usd_export.py:1126`) — it changes several behaviors:
 
-- Material validation narrows to materials on the selected (plus dependency-closed) objects
-  instead of every scene material (`Plugin/api/commands/export.py:178`,
-  `Plugin/ops/export_operator.py:137`).
-- Export fails closed with `NO_EXPORTABLE_OBJECTS` when nothing is selected
-  (`Plugin/api/commands/export.py:201`).
-- The animation pass expands the selection to parents/dependencies before exporting
-  (`Plugin/export/animation_export.py:48`, `:167`, `:1304`).
-- Bake jobs re-apply the selection *after* the bake's own selection churn
-  (`Plugin/bake_export_runner.py:705`).
+- Material validation narrows to materials on the selected (plus dependency-closed) objects instead of every scene material (`Plugin/api/commands/export.py:178`, `Plugin/ops/export_operator.py:137`).
+- Export fails closed with `NO_EXPORTABLE_OBJECTS` when nothing is selected (`Plugin/api/commands/export.py:201`).
+- The animation pass expands the selection to parents/dependencies before exporting (`Plugin/export/animation_export.py:48`, `:167`, `:1304`).
+- Bake jobs re-apply the selection *after* the bake's own selection churn (`Plugin/bake_export_runner.py:705`).
 
 ### `export_custom_properties`
 
@@ -313,13 +248,9 @@ Blender (`Plugin/export/blender_usd_export.py:1126`) — it changes several beha
 | Declared | `Plugin/ui/panel.py:216` |
 | UI | Advanced USD ▸ General (`Plugin/ui/panel.py:886`) |
 
-Exports Blender custom properties as USD attributes. Forwarded to `wm.usd_export`
-(`Plugin/export/blender_usd_export.py:1154`).
+Exports Blender custom properties as USD attributes. Forwarded to `wm.usd_export` (`Plugin/export/blender_usd_export.py:1154`).
 
-**It is a master switch for two other settings.** When off, the exporter forces
-`custom_properties_namespace` to `""` and `author_blender_name` to `False` regardless of their
-stored values (`Plugin/export/blender_usd_export.py:1155-1162`). The UI mirrors this by drawing
-`author_blender_name` in a disabled row (`Plugin/ui/panel.py:891`).
+**It is a master switch for two other settings.** When off, the exporter forces `custom_properties_namespace` to `""` and `author_blender_name` to `False` regardless of their stored values (`Plugin/export/blender_usd_export.py:1155-1162`). The UI mirrors this by drawing `author_blender_name` in a disabled row (`Plugin/ui/panel.py:891`).
 
 ### `custom_properties_namespace`
 
@@ -330,8 +261,7 @@ stored values (`Plugin/export/blender_usd_export.py:1155-1162`). The UI mirrors 
 | Declared | `Plugin/ui/panel.py:223` |
 | UI | Advanced USD ▸ General — only drawn when `export_custom_properties` is on (`Plugin/ui/panel.py:888`) |
 
-Namespace prefix applied to exported custom-property attribute names. Ignored (forced to `""`)
-when `export_custom_properties` is off (`Plugin/export/blender_usd_export.py:1155`).
+Namespace prefix applied to exported custom-property attribute names. Ignored (forced to `""`) when `export_custom_properties` is off (`Plugin/export/blender_usd_export.py:1155`).
 
 ### `author_blender_name`
 
@@ -342,9 +272,7 @@ when `export_custom_properties` is off (`Plugin/export/blender_usd_export.py:115
 | Declared | `Plugin/ui/panel.py:230` |
 | UI | Advanced USD ▸ General (`Plugin/ui/panel.py:889` enabled, `:893` disabled) |
 
-Writes the original Blender object/data names as USD attributes. Ignored (forced `False`) when
-`export_custom_properties` is off (`Plugin/export/blender_usd_export.py:1160`) — the property
-description states this dependency correctly.
+Writes the original Blender object/data names as USD attributes. Ignored (forced `False`) when `export_custom_properties` is off (`Plugin/export/blender_usd_export.py:1160`); the property description states this dependency.
 
 ### `allow_unicode`
 
@@ -355,11 +283,7 @@ description states this dependency correctly.
 | Declared | `Plugin/ui/panel.py:237` |
 | UI | Advanced USD ▸ General (`Plugin/ui/panel.py:894`) |
 
-Preserves UTF-8 characters in USD identifiers (USD 24.03+). Forwarded to `wm.usd_export`
-(`Plugin/export/blender_usd_export.py:1163`) **and** used again during post-processing, where
-`usd_scene.normalize_scene()` re-validates every prim name and rewrites invalid identifiers
-(`Plugin/export/usd_scene.py:58`, `:503`, `:524`). Turning it off ASCII-folds non-ASCII prim
-names rather than failing.
+Preserves UTF-8 characters in USD identifiers (USD 24.03+). Forwarded to `wm.usd_export` (`Plugin/export/blender_usd_export.py:1163`) **and** used again during post-processing, where `usd_scene.normalize_scene()` re-validates every prim name and rewrites invalid identifiers (`Plugin/export/usd_scene.py:58`, `:503`, `:524`). Turning it off ASCII-folds non-ASCII prim names rather than failing.
 
 ### `xform_op_mode`
 
@@ -371,8 +295,7 @@ names rather than failing.
 | Declared | `Plugin/ui/panel.py:278` |
 | UI | Advanced USD ▸ General (`Plugin/ui/panel.py:895`) |
 
-Transform-op convention written to USD. Passed straight through to `wm.usd_export`
-(`Plugin/export/blender_usd_export.py:1152`); BlenderToRCP does not otherwise interpret it.
+Transform-op convention written to USD. Passed straight through to `wm.usd_export` (`Plugin/export/blender_usd_export.py:1152`); BlenderToRCP does not otherwise interpret it.
 
 ### `evaluation_mode`
 
@@ -382,13 +305,9 @@ Transform-op convention written to USD. Passed straight through to `wm.usd_expor
 | Values | `RENDER`, `VIEWPORT` |
 | Default | `RENDER` |
 | Declared | `Plugin/ui/panel.py:290` |
-| UI | Advanced USD ▸ General, labelled "Use Settings for" (`Plugin/ui/panel.py:896`) |
+| UI | Advanced USD ▸ General, labeled "Use Settings for" (`Plugin/ui/panel.py:896`) |
 
-Which dependency-graph evaluation Blender uses when generating the exported meshes
-(`Plugin/export/blender_usd_export.py:1143`). Also selects the depsgraph used by the animation
-sampler (`Plugin/export/animation_export.py:78`, `:694`) and by the external-asset preflight
-when walking evaluated objects (`Plugin/export/asset_preflight.py:391`). `RENDER` respects
-render-only modifier visibility; `VIEWPORT` matches what you see in the viewport.
+Which dependency-graph evaluation Blender uses when generating the exported meshes (`Plugin/export/blender_usd_export.py:1143`). Also selects the depsgraph used by the animation sampler (`Plugin/export/animation_export.py:78`, `:694`) and by the external-asset preflight when walking evaluated objects (`Plugin/export/asset_preflight.py:391`). `RENDER` respects render-only modifier visibility; `VIEWPORT` matches what you see in the viewport.
 
 ### `use_instancing`
 
@@ -399,14 +318,9 @@ render-only modifier visibility; `VIEWPORT` matches what you see in the viewport
 | Declared | `Plugin/ui/panel.py:372` |
 | UI | Advanced USD ▸ General (`Plugin/ui/panel.py:897`) |
 
-Emits instanced objects as USD references instead of duplicated geometry
-(`Plugin/export/blender_usd_export.py:1142`). The bake pipeline is designed to keep this
-useful: identical source material + mesh + bake parameters share one baked material so the
-instanceable reference survives baking (`Plugin/export/bake_textures.py:249`, `:291`).
+Emits instanced objects as USD references instead of duplicated geometry (`Plugin/export/blender_usd_export.py:1142`). The bake pipeline is designed to keep this useful: identical source material + mesh + bake parameters share one baked material, so the instanceable reference survives baking (`Plugin/export/bake_textures.py:249`, `:291`).
 
-> Instance sharing is disabled inside the bake cache when `bake_mode=LIT_IBL`, because
-> world-space lighting genuinely differs per instance (`Plugin/export/bake_textures.py:256`).
-> `use_instancing` itself is unchanged; only the bake reuse is skipped.
+> Instance sharing is disabled inside the bake cache when `bake_mode=LIT_IBL`, because world-space lighting genuinely differs per instance (`Plugin/export/bake_textures.py:256`). `use_instancing` itself is unchanged; only the bake reuse is skipped.
 
 ---
 
@@ -421,11 +335,7 @@ instanceable reference survives baking (`Plugin/export/bake_textures.py:249`, `:
 | Declared | `Plugin/ui/panel.py:301` |
 | UI | Advanced USD ▸ Geometry (`Plugin/ui/panel.py:901`) |
 
-Merges parent transforms into the child geometry prim. Forwarded verbatim to `wm.usd_export`
-(`Plugin/export/blender_usd_export.py:1174`).
-
-> Note: `CLI.md` lists this key under its *Transform* table while the `settings get --group`
-> membership is `geometry`. Use `--group geometry` to read it.
+Merges parent transforms into the child geometry prim. Forwarded verbatim to `wm.usd_export` (`Plugin/export/blender_usd_export.py:1174`). Use `--group geometry` to read it with `settings get`.
 
 ### `triangulate_meshes`
 
@@ -436,11 +346,9 @@ Merges parent transforms into the child geometry prim. Forwarded verbatim to `wm
 | Declared | `Plugin/ui/panel.py:308` |
 | UI | Advanced USD ▸ Geometry (`Plugin/ui/panel.py:902`) |
 
-Triangulates meshes during export (`Plugin/export/blender_usd_export.py:1171`). Gates
-`quad_method` and `ngon_method` in the UI (`Plugin/ui/panel.py:903`).
+Triangulates meshes during export (`Plugin/export/blender_usd_export.py:1171`). Gates `quad_method` and `ngon_method` in the UI (`Plugin/ui/panel.py:903`).
 
-> The gate is UI-only. `quad_method` and `ngon_method` are always sent to `wm.usd_export`
-> (`:1172`, `:1173`); Blender ignores them when triangulation is off.
+> The gate is UI-only. `quad_method` and `ngon_method` are always sent to `wm.usd_export` (`:1172`, `:1173`); Blender ignores them when triangulation is off.
 
 ### `quad_method`
 
@@ -452,8 +360,7 @@ Triangulates meshes during export (`Plugin/export/blender_usd_export.py:1171`). 
 | Declared | `Plugin/ui/panel.py:315` |
 | UI | Advanced USD ▸ Geometry, only when `triangulate_meshes` is on (`Plugin/ui/panel.py:904`) |
 
-How quads are split into triangles (`Plugin/export/blender_usd_export.py:1172`). No effect
-unless `triangulate_meshes` is on.
+How quads are split into triangles (`Plugin/export/blender_usd_export.py:1172`). No effect unless `triangulate_meshes` is on.
 
 ### `ngon_method`
 
@@ -465,10 +372,7 @@ unless `triangulate_meshes` is on.
 | Declared | `Plugin/ui/panel.py:328` |
 | UI | Advanced USD ▸ Geometry, only when `triangulate_meshes` is on (`Plugin/ui/panel.py:905`) |
 
-How n-gons are split. The value is passed through a translation helper
-`_ngon_method_for_usd_export()` before reaching the operator
-(`Plugin/export/blender_usd_export.py:1173`), so the exported identifier may differ from the
-one you set. No effect unless `triangulate_meshes` is on.
+How n-gons are split. The value passes through a translation helper, `_ngon_method_for_usd_export()`, before reaching the operator (`Plugin/export/blender_usd_export.py:1173`), so the exported identifier may differ from the one you set. No effect unless `triangulate_meshes` is on.
 
 ### `export_subdivision`
 
@@ -495,10 +399,7 @@ Forwarded to `wm.usd_export` (`Plugin/export/blender_usd_export.py:1138`).
 | Declared | `Plugin/ui/panel.py:351` |
 | UI | Advanced USD ▸ Rigging (`Plugin/ui/panel.py:911`) |
 
-Exports armatures as `UsdSkel` skeletons (`Plugin/export/blender_usd_export.py:1139`). Also
-gates skeletal animation sampling (`Plugin/export/animation_export.py:77`, `:675`) and tells the
-external-asset preflight whether armature dependencies are in scope
-(`Plugin/export/asset_preflight.py:717`).
+Exports armatures as `UsdSkel` skeletons (`Plugin/export/blender_usd_export.py:1139`). Also gates skeletal animation sampling (`Plugin/export/animation_export.py:77`, `:675`) and tells the external-asset preflight whether armature dependencies are in scope (`Plugin/export/asset_preflight.py:717`).
 
 ### `only_deform_bones`
 
@@ -509,9 +410,7 @@ external-asset preflight whether armature dependencies are in scope
 | Declared | `Plugin/ui/panel.py:358` |
 | UI | Advanced USD ▸ Rigging (`Plugin/ui/panel.py:912`) |
 
-Restricts the exported skeleton to deform bones plus their parent chain
-(`Plugin/export/blender_usd_export.py:1140`). Only meaningful with `export_armatures` on; the UI
-does not grey it out.
+Restricts the exported skeleton to deform bones plus their parent chain (`Plugin/export/blender_usd_export.py:1140`). Only meaningful with `export_armatures` on; the UI does not gray it out.
 
 ### `export_shapekeys`
 
@@ -522,15 +421,13 @@ does not grey it out.
 | Declared | `Plugin/ui/panel.py:365` |
 | UI | Advanced USD ▸ Rigging (`Plugin/ui/panel.py:910`) |
 
-Exports shape keys as USD blend shapes (`Plugin/export/blender_usd_export.py:1141`) and gates
-blend-shape animation sampling (`Plugin/export/animation_export.py:709`).
+Exports shape keys as USD blend shapes (`Plugin/export/blender_usd_export.py:1141`) and gates blend-shape animation sampling (`Plugin/export/animation_export.py:709`).
 
 ---
 
 ## `texture`
 
-This group is where the direct-export and bake pipelines diverge most sharply. Read
-`export_texture_settings_enabled` first.
+This group is where the direct-export and bake pipelines diverge most sharply. Read `export_texture_settings_enabled` first.
 
 ### `export_texture_settings_enabled`
 
@@ -541,35 +438,24 @@ This group is where the direct-export and bake pipelines diverge most sharply. R
 | Declared | `Plugin/ui/panel.py:442` |
 | UI | Optimization panel — **direct route only** (`Plugin/ui/panel.py:809`) |
 
-The master gate for `bake_resolution`, `bake_resolution_custom`, `bake_image_format` and
-`bake_margin`. When it is `false`, all four are ignored by the resolvers
-(`Plugin/export/bake_textures.py:979`, `:1134`, `:1149`, `:1182`;
-`Plugin/export/usd_textures.py:790`).
+The master gate for `bake_resolution`, `bake_resolution_custom`, `bake_image_format`, and `bake_margin`. When it is `false`, all four are ignored by the resolvers (`Plugin/export/bake_textures.py:979`, `:1134`, `:1149`, `:1182`; `Plugin/export/usd_textures.py:790`).
 
 What "ignored" means per pipeline:
 
 | Setting | Direct export, gate off | Bake, gate off | Gate on |
 |---|---|---|---|
 | `bake_resolution` | textures kept at source size | bake sized from each material's own source textures (floor 512, fallback 2048) | the configured value |
-| `bake_image_format` | AVIF/PNG/JPEG/OpenEXR preserved, other LDR normalised to PNG | `AVIF` | the configured value |
+| `bake_image_format` | AVIF/PNG/JPEG/OpenEXR preserved, other LDR normalized to PNG | `AVIF` | the configured value |
 | `bake_margin` | n/a | `8` | the configured value |
 
-The one that actually bites: with the gate off, **the bake ignores the `2048` default and sizes
-each material from its own source textures instead** (`Plugin/export/bake_textures.py:971-990`).
+Note the surprise in the middle column: with the gate off, the bake ignores the `2048` default and sizes each material from its own source textures instead (`Plugin/export/bake_textures.py:971-990`).
 
 How the gate gets turned on:
 
 - **Blender UI, direct route** — you tick "Optimize Source Textures".
-- **Blender UI, bake route** — the toggle is *not drawn*, but the Export button forces it on for
-  the job: `enable_texture_settings=self.apply_ui_profile` →
-  `data["export_texture_settings_enabled"] = True`
-  (`Plugin/ops/bake_export_operator.py:183`, `:730`). This is why the Optimization fields work
-  in the UI bake route despite the hidden gate.
-- **CLI `bake-export`** — passing any of `--resolution`, `--image-format`, `--margin` stages the
-  gate to `true` for that run (`Plugin/api/commands/bake_export.py:137`, `:182`). Without one of
-  those flags, the gate keeps its scene value.
-- **CLI `export`** — no flag turns it on; set it explicitly with
-  `export-texture-settings-enabled=true` or `settings set … --save`.
+- **Blender UI, bake route** — the toggle is *not drawn*, but the Export button forces it on for the job: `enable_texture_settings=self.apply_ui_profile` → `data["export_texture_settings_enabled"] = True` (`Plugin/ops/bake_export_operator.py:183`, `:730`). This is why the Optimization fields work in the UI bake route despite the hidden gate.
+- **CLI `bake-export`** — passing any of `--resolution`, `--image-format`, `--margin` stages the gate to `true` for that run (`Plugin/api/commands/bake_export.py:137`, `:182`). Without one of those flags, the gate keeps its scene value.
+- **CLI `export`** — no flag turns it on; set it explicitly with `export-texture-settings-enabled=true` or `settings set … --save`.
 
 ### `bake_resolution`
 
@@ -577,26 +463,18 @@ How the gate gets turned on:
 |---|---|
 | Type | enum |
 | Values | `ORIGINAL`, `512`, `1024`, `2048`, `4096`, `CUSTOM` |
-| Default | `2048` |
+| Default | `ORIGINAL` |
 | Declared | `Plugin/ui/panel.py:449` |
 | UI | Optimization — "Maximum Resolution" in the direct route (`Plugin/ui/panel.py:818`), "Bake Resolution" in the bake route (`:826`) |
 
-Two different resolvers read this key and they mean different things:
+Two different resolvers read this key, and they mean different things:
 
-- `_resolve_bake_resolution()` (`Plugin/export/bake_textures.py:971`) sizes **newly baked**
-  textures. Returns `0` for `ORIGINAL` *and* for a disabled gate, where `0` means "size each
-  material from its own largest source texture feeding base colour / roughness / alpha", floored
-  at 512 px and falling back to 2048 (`:1082`).
-- `_resolve_texture_override_resolution()` (`:1133`) sizes **existing** textures being
-  transcoded/resized during export. Returns `0` (keep original size) for `ORIGINAL`, and
-  `2048` when the gate is off.
+- `_resolve_bake_resolution()` (`Plugin/export/bake_textures.py:971`) sizes **newly baked** textures. Returns `0` for `ORIGINAL` *and* for a disabled gate. There, `0` means "size each material from its own largest source texture feeding base color / roughness / alpha", floored at 512 px and falling back to 2048 (`:1082`).
+- `_resolve_texture_override_resolution()` (`:1133`) sizes **existing** textures being transcoded or resized during export. Returns `0` (keep original size) for `ORIGINAL`, and `2048` when the gate is off.
 
-`LIT_IBL` overrides "source resolution" back to 2048, because a lighting/shadow bake's required
-resolution has nothing to do with the source albedo's size
-(`Plugin/export/bake_textures.py:132`).
+`LIT_IBL` overrides "source resolution" back to 2048, because a lighting/shadow bake's required resolution has nothing to do with the source albedo's size (`Plugin/export/bake_textures.py:132`).
 
-Resolution is part of the bake reuse cache key, so changing it forces a fresh bake
-(`Plugin/export/bake_textures.py:1041`).
+Resolution is part of the bake reuse cache key, so changing it forces a fresh bake (`Plugin/export/bake_textures.py:1041`).
 
 ### `bake_resolution_custom`
 
@@ -607,10 +485,7 @@ Resolution is part of the bake reuse cache key, so changing it forces a fresh ba
 | Declared | `Plugin/ui/panel.py:476` |
 | UI | Optimization, only when `bake_resolution == CUSTOM` (`Plugin/ui/panel.py:822`, `:828`) |
 
-Read only when `bake_resolution == CUSTOM` (`Plugin/export/bake_textures.py:985`, `:1140`), and
-only when `export_texture_settings_enabled` is on. On the CLI, `--resolution <int>` sets
-`bake_resolution=CUSTOM` **and** this value in one step
-(`Plugin/api/commands/bake_export.py:165-176`).
+Read only when `bake_resolution == CUSTOM` (`Plugin/export/bake_textures.py:985`, `:1140`), and only when `export_texture_settings_enabled` is on. On the CLI, `--resolution <int>` sets `bake_resolution=CUSTOM` **and** this value in one step (`Plugin/api/commands/bake_export.py:165-176`).
 
 ### `bake_image_format`
 
@@ -625,16 +500,11 @@ only when `export_texture_settings_enabled` is on. On the CLI, `--resolution <in
 Resolved by `_resolve_bake_image_format()` (`Plugin/export/bake_textures.py:1148`):
 
 - Gate off → forced to `AVIF`.
-- `ORIGINAL` + saving a **newly baked** image → downgraded to `PNG` with a warning, because
-  there is no source encoding to preserve (`:1156`). The UI states this inline
-  (`Plugin/ui/panel.py:831`).
-- `ORIGINAL` + **existing** texture staging → keeps AVIF/PNG/JPEG/OpenEXR and normalises other
-  LDR inputs to PNG (`:1167`).
+- `ORIGINAL` + saving a **newly baked** image → downgraded to `PNG` with a warning, because there is no source encoding to preserve (`:1156`). The UI states this inline (`Plugin/ui/panel.py:831`).
+- `ORIGINAL` + **existing** texture staging → keeps AVIF/PNG/JPEG/OpenEXR and normalizes other LDR inputs to PNG (`:1167`).
 - A format unsupported by the running Blender build falls back to PNG with a warning (`:1169`).
 
-OpenEXR is never re-encoded or resized, to protect float/HDR data — the override is explicitly
-ignored with a warning (`Plugin/export/usd_textures.py:379`, `:709`). Radiance `.hdr` fails with
-remediation to convert to OpenEXR rather than silently losing dynamic range (`:374`).
+OpenEXR is never re-encoded or resized, to protect float/HDR data — the override is explicitly ignored with a warning (`Plugin/export/usd_textures.py:379`, `:709`). Radiance `.hdr` fails with remediation to convert to OpenEXR, rather than silently losing dynamic range (`:374`).
 
 ### `bake_margin`
 
@@ -645,8 +515,7 @@ remediation to convert to OpenEXR rather than silently losing dynamic range (`:3
 | Declared | `Plugin/ui/panel.py:484` |
 | UI | Optimization — **bake route only** (`Plugin/ui/panel.py:830`) |
 
-Bake padding in pixels, in the bake pipeline only (`Plugin/export/bake_textures.py:1181`).
-Falls back to `8` when `export_texture_settings_enabled` is off. Not read by direct export.
+Bake padding in pixels, in the bake pipeline only (`Plugin/export/bake_textures.py:1181`). Falls back to `8` when `export_texture_settings_enabled` is off. Not read by direct export.
 
 ---
 
@@ -660,29 +529,21 @@ Falls back to `8` when `export_texture_settings_enabled` is off. Not read by dir
 | Values | `realitykit_portable`, `realitykit_pbr2`, `openpbr_1_1` |
 | Default | `realitykit_portable` |
 | Declared | `Plugin/ui/panel.py:244` |
-| UI | Material Settings, labelled "Surface Model" — **only in PBR ▸ Translate** (`Plugin/ui/panel.py:737`) |
+| UI | Material Settings, labeled "Surface Model" — **only in PBR ▸ Translate** (`Plugin/ui/panel.py:737`) |
 | Status | `realitykit_portable` production; other two **experimental** |
 
 The MaterialX surface contract used when rewriting Blender materials. Read by:
 
-- the material rewrite pass, which builds the graph against the selected profile and emits
-  profile-specific runtime warnings (`Plugin/export/materials/rewrite.py:23-34`);
-- strict material validation on `export` and `validate`
-  (`Plugin/api/commands/export.py:147`, `Plugin/api/commands/validate.py:16`);
-- the Shader Editor compatibility panel (`Plugin/ui/shader_panel.py:33`) and the interactive
-  validation operators (`Plugin/ops/validation_operators.py:32`);
+- the material rewrite pass, which builds the graph against the selected profile and emits profile-specific runtime warnings (`Plugin/export/materials/rewrite.py:23-34`);
+- strict material validation on `export` and `validate` (`Plugin/api/commands/export.py:147`, `Plugin/api/commands/validate.py:16`);
+- the Shader Editor compatibility panel (`Plugin/ui/shader_panel.py:33`) and the interactive validation operators (`Plugin/ops/validation_operators.py:32`);
 - diagnostics and support bundles (`Plugin/export/support_bundle.py:235`).
 
-> **The UI hides this in the bake routes, but the exporter still reads it.** `rewrite_materials`
-> runs in `postprocess_usd.process_usd_stage()` for both pipelines
-> (`Plugin/export/postprocess_usd.py:68`), so a non-default profile left over from a Translate
-> session continues to apply to baked exports even though no control is shown.
+> **The UI hides this in the bake routes, but the exporter still reads it.** `rewrite_materials` runs in `postprocess_usd.process_usd_stage()` for both pipelines (`Plugin/export/postprocess_usd.py:68`). A non-default profile left over from a Translate session therefore continues to apply to baked exports, even though no control is shown.
 
-Only `realitykit_portable` is verified for current RealityKit/RCP. USDZ validation is not
-weakened for the experimental profiles.
+Only `realitykit_portable` is verified for current RealityKit/RCP. USDZ validation is not weakened for the experimental profiles.
 
-`validate` accepts a per-run override with `--materialx-surface-profile`
-(`Plugin/api/commands/validate.py:20`) that does not touch the scene setting.
+`validate` accepts a per-run override with `--materialx-surface-profile` (`Plugin/api/commands/validate.py:20`) that does not touch the scene setting.
 
 ### `normalize_unsupported_values`
 
@@ -693,29 +554,19 @@ weakened for the experimental profiles.
 | Declared | `Plugin/ui/panel.py:268` |
 | UI | Material Settings — **only in PBR ▸ Translate**, with an explanatory policy box when on (`Plugin/ui/panel.py:740-750`) |
 
-A narrowly scoped, export-only repair. When on, an **unlinked constant achromatic** Principled
-`Specular Tint` above `1` is clamped to `[1,1,1]` in the extracted export data only
-(`Plugin/export/materials/rewrite.py:110`, `Plugin/material_policies.py:14`). The Blender node
-is not assigned to and the `.blend` is not saved. Colored, linked, negative, and non-finite
-values still fail the export.
+A narrowly scoped, export-only repair. When on, an **unlinked constant achromatic** Principled `Specular Tint` above `1` is clamped to `[1,1,1]` in the extracted export data only (`Plugin/export/materials/rewrite.py:110`, `Plugin/material_policies.py:14`). The Blender node is not assigned to, and the `.blend` is not saved. Colored, linked, negative, and non-finite values still fail the export.
 
-It also relaxes validation symmetrically, so `validate` and the Shader Editor panel agree with
-what export will do (`Plugin/nodes/validate.py:339`, `:543`;
-`Plugin/ops/validation_operators.py:40`; `Plugin/ui/shader_panel.py:41`).
+It also relaxes validation symmetrically, so `validate` and the Shader Editor panel agree with what export will do (`Plugin/nodes/validate.py:339`, `:543`; `Plugin/ops/validation_operators.py:40`; `Plugin/ui/shader_panel.py:41`).
 
-Deviating from `false` is recorded in diagnostics as a profile deviation
-(`Plugin/api/commands/_settings_common.py:415`).
+Deviating from `false` is recorded in diagnostics as a profile deviation (`Plugin/api/commands/_settings_common.py:415`).
 
-Because bake exports skip source-graph validation entirely, this setting is effectively
-direct-export and `validate` only.
+Because bake exports skip source-graph validation entirely, this setting is effectively direct-export and `validate` only.
 
 ---
 
 ## `bake`
 
-Every setting in this group is read exclusively by the bake pipeline
-(`blendertorcp bake-export`, or the Blender Export button when the profile routes to a bake).
-`blendertorcp export` ignores all of them.
+Every setting in this group is read exclusively by the bake pipeline (`blendertorcp bake-export`, or the Blender Export button when the profile routes to a bake). `blendertorcp export` ignores all of them.
 
 ### `bake_mode`
 
@@ -728,8 +579,7 @@ Every setting in this group is read exclusively by the bake pipeline
 | UI | **None.** Derived from the profile controls and overwritten on every UI export — see [the routing section](#read-this-first-the-ui-does-not-expose-bake_mode-it-computes-it). |
 | CLI | `--bake-mode` on `bake-export` (`Plugin/api/commands/bake_export.py:118`) |
 
-The mode drives most of the bake's behaviour (`Plugin/export/bake_textures.py:127`; unknown
-values are coerced to `LIT_IBL` at `:129`):
+The mode drives most of the bake's behavior (`Plugin/export/bake_textures.py:127`; unknown values are coerced to `LIT_IBL` at `:129`):
 
 | | `UNLIT_ALBEDO` | `LIT_ALBEDO` | `LIT_IBL` |
 |---|---|---|---|
@@ -743,12 +593,9 @@ values are coerced to `LIT_IBL` at `:129`):
 | Temporary IBL world | no | no | yes (`:258`) |
 | Extra contract checks | — | normal/metallic passthrough validated (`:1321`) | — |
 
-`force_unlit_materials` is derived from it: everything except `LIT_ALBEDO` authors Unlit
-(`Plugin/export/bake_finalize.py:17`).
+`force_unlit_materials` is derived from it: everything except `LIT_ALBEDO` authors Unlit (`Plugin/export/bake_finalize.py:17`).
 
-`LIT_IBL` is also what makes the Scene World / HDRI a *dependency*: the external-asset preflight
-only requires the World or the explicit HDRI when `bake_mode == LIT_IBL`
-(`Plugin/export/asset_preflight.py:733`, `:742`).
+`LIT_IBL` is also what makes the Scene World / HDRI a *dependency*: the external-asset preflight only requires the World or the explicit HDRI when `bake_mode == LIT_IBL` (`Plugin/export/asset_preflight.py:733`, `:742`).
 
 ### `bake_ibl_source`
 
@@ -760,15 +607,9 @@ only requires the World or the explicit HDRI when `bake_mode == LIT_IBL`
 | Declared | `Plugin/ui/panel.py:391` |
 | UI | Material Settings ▸ Unlit ▸ Lighting & Shadows (`Plugin/ui/panel.py:760`) |
 
-**Only read when `bake_mode == LIT_IBL`** — `_temporary_ibl_world()` is entered with
-`enabled=(bake_mode == "LIT_IBL")` and returns immediately otherwise
-(`Plugin/export/bake_textures.py:258`, `:716`). With `SCENE_WORLD` the scene's own World is
-used unchanged (`:721`); with `HDRI_FILE` a temporary World is built from
-`bake_ibl_filepath`/`bake_ibl_strength`/`bake_ibl_rotation` and restored afterwards (`:739-752`).
+**Only read when `bake_mode == LIT_IBL`** — `_temporary_ibl_world()` is entered with `enabled=(bake_mode == "LIT_IBL")` and returns immediately otherwise (`Plugin/export/bake_textures.py:258`, `:716`). With `SCENE_WORLD`, the scene's own World is used unchanged (`:721`). With `HDRI_FILE`, a temporary World is built from `bake_ibl_filepath`/`bake_ibl_strength`/`bake_ibl_rotation` and restored afterwards (`:739-752`).
 
-It also selects which dependency the preflight demands: `SCENE_WORLD` makes the Scene World a
-required dependency, `HDRI_FILE` makes the HDRI one
-(`Plugin/export/asset_preflight.py:734`, `:743`).
+It also selects which dependency the preflight demands: `SCENE_WORLD` makes the Scene World a required dependency, `HDRI_FILE` makes the HDRI one (`Plugin/export/asset_preflight.py:734`, `:743`).
 
 ### `bake_ibl_filepath`
 
@@ -779,20 +620,14 @@ required dependency, `HDRI_FILE` makes the HDRI one
 | Declared | `Plugin/ui/panel.py:402` |
 | UI | Material Settings, only when `bake_ibl_source == HDRI_FILE` (`Plugin/ui/panel.py:764`) |
 
-Required when `bake_mode=LIT_IBL` and `bake_ibl_source=HDRI_FILE`; an empty value raises
-"Bake mode is 'Lighting & Shadows' but no HDRI file is set."
-(`Plugin/export/bake_textures.py:766`).
+Required when `bake_mode=LIT_IBL` and `bake_ibl_source=HDRI_FILE`; an empty value raises "Bake mode is 'Lighting & Shadows' but no HDRI file is set." (`Plugin/export/bake_textures.py:766`).
 
 Path resolution has real semantics (`Plugin/export/bake_textures.py:755`):
 
-- `//foo.hdr` is Blender-relative to the source `.blend`; if the `.blend` was never saved this
-  fails closed with an actionable message (`:778`).
+- `//foo.hdr` is Blender-relative to the source `.blend`; if the `.blend` was never saved, this fails closed with an actionable message (`:778`).
 - Any other relative path is CWD-relative (`:786`).
-- Background jobs resolve it to an **absolute** path before saving the temporary scene snapshot,
-  so loading the copy from a private job directory cannot retarget the lighting
-  (`Plugin/ops/bake_export_operator.py:744`).
-- The preflight reports a missing HDRI against `{"setting": "bake_ibl_filepath"}`
-  (`Plugin/export/asset_preflight.py:508`).
+- Background jobs resolve it to an **absolute** path before saving the temporary scene snapshot, so loading the copy from a private job directory cannot retarget the lighting (`Plugin/ops/bake_export_operator.py:744`).
+- The preflight reports a missing HDRI against `{"setting": "bake_ibl_filepath"}` (`Plugin/export/asset_preflight.py:508`).
 
 ### `bake_ibl_strength`
 
@@ -803,11 +638,7 @@ Path resolution has real semantics (`Plugin/export/bake_textures.py:755`):
 | Declared | `Plugin/ui/panel.py:411` |
 | UI | Material Settings, only when `bake_ibl_source == HDRI_FILE` (`Plugin/ui/panel.py:767`) |
 
-Multiplier on the temporary HDRI world's background strength
-(`Plugin/export/bake_textures.py:733` → `_create_hdri_world`). **Ignored for `SCENE_WORLD`** —
-the scene's own World strength is used as authored. The property description
-("Lighting strength multiplier for the HDRI bake") is accurate; the UI reinforces it by only
-drawing the field in the HDRI branch.
+Multiplier on the temporary HDRI world's background strength (`Plugin/export/bake_textures.py:733` → `_create_hdri_world`). **Ignored for `SCENE_WORLD`** — the scene's own World strength is used as authored. The property description reads "Lighting strength multiplier for the HDRI bake", and the UI draws the field only in the HDRI branch.
 
 ### `bake_ibl_rotation`
 
@@ -818,9 +649,7 @@ drawing the field in the HDRI branch.
 | Declared | `Plugin/ui/panel.py:419` |
 | UI | Material Settings, only when `bake_ibl_source == HDRI_FILE` (`Plugin/ui/panel.py:768`) |
 
-Z-axis rotation of the temporary HDRI environment (`Plugin/export/bake_textures.py:734`).
-Blender's UI shows degrees because of the `ANGLE` subtype; `settings set` and `--ibl-rotation`
-take radians. Ignored for `SCENE_WORLD`.
+Z-axis rotation of the temporary HDRI environment (`Plugin/export/bake_textures.py:734`). Blender's UI shows degrees because of the `ANGLE` subtype; `settings set` and `--ibl-rotation` take radians. Ignored for `SCENE_WORLD`.
 
 ### `bake_isolate_meshes_lit`
 
@@ -831,11 +660,7 @@ take radians. Ignored for `SCENE_WORLD`.
 | Declared | `Plugin/ui/panel.py:427` |
 | UI | Material Settings ▸ Unlit ▸ Lighting & Shadows (`Plugin/ui/panel.py:769`) |
 
-Hides every other mesh while baking each mesh, so meshes do not cast shadows onto one another.
-**Only applies to `LIT_IBL`** — the effective flag is
-`isolate_meshes = bake_mode == "LIT_IBL" and isolate_meshes_lit`
-(`Plugin/export/bake_textures.py:444`). Setting it for `UNLIT_ALBEDO` or `LIT_ALBEDO` is a
-silent no-op.
+Hides every other mesh while baking each mesh, so meshes do not cast shadows onto one another. **Only applies to `LIT_IBL`** — the effective flag is `isolate_meshes = bake_mode == "LIT_IBL" and isolate_meshes_lit` (`Plugin/export/bake_textures.py:444`). Setting it for `UNLIT_ALBEDO` or `LIT_ALBEDO` is a silent no-op.
 
 ### `bake_base_color`
 
@@ -847,9 +672,7 @@ silent no-op.
 | UI | Material Settings ▸ Advanced (collapsed by default) (`Plugin/ui/panel.py:780`) |
 | CLI | `--no-base-color` sets it `false` (`Plugin/api/commands/bake_export.py:191`) |
 
-Enables the base-colour bake pass (`Plugin/export/bake_textures.py:141`). It participates in the
-per-object step count and the bake reuse cache key, so turning it off genuinely skips work
-rather than baking and discarding.
+Enables the base-color bake pass (`Plugin/export/bake_textures.py:141`). It participates in the per-object step count and the bake reuse cache key, so turning it off genuinely skips work rather than baking and discarding.
 
 ### `bake_opacity`
 
@@ -861,9 +684,7 @@ rather than baking and discarding.
 | UI | Material Settings ▸ Advanced (`Plugin/ui/panel.py:781`) |
 | CLI | `--no-opacity` sets it `false` (`Plugin/api/commands/bake_export.py:192`) |
 
-Enables the opacity bake (`Plugin/export/bake_textures.py:142`, `:579`). Opacity is only baked
-for materials that actually need it (`_material_needs_opacity`), so enabling it costs nothing on
-fully opaque materials.
+Enables the opacity bake (`Plugin/export/bake_textures.py:142`, `:579`). Opacity is only baked for materials that actually need it (`_material_needs_opacity`), so enabling it costs nothing on fully opaque materials.
 
 ### `bake_keep_materials`
 
@@ -875,16 +696,9 @@ fully opaque materials.
 | UI | Material Settings ▸ Advanced (`Plugin/ui/panel.py:782`) |
 | CLI | `--keep-materials` (`Plugin/api/commands/bake_export.py:193`) |
 
-Controls whether the generated baked materials stay assigned to the objects after export, or
-whether the original materials are restored
-(`Plugin/api/commands/bake_export.py:761` → `restore_baked_materials`;
-`Plugin/bake_export_runner.py:814`).
+Controls whether the generated baked materials stay assigned to the objects after export, or whether the original materials are restored (`Plugin/api/commands/bake_export.py:761` → `restore_baked_materials`; `Plugin/bake_export_runner.py:814`).
 
-> In the Blender UI this is close to inert by construction: the bake runs in a **background
-> Blender process against a temporary scene snapshot**
-> (`Plugin/ops/bake_export_operator.py:761`), so "keeping" the materials keeps them in a worker
-> process that then exits. Your open scene is unaffected either way. It is meaningful for
-> `blendertorcp bake-export … --keep-materials --save`-style in-process workflows.
+> In the Blender UI, this is close to inert by construction: the bake runs in a **background Blender process against a temporary scene snapshot** (`Plugin/ops/bake_export_operator.py:761`), so "keeping" the materials keeps them in a worker process that then exits. Your open scene is unaffected either way. It is meaningful for `blendertorcp bake-export … --keep-materials --save`-style in-process workflows.
 
 ### `bake_step_timeout_seconds`
 
@@ -896,11 +710,7 @@ whether the original materials are restored
 | UI | **None.** The property exists and persists, but no panel draws it. |
 | CLI | `--step-timeout <SEC>` on `bake-export` (`Plugin/api/commands/bake_export.py:126`) |
 
-Per-step budget for the background bake/export worker. Each bake, USD export, post-process,
-package and cleanup step gets this budget **independently**
-(`Plugin/api/commands/bake_export.py:421`, `Plugin/bake_export_runner.py:585`). The UI operator
-reads it to supervise its worker (`Plugin/ops/bake_export_operator.py:506`), so a value set from
-the CLI does affect UI background jobs — there is simply no control to set it from.
+Per-step budget for the background bake/export worker. Each bake, USD export, post-process, package, and cleanup step gets this budget **independently** (`Plugin/api/commands/bake_export.py:421`, `Plugin/bake_export_runner.py:585`). The UI operator reads it to supervise its worker (`Plugin/ops/bake_export_operator.py:506`), so a value set from the CLI does affect UI background jobs — there is simply no control to set it from.
 
 Distinct from the CLI global `--timeout`, which bounds the whole Blender process.
 
@@ -912,17 +722,12 @@ Distinct from the CLI global `--timeout`, which bounds the whole Blender process
 | Values | `TEXTURE` (per-texel map), `AVERAGE` (one constant, no roughness texture) |
 | Default | `TEXTURE` |
 | Declared | `Plugin/ui/panel.py:513` |
-| UI | Material Settings ▸ PBR ▸ Bake, labelled "Roughness" (`Plugin/ui/panel.py:752`) |
+| UI | Material Settings ▸ PBR ▸ Bake, labeled "Roughness" (`Plugin/ui/panel.py:752`) |
 | CLI | `--roughness-mode` (`Plugin/cli/__main__.py:297`) |
 
-Read at `Plugin/export/bake_textures.py:145`. **Only meaningful for `LIT_ALBEDO`**, because a
-roughness map is only baked when `bake_mode == "LIT_ALBEDO"` (`:143`). The property description
-states this restriction, and the UI enforces it by drawing the control only in the PBR ▸ Bake
-branch — which is exactly the branch that resolves to `LIT_ALBEDO`. A CLI user combining
-`--bake-mode LIT_IBL --roughness-mode AVERAGE` gets a silent no-op.
+Read at `Plugin/export/bake_textures.py:145`. **Only meaningful for `LIT_ALBEDO`**, because a roughness map is only baked when `bake_mode == "LIT_ALBEDO"` (`:143`). The property description states this restriction, and the UI enforces it by drawing the control only in the PBR ▸ Bake branch — which is exactly the branch that resolves to `LIT_ALBEDO`. A CLI user combining `--bake-mode LIT_IBL --roughness-mode AVERAGE` gets a silent no-op.
 
-`AVERAGE` still changes the bake cache key, so switching modes forces a re-bake
-(`Plugin/export/bake_textures.py:1041`).
+`AVERAGE` still changes the bake cache key, so switching modes forces a re-bake (`Plugin/export/bake_textures.py:1041`).
 
 ---
 
@@ -935,28 +740,20 @@ branch — which is exactly the branch that resolves to `LIT_ALBEDO`. A CLI user
 | Type | bool |
 | Default | `false` |
 | Declared | `Plugin/ui/panel.py:532` |
-| UI | Diagnostics panel, labelled "Keep Success Diagnostics" (`Plugin/ui/panel.py:945`) |
+| UI | Diagnostics panel, labeled "Keep Success Diagnostics" (`Plugin/ui/panel.py:945`) |
 | CLI | `--diagnostics` sets it on; `--no-diagnostics` suppresses success diagnostics for one run |
 
-Controls **only** whether a *successful* export keeps its `<output>.diagnostics.json` sidecar
-(`Plugin/api/commands/export.py:157`, `Plugin/api/commands/bake_export.py:346`,
-`Plugin/ops/export_operator.py:114`, `Plugin/bake_export_runner.py:434`).
+Controls **only** whether a *successful* export keeps its `<output>.diagnostics.json` sidecar (`Plugin/api/commands/export.py:157`, `Plugin/api/commands/bake_export.py:346`, `Plugin/ops/export_operator.py:114`, `Plugin/bake_export_runner.py:434`).
 
-**Failures always write diagnostics**, regardless of this setting — the panel says so inline
-(`Plugin/ui/panel.py:948`) and the code comments confirm it
-(`Plugin/ops/export_operator.py:117`). Even settings-validation failures that occur before the
-pipeline starts get a best-effort sidecar
-(`Plugin/api/commands/_settings_common.py:131`).
+**Failures always write diagnostics**, regardless of this setting — the panel says so inline (`Plugin/ui/panel.py:948`), and the code comments confirm it (`Plugin/ops/export_operator.py:117`). Even settings-validation failures that occur before the pipeline starts get a best-effort sidecar (`Plugin/api/commands/_settings_common.py:131`).
 
-`--no-diagnostics` is a per-run suppression that does not modify the setting
-(`Plugin/api/commands/export.py:159`).
+`--no-diagnostics` is a per-run suppression that does not modify the setting (`Plugin/api/commands/export.py:159`).
 
 ---
 
 ## Internal keys
 
-These are on the same PropertyGroup but excluded from `settings list`, `settings get` and
-`settings set` by `INTERNAL_KEYS` (`Plugin/api/commands/_settings_common.py:40`).
+These are on the same PropertyGroup but excluded from `settings list`, `settings get`, and `settings set` by `INTERNAL_KEYS` (`Plugin/api/commands/_settings_common.py:40`).
 
 | Key | Type | Default | Why it is internal |
 |---|---|---|---|
@@ -971,12 +768,7 @@ These are on the same PropertyGroup but excluded from `settings list`, `settings
 | `background_job_dir` | string | `""` | Active background job directory; cleared on file load (`Plugin/ui/panel.py:1112`). `SKIP_SAVE`. |
 | `background_job_pid` | int | `0` | PID of the background worker, used to detect a stale job (`Plugin/ui/panel.py:1070`). `SKIP_SAVE`. |
 
-> The three `ui_*` keys are the ones a user is most likely to expect to control. They **are**
-> real, persisted, artist-facing settings — the panel's most prominent controls, in fact — but
-> they are unreachable from `settings set`. From the CLI you express the same intent by choosing
-> the command (`export` vs `bake-export`) and `--bake-mode`. They are also stripped from the
-> background-job settings payload (`Plugin/ops/bake_export_operator.py:40-42`), because the
-> operator has already resolved them into `bake_mode`.
+> The three `ui_*` keys are the ones you are most likely to expect to control. They **are** real, persisted, artist-facing settings — the panel's most prominent controls, in fact — but they are unreachable from `settings set`. From the CLI, express the same intent by choosing the command (`export` vs `bake-export`) and `--bake-mode`. They are also stripped from the background-job settings payload (`Plugin/ops/bake_export_operator.py:40-42`), because the operator has already resolved them into `bake_mode`.
 
 ---
 
@@ -990,32 +782,19 @@ These are on the same PropertyGroup but excluded from `settings list`, `settings
 | `last_export_settings_json` | string | `""` | no (`HIDDEN`) | no | internal persistence |
 | `last_export_paths_json` | string | `""` | no (`HIDDEN`) | no | internal persistence |
 
-`preferences set` only accepts `usdzip_path`
-(`Plugin/api/commands/preferences_set.py:5`); it calls `wm.save_userpref()` because each CLI
-invocation is a throwaway Blender process (`:35`).
+`preferences set` only accepts `usdzip_path` (`Plugin/api/commands/preferences_set.py:5`). It calls `wm.save_userpref()` because each CLI invocation is a throwaway Blender process (`:35`).
 
 ### `usdzip_path`
 
-Path to an external `usdzip`. When it is set **and** points at an executable file, USDZ
-packaging switches from the built-in aligned-zip writer to
-`usdzip --asset … --checkCompliance` (`Plugin/export/pack_usdz.py:87-95`). A sibling
-`usdchecker` next to it is then also picked up and used for stricter ARKit-profile compliance
-validation (`:104`, `:490`). Leave empty to use the bundled Python packager, which still
-performs structural validation.
+Path to an external `usdzip`. When it is set **and** points at an executable file, USDZ packaging switches from the built-in aligned-zip writer to `usdzip --asset … --checkCompliance` (`Plugin/export/pack_usdz.py:87-95`). A sibling `usdchecker` next to it is then also picked up and used for stricter ARKit-profile compliance validation (`:104`, `:490`). Leave empty to use the bundled Python packager, which still performs structural validation.
 
 Only consulted for `USDZ` output.
 
 ## Fixed export policy (not settings)
 
-A few values passed to Blender's USD exporter are fixed policy rather than user
-settings: `incremental_frames` (0), `export_mesh_colors` (true),
-`accessibility_label` and `accessibility_description` (empty), and mesh object
-export (always on). These used to be read through `getattr` from PropertyGroup
-names that do not exist, so they always resolved to their fallback while reading
-as though a setting governed them; they are now stated as literals at the call
-site.
+A few values passed to Blender's USD exporter are fixed policy rather than user settings. They are stated as literals at the call site, and no setting governs them: `incremental_frames` (0), `export_mesh_colors` (true), `accessibility_label` and `accessibility_description` (empty), and mesh object export (always on).
 
-| Name read | Fallback used | Site |
+| Name | Fixed value | Site |
 |---|---|---|
 | `incremental_frames` | `0` | `Plugin/export/blender_usd_export.py:1128` |
 | `export_mesh_colors` | `True` | `Plugin/export/blender_usd_export.py:1135` |
@@ -1023,10 +802,7 @@ site.
 | `accessibility_description` | `""` | `Plugin/export/blender_usd_export.py:1159` |
 | `export_meshes` | `True` | `Plugin/export/asset_preflight.py:716` |
 
-Genuinely non-configurable policy constants — cameras, lights, curves, points, volumes, hair,
-world material, orientation conversion, `-Z` forward, `Y` up, `metersPerUnit=1`, UV/normal
-export, relative paths — are set as literals in the same function
-(`Plugin/export/blender_usd_export.py:1132-1176`) and are not settings at all.
+Genuinely non-configurable policy constants — cameras, lights, curves, points, volumes, hair, world material, orientation conversion, `-Z` forward, `Y` up, `metersPerUnit=1`, UV/normal export, relative paths — are set as literals in the same function (`Plugin/export/blender_usd_export.py:1132-1176`) and are not settings at all.
 
 ---
 

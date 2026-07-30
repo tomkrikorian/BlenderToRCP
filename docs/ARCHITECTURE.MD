@@ -1,5 +1,12 @@
 # BlenderToRCP Architecture
 
+This page explains how the codebase is organized: which module owns what, and
+why the pipeline is shaped the way it is. Read it if you want to contribute or
+to find the code behind a documented behavior.
+
+*Applies to: release 2.x — Blender 5.2, Reality Composer Pro 3, macOS 27,
+Xcode 27.*
+
 ## Overview
 BlenderToRCP is a Blender extension that exports scenes to USD or USDZ, then rewrites Blender-authored materials into RealityKit-compatible MaterialX graphs for Reality Composer Pro.
 
@@ -13,7 +20,7 @@ Core design constraints:
 
 ## Further reading
 
-This file describes *structure* — which module owns what. For behaviour, and
+This file describes *structure* — which module owns what. For behavior, and
 in particular for the decisions the exporter makes on the user's behalf:
 
 - [MATERIAL_TRANSLATION.md](MATERIAL_TRANSLATION.md) — Blender shader graph to MaterialX ShaderGraph
@@ -40,7 +47,7 @@ The pipeline has two distinct validation boundaries:
 1. Portable checks run Python tests and verify that the extension can be packaged deterministically. They do not prove RealityKit compatibility.
 2. Apple checks exercise the real Blender 5.2 and Xcode 27 toolchain. `usdchecker` covers structural acceptance, `realitytool` covers compilation, and a public-API RealityKit harness loads the fresh source assets and those exact compiled outputs on macOS 27. There is no supported headless Reality Composer Pro import command in this repository.
 
-Interactive Reality Composer Pro 3 import/save/reopen, visual inspection, Quick Look/Spatial Preview, and physical Vision Pro testing are manual release gates. Compilation alone is insufficient—the automated Apple gate also requires real macOS 27 RealityKit loading—but neither automated check proves the remaining UI, visual, or device acceptance.
+Interactive Reality Composer Pro 3 import/save/reopen, visual inspection, Quick Look/Spatial Preview, and physical Vision Pro testing are manual release gates. Compilation alone is insufficient: the automated Apple gate also requires real macOS 27 RealityKit loading. Neither automated check proves the remaining UI, visual, or device acceptance.
 
 The mandatory shipping material profile is `realitykit_portable`, based on the established RealityKit PBR v1 surface. The graph builder also contains explicit `realitykit_pbr2` and `openpbr_1_1` profiles, but they remain experimental. Passing an experimental compile does not promote either profile into the supported release contract or weaken package validation.
 
@@ -51,12 +58,12 @@ The mandatory shipping material profile is `realitykit_portable`, based on the e
 - `Plugin/export/`: USD export pipeline, post-processing, texture and asset staging, animation clip authoring, diagnostics, and USDZ packaging.
 - `Plugin/export/materials/`: Blender material extraction, MaterialX graph construction, and USD material authoring.
 - `Plugin/nodes/`: RealityKit compatibility rules, node metadata, generated nodegroup builders, and preview builders.
-- `Plugin/manifest/`: bundled `rk_nodes_manifest.json` plus selectors for MaterialX nodedef lookup.
+- `Plugin/manifest/`: bundled `rk_nodes_manifest.json` plus selectors for MaterialX nodedef (node definition) lookup.
 - `Plugin/assets/nodegroups.blend`: generated nodegroup library used by the authoring tools.
 - `Plugin/core/paths.py`: shared path resolution for manifests, assets, and bundled resources.
 - `Plugin/core/version.py`: runtime access to `blender_manifest.toml` (single source of version metadata).
-- `Plugin/export/usd_hook.py`: scoped USDHook that captures the exporter's prim map during export.
-- `Plugin/export/realitykit_preflight.py`: post-authoring gate that inspects the composed stage against the RealityKit OS 27 contract (colour spaces, texture transforms, UV sets) and fails the export on violation.
+- `Plugin/export/usd_hook.py`: scoped USDHook that captures the exporter's prim map — the exact mapping from Blender data to USD prims (the nodes of the USD scene graph) — during export.
+- `Plugin/export/realitykit_preflight.py`: post-authoring gate that inspects the composed stage against the RealityKit OS 27 contract (color spaces, texture transforms, UV sets) and fails the export on violation.
 - `Plugin/export/staging_namespace.py`: per-attempt sidecar generation namespaces, plus the record of textures Blender's own exporter wrote, used to decide which staged copies may be deleted.
 - `Plugin/export/sidecar_manifest.py`: the ownership manifest that makes re-export to an existing directory safe.
 - `Plugin/export/rcp_import_generator.py`: experimental Reality Composer Pro 3 `.import` package generation (see below).
@@ -165,9 +172,9 @@ export still runs and an adjacent `.usda` is written, then the generator emits a
 Reality Composer Pro `.import` package beside it.
 
 This lane is experimental and pinned to RCP 3.0 build `80.0.1.500.1`. The
-`.import` container is a private Apple format that this repository documents by
-measurement, not from a specification, so the module's discipline is that no
-field is written unless it was observed in RCP-authored output. Supported today:
+`.import` container is a private Apple format. This repository documents it by
+measurement, not from a specification, so the generator writes no field unless
+it was observed in RCP-authored output. Supported today:
 static multi-mesh assets, single-mesh transform animation, and single- or
 multi-mesh skeletal assets sharing one skeleton. Multiple face materials use a
 temporary split-resource representation that opens and renders but fails the
@@ -351,7 +358,7 @@ These scripts provide structural, compiler, and macOS RealityKit runtime accepta
 - `scripts/check_release.sh`: validate release metadata, build the extension twice, and verify deterministic archive contents plus checksum.
 - `scripts/build_archive.sh`: packaging entry point; `--check` delegates to the full release check.
 - `scripts/smoke_extension_archive.py`: install a built archive into isolated Blender user resources, prove clean packaged node-group loading, run successful installed-CLI USDC/USDZ exports, inspect geometry/material/portable ShaderGraph semantics with Blender's bundled USD runtime, enforce the packaged USDZ contract, use strict `usdchecker` and Xcode 27 `realitytool` when available, and exercise the bake-runner entry point.
-- `scripts/check_apple27_toolchain.sh`: fail-closed preflight for the labelled Apple 27 runner.
+- `scripts/check_apple27_toolchain.sh`: fail-closed preflight for the labeled Apple 27 runner.
 - `scripts/run_realitykit_runtime_smoke.sh`: compile and run the macOS 27 RealityKit source/compiled-asset acceptance probe.
 - `scripts/realitykit_runtime_smoke.swift`: public-API recursive entity, material, and animation inspector used by that probe.
 - `scripts/build_materialx_manifest.py`: rebuild the runtime nodedef manifest from MaterialX sources.

@@ -1,50 +1,70 @@
 # BlenderToRCP
 
-Blender add-on to export USD/USDZ and rewrite Blender materials into Reality Composer Pro compatible MaterialX ShaderGraph graphs.
+BlenderToRCP is a Blender add-on that exports scenes to `.usda`, `.usdc`, or
+`.usdz` and rewrites Blender materials into MaterialX ShaderGraph graphs that
+Reality Composer Pro can open and edit. It includes a command-line interface,
+so you can also drive exports from a terminal or an AI agent without opening
+the Blender UI.
+
+## Who it's for
+
+- Blender artists who want scenes and materials to arrive intact in Reality
+  Composer Pro and RealityKit.
+- Developers and AI agents who control exports from the terminal through the
+  [CLI](#cli).
+- Contributors who want to extend the add-on. Start with
+  [Contribute to the Blender add-on](#contribute-to-the-blender-add-on).
 
 ## Key features
 
-- **CLI remote control**: export, bake, validate, and manage settings from the terminal — no Blender UI needed.
-- Export `.usda`, `.usdc`, or `.usdz` from Blender with a Reality Composer Pro friendly pipeline.
-- Strict material validation: unsupported nodes fail export with copy/pasteable errors instead of silently degrading.
-- RealityKit material rewrite: supported Blender shader graphs are rewritten into MaterialX graphs that Reality Composer Pro can edit.
-- Portable exports: textures and auxiliary assets are staged next to the USD and rewritten to relative paths.
-- Animation compatibility: actions can be concatenated for export. Reality Composer Pro clip-library metadata is experimental and opt-in; RCP 3 build `80.0.1.500.1` flattens authored named clip definitions to the aggregate animation during supported USD import.
-- Profile-driven texture baking: the single Blender Export button runs baking in a second process when the selected material type requires it, writes status/log files, and keeps the UI responsive.
-- Experimental, build-pinned Reality Composer Pro 3 `.import` generation for static multi-mesh assets, single-mesh transform animation, and single- or multi-mesh skeletal assets that share one skeleton and animation contract. Baked base-color/opacity and roughness payloads are supported per material. Multiple face materials are generated with a temporary split-resource representation that opens and renders, but it fails the second-reimport idempotence gate; canonical subset writing and the remaining skeletal/editor gates are not compatibility claims.
-- Shader authoring helpers: insert RealityKit PBR or Unlit node groups, browse a generated RealityKit node menu, and validate active materials in the Shader Editor.
+- **USD and USDZ export**: write `.usda`, `.usdc`, or `.usdz` through a
+  Reality Composer Pro friendly pipeline
+  ([docs/EXPORT_PIPELINE.md](docs/EXPORT_PIPELINE.md)).
+- **CLI remote control**: export, bake, validate, and manage settings from the
+  terminal — no Blender UI needed ([docs/CLI.md](docs/CLI.md)).
+- **Strict material validation**: unsupported nodes fail export with
+  copy/pasteable errors instead of silently degrading
+  ([docs/MATERIAL_TRANSLATION.md](docs/MATERIAL_TRANSLATION.md)).
+- **RealityKit material rewrite**: supported Blender shader graphs become
+  MaterialX graphs that Reality Composer Pro can edit
+  ([docs/MATERIAL_TRANSLATION.md](docs/MATERIAL_TRANSLATION.md)).
+- **Portable exports**: textures and auxiliary assets are staged next to the
+  exported USD and rewritten to relative paths
+  ([docs/EXPORT_PIPELINE.md](docs/EXPORT_PIPELINE.md)).
+- **Animation export**: actions can be concatenated for export. Reality
+  Composer Pro clip-library metadata is experimental and opt-in; RCP 3 build
+  `80.0.1.500.1` flattens authored named clip definitions to the aggregate
+  animation during supported USD import
+  ([docs/EXPORT_PIPELINE.md](docs/EXPORT_PIPELINE.md)).
+- **Profile-driven texture baking**: when the selected material type requires
+  a bake, the single Export button runs it in a second Blender process and
+  keeps the UI responsive ([docs/BAKING.md](docs/BAKING.md)).
+- **Experimental `.import` generation**: build-pinned Reality Composer Pro 3
+  `.import` packages for static multi-mesh assets, single-mesh transform
+  animation, and skeletal assets that share one skeleton and animation
+  contract. This is not a compatibility claim; read
+  [docs/RCP_IMPORT_EXPERIMENT.md](docs/RCP_IMPORT_EXPERIMENT.md) for the exact
+  acceptance status and fail-closed boundaries before relying on it.
+- **Shader authoring helpers**: insert RealityKit PBR or Unlit node groups,
+  browse a generated RealityKit node menu, and validate active materials in
+  the Shader Editor.
 
-## Important note
-This is still a strict, compatibility-first exporter. Node coverage and graph translation are intentionally limited, and some Blender materials or scene setups will fail export until explicit support is added. When export succeeds, validate the result in Reality Composer Pro or with the repo validation scripts before relying on it in production.
+## Requirements
 
-Release 2.x deliberately targets the Blender 5.2 API. Blender 5.1 and earlier are unsupported, and the codebase does not carry compatibility branches for them. The extension manifest enforces a minimum of Blender 5.2.0; later Blender releases still need to pass this repository's Blender integration suite before they can be treated as supported.
+- Blender 5.2.x. Release 2.x deliberately targets the Blender 5.2 API, and
+  the extension manifest enforces a minimum of Blender 5.2.0. Blender 5.1 and
+  earlier are unsupported, and the codebase does not carry compatibility
+  branches for them. Later Blender releases still need to pass this
+  repository's Blender integration suite before they can be treated as
+  supported.
 
-The Apple validation baseline is Reality Composer Pro 3 with the version-27 Apple SDKs and deployment targets. Automated validation checks fresh USD/USDZ exports, compiles generated ShaderGraph and `.rkassets` fixtures with `realitytool`, exercises the Blender CLI, and loads fresh source plus compiled assets through RealityKit on macOS 27. Interactive import/save/reopen testing in Reality Composer Pro 3, visual acceptance in Reality Composer Pro or Quick Look/Spatial Preview, and physical-device testing remain manual release checks.
+Contributor requirements are listed under
+[Contribute to the Blender add-on](#contribute-to-the-blender-add-on).
 
-`References/RealityComposerProProject` contains the disposable RCP3 research
-corpus used to measure the private `.import` format. `.import` generation is
-experimental and pinned to RCP 3.0 build `80.0.1.500.1`; it is not an Apple
-published interchange format. See
-[`docs/RCP_IMPORT_EXPERIMENT.md`](docs/RCP_IMPORT_EXPERIMENT.md) for its exact
-acceptance status and fail-closed boundaries. The measured requirements for
-one mesh with multiple materials are documented separately in
-[`docs/RCP_IMPORT_MULTI_MATERIAL_MESH.md`](docs/RCP_IMPORT_MULTI_MATERIAL_MESH.md).
+## Quick start
 
-The shipping material profile is `realitykit_portable`, which authors the established RealityKit PBR v1 surface and is the mandatory CI path. `realitykit_pbr2` and `openpbr_1_1` are explicit experimental profiles for OS 27 investigation; they are not production compatibility claims or release gates.
-
-This repo supports three workflows:
-- Install the Blender add-on.
-- Use the CLI to control exports from the terminal or an AI agent.
-- Contribute to the add-on.
-
-## Where to find it in Blender
-- `3D View > Sidebar > RCP Exporter`: main export UI, advanced USD export settings, bake settings, job monitor, and diagnostics access.
-- `Shader Editor > Sidebar > RCP Exporter > RealityKit Compatibility`: validate the active material and select offending nodes.
-- `Shader Editor > Sidebar > RCP Exporter > RealityKit Authoring`: insert RealityKit PBR or Unlit node groups.
-- `Shader Editor > Add > RealityKit Nodes`: insert generated RealityKit node groups from the bundled node catalog.
-
-## Install the Blender add-on
-1. Download the release asset `BlenderToRCP-<version>.zip` from GitHub Releases. The matching `.zip.sha256` asset can be used to verify the download.
+1. Download the release asset `BlenderToRCP-<version>.zip` from GitHub
+   Releases. Use the matching `.zip.sha256` asset to verify the download.
 2. On macOS, verify both downloads from their containing directory:
 
 ```bash
@@ -55,9 +75,81 @@ shasum -a 256 -c BlenderToRCP-<version>.zip.sha256
 4. Select `BlenderToRCP-<version>.zip`.
 5. Enable `BlenderToRCP` in the add-ons list.
 
+The export panel appears in the 3D View sidebar under `RCP Exporter`; see
+[Where to find it in Blender](#where-to-find-it-in-blender). To drive exports
+from the terminal instead, see [CLI](#cli).
+
+## Documentation
+
+Full documentation index: [`docs/README.md`](docs/README.md).
+
+| Document | Covers |
+|---|---|
+| [`docs/ARCHITECTURE.MD`](docs/ARCHITECTURE.MD) | Codebase layout and module responsibilities |
+| [`docs/CLI.md`](docs/CLI.md) | Every command, flag, exit code, and the JSON envelope |
+| [`docs/SETTINGS.md`](docs/SETTINGS.md) | What every toggle changes, and which settings override each other |
+| [`docs/MATERIAL_TRANSLATION.md`](docs/MATERIAL_TRANSLATION.md) | Blender shader graph to RealityKit MaterialX ShaderGraph |
+| [`docs/BAKING.md`](docs/BAKING.md) | When a bake runs, what each mode captures, what scene state it overrides |
+| [`docs/EXPORT_PIPELINE.md`](docs/EXPORT_PIPELINE.md) | Geometry, units, animation, staging, USDZ packaging |
+
+The three pipeline documents each carry a section on the decisions the exporter
+makes **on your behalf**, and whether it tells you it made them. Start there if
+an export came out differently than you expected.
+
+Open defects are tracked in
+[`CODE_REVIEW_FINDINGS.md`](CODE_REVIEW_FINDINGS.md).
+
+## A compatibility-first exporter
+
+BlenderToRCP is strict by design. Node coverage and graph translation are
+intentionally limited, and some Blender materials or scene setups will fail
+export until explicit support is added. When export succeeds, validate the
+result in Reality Composer Pro or with the repository validation scripts
+before relying on it in production.
+
+The shipping material profile is `realitykit_portable`, which authors the
+established RealityKit PBR v1 surface and is the mandatory CI path.
+`realitykit_pbr2` and `openpbr_1_1` are explicit experimental profiles for
+OS 27 investigation; they are not production compatibility claims or release
+gates.
+
+### How releases are validated
+
+The Apple validation baseline is Reality Composer Pro 3 with the version-27
+Apple SDKs and deployment targets. Automated validation checks fresh USD/USDZ
+exports, compiles generated ShaderGraph and `.rkassets` fixtures with
+`realitytool`, exercises the Blender CLI, and loads fresh source plus compiled
+assets through RealityKit on macOS 27. Interactive import/save/reopen testing
+in Reality Composer Pro 3, visual acceptance in Reality Composer Pro or
+Quick Look/Spatial Preview, and physical-device testing remain manual release
+checks.
+
+### Experimental `.import` generation
+
+`.import` generation is experimental and pinned to RCP 3.0 build
+`80.0.1.500.1`. The `.import` container is not an Apple published interchange
+format. See [`docs/RCP_IMPORT_EXPERIMENT.md`](docs/RCP_IMPORT_EXPERIMENT.md)
+for its exact acceptance status and fail-closed boundaries. The measured
+requirements for one mesh with multiple materials are documented separately in
+[`docs/RCP_IMPORT_MULTI_MATERIAL_MESH.md`](docs/RCP_IMPORT_MULTI_MATERIAL_MESH.md).
+`References/RealityComposerProProject` contains the disposable RCP3 research
+corpus used to measure the private `.import` format.
+
+## Where to find it in Blender
+
+- `3D View > Sidebar > RCP Exporter`: main export UI, advanced USD export settings, bake settings, job monitor, and diagnostics access.
+- `Shader Editor > Sidebar > RCP Exporter > RealityKit Compatibility`: validate the active material and select offending nodes.
+- `Shader Editor > Sidebar > RCP Exporter > RealityKit Authoring`: insert RealityKit PBR or Unlit node groups.
+- `Shader Editor > Add > RealityKit Nodes`: insert generated RealityKit node groups from the bundled node catalog.
+
 ## CLI
 
-BlenderToRCP includes a command-line interface that can export, bake, validate, and manage settings without opening the Blender UI. Every command spawns `blender --background` and returns JSON to stdout on success. For failures, use `--json` when callers need the structured error envelope on stdout; without `--json`, the CLI prints a short human-readable error and support hints to stderr.
+BlenderToRCP includes a command-line interface that exports, bakes, validates,
+and manages settings without opening the Blender UI. Every command spawns
+`blender --background` and returns JSON to stdout on success. For failures,
+use `--json` when callers need the structured error envelope on stdout;
+without `--json`, the CLI prints a short human-readable error and support
+hints to stderr.
 
 ### Quick start
 
@@ -126,6 +218,89 @@ Browse and discover skills at [skills.sh](https://skills.sh).
 | `blendertorcp-setup` | Set up the CLI — locate Blender, verify the plugin, configure the shell alias. Also covers troubleshooting. |
 
 Once installed, an agent can respond to prompts like "export my Blender scene to USDZ" or "bake and export Robot.blend at 4K resolution" by invoking the CLI commands automatically.
+
+## Add-on preferences and persisted state
+
+The add-on preferences expose:
+- `USDZ Packager Path`: optional path to `usdzip`. If empty, the add-on uses the built-in Python packager.
+- `MaterialX Library Path`: optional override for MaterialX definitions. If empty, the add-on uses the bundled references.
+
+The add-on also persists the last-used export settings and remembers export paths per `.blend` file. That state lives in Blender preferences, not in the repository.
+
+## Export workflow
+
+The Blender panel has one Export button. Choose `RealityKit PBR` or `RealityKit Unlit`; the profile options determine whether compatible materials are translated directly or baked before export. Direct PBR export validates every scene material in strict mode before writing USD. Export settings are stored on the scene and expose a focused subset of Blender USD export controls, including:
+- Root prim naming, selection-only export, animation export, and custom property authoring.
+- Name, Unicode, and transform-op controls.
+- Geometry and rigging controls such as triangulation, subdivision, armatures, deform bones, and shape keys.
+- `Optimization > Optimize Source Textures` can be enabled to resize textures or transcode them to AVIF/PNG during direct PBR export; when disabled, the exporter keeps Apple-compatible AVIF, PNG, JPEG, and OpenEXR inputs in their source encoding and transcodes other LDR image formats to PNG. OpenEXR is always preserved byte-for-byte and ignores resize/format overrides to protect float/HDR data. Radiance HDR (`.hdr`) fails with guidance to convert it to OpenEXR.
+- Material validation fails closed by default. `Normalize Unsupported Values` is an explicit export-only exception for one safe case: an unlinked, constant, achromatic Principled `Specular Tint` above `1` is clamped to white. Colored or linked values still stop export. The source material and `.blend` are never modified; diagnostics record the source and exported values.
+- Failed exports always write `<output>.diagnostics.json`. `Keep Success Diagnostics` retains the same report after successful exports.
+
+Release 2.x enforces a non-configurable Apple spatial contract: Blender's native orientation conversion, `-Z` forward, `Y` up, meters at scale `1.0`, relative dependencies, and mesh/UV/normal export. Raw cameras, lights, Blender World dome lights, curves, point clouds, volumes, and hair cannot be enabled. One ordinary Blender 5.2 USD camera imported as `PerspectiveCameraComponent` in a macOS 27 smoke, but ordinary `UsdGeom.Camera` has no cross-platform RealityKit renderer guarantee and is therefore rejected by the portable profile. Author cameras and lighting in Reality Composer Pro 3 or RealityKit, and convert unsupported geometry to polygon meshes before export.
+
+Every failed export writes support-oriented diagnostics as `<output>.diagnostics.json`. Successful exports retain that sidecar only when `Keep Success Diagnostics` is enabled. The Diagnostics panel exposes the latest available report and support-bundle actions.
+
+## Profile-driven background baking
+
+When the selected profile requires baking, the single Export button launches a second Blender process, bakes textures, runs the same USD export pipeline, and updates live job status in the panel.
+
+Which option should I choose?
+
+| Goal | Use |
+|------|-----|
+| Translate compatible materials directly | `RealityKit PBR` → `Translate Materials` |
+| Bake complex materials but keep dynamic RealityKit lighting | `RealityKit PBR` → `Bake Materials` |
+| Export material color that ignores scene lighting | `RealityKit Unlit` → `Material Color Only` |
+| Preserve Blender lighting and shadows | `RealityKit Unlit` → `Lighting & Shadows` |
+
+Operational details:
+- The `.blend` file must be saved before starting a background bake.
+- Only one background bake/export job can run at a time.
+- Job state lives under `<export_dir>/.blendertorcp_jobs/<job_id>/`.
+- Each job writes `settings.json`, `status.json`, and `log.txt`; status also records the diagnostics path when available.
+- The panel shows progress, output path, log path, diagnostics path, and the current step, and supports cancel, clear, log open, diagnostics open, and support bundle actions.
+- The optional per-step watchdog remains available through the CLI and persisted plugin settings. It is disabled by default and intentionally omitted from the Blender panel.
+- Bake/export preflights external image files used by exported objects. Missing, unpacked textures fail early with an actionable pack-or-relink error.
+- Baked exports do not validate the source material graph. Unsupported Blender node groups are expected to be resolved by baking; strict graph validation applies to `RealityKit PBR` → `Translate Materials`.
+
+Bake modes:
+- `Material Color Only - Unlit` (`UNLIT_ALBEDO`): bakes light-independent material color and rewrites the exported materials as RealityKit Unlit materials, shown as-is and ignoring scene lighting. Blender shadows are not baked.
+- `Material Color Only - Lit PBR` (`LIT_ALBEDO`): bakes the same light-independent material color but authors Lit PBR materials so Reality Composer Pro or RealityKit lights the baked color. Blender shadows are not baked. When `RealityKit PBR > Bake Materials` is selected, the `Roughness` option in `Material Settings` chooses between a baked per-texel roughness map and a single averaged roughness value.
+- `Lighting & Shadows` (`LIT_IBL`, default): bakes the appearance under the selected lighting source, then still exports the final materials as RealityKit Unlit materials with lighting and shadows encoded into textures. Use this when the USDZ should match the Blender preview.
+- `Isolate Meshes for Shadows`: hides non-target meshes during lighting-and-shadows bakes to avoid cross-mesh shadow contribution.
+- `Optimization`: sets bake resolution, image format, and margin for baked routes. For direct PBR export, `Optimize Source Textures` enables maximum-resolution and format overrides; `Original` keeps Apple-compatible AVIF, PNG, JPEG, and OpenEXR encodings and `Keep Original` leaves source dimensions untouched. Unsupported LDR inputs are normalized to PNG. OpenEXR always bypasses overrides, while Radiance HDR must be converted to OpenEXR first. AVIF textures are written natively by Blender.
+
+## Material authoring and diagnostics
+
+BlenderToRCP is not export-only. The Shader Editor integration also supports:
+- Validating the active material against the current RealityKit compatibility rules.
+- Selecting offending nodes after validation.
+- Inserting bundled RealityKit PBR and Unlit node groups.
+- Browsing the generated RealityKit node catalog through `Add > RealityKit Nodes`.
+
+Diagnostics workflow:
+- Export failures always write diagnostics; `Keep Success Diagnostics` controls successful-export sidecars.
+- The diagnostics dialog summarizes converted and failed materials, copied and converted textures, fallback nodes, KTX-required nodes, omitted nodes, and truncated warning/error lists.
+- Diagnostics JSON can be inspected directly or opened in Blender's Text Editor for troubleshooting.
+- Support bundles are redacted ZIP files created from the Blender UI or with `blendertorcp support-bundle scene.blend -o output.usdz --diagnostics output.diagnostics.json`.
+- Support bundles include environment, scene/settings, asset dependency diagnostics, and export diagnostics. They include material validation only for non-baked exports. Background job files are included by the UI action for the active job or by passing `--job-dir` to the CLI. Source `.blend` files and exported assets are opt-in.
+- Redaction covers absolute paths in plain text and JSON-escaped Windows path strings; `--no-redact` disables that protection.
+
+For a PBR Surface 2 visual comparison of direct, clamp-only, and experimental `specularWeight` redistribution strategies, generate the research fixture described in [`References/SpecularTintResearch/README.md`](References/SpecularTintResearch/README.md). Weight redistribution is deliberately not used by production exports.
+
+## Troubleshooting and support capture
+
+For CLI failures, capture stdout and stderr separately:
+
+```bash
+blendertorcp --verbose export scene.blend -o output.usdz --format USDZ \
+  > blendertorcp-result.json \
+  2> blendertorcp-stderr.log
+```
+
+Attach `blendertorcp-result.json`, `blendertorcp-stderr.log`, the exact command, `blendertorcp version`, `blendertorcp preferences get`, the returned `.diagnostics.json`, and a redacted support bundle. For background bake/export, also include `<export_dir>/.blendertorcp_jobs/<job_id>/settings.json`, `status.json`, and `log.txt` or use the support bundle action.
+Use `--json` for automated support capture so load failures, validation failures, diagnostics paths, support-bundle hints, and process-output tails stay in a machine-readable JSON envelope.
 
 ## Contribute to the Blender add-on
 
@@ -281,85 +456,8 @@ Notes:
 - `scripts/validate_exports.py` validates exported USD, USDZ, or `.rkassets` inputs with strict `usdchecker`, nodedef/path lint, and optional `realitytool` compilation. USDZ inputs are safely expanded into the temporary `.rkassets` compile staging because nesting a USDZ file can make `realitytool` 27 exit successfully while emitting a runtime-unloadable artifact. `--compiled-output-dir` retains collision-safe, deterministic `.reality` outputs for the runtime gate instead of compiling throwaway artifacts.
 - `scripts/run_realitykit_runtime_smoke.sh` builds the public-API RealityKit probe with Xcode 27 and recursively verifies model, ShaderGraph material, animation-library/clip, and required component-type expectations while loading source and compiled assets on macOS 27.
 
-## Add-on preferences and persisted state
-The add-on preferences expose:
-- `USDZ Packager Path`: optional path to `usdzip`. If empty, the add-on uses the built-in Python packager.
-- `MaterialX Library Path`: optional override for MaterialX definitions. If empty, the add-on uses the bundled references.
-
-The add-on also persists the last-used export settings and remembers export paths per `.blend` file. That state lives in Blender preferences, not in the repository.
-
-## Export workflow
-The Blender panel has one Export button. Choose `RealityKit PBR` or `RealityKit Unlit`; the profile options determine whether compatible materials are translated directly or baked before export. Direct PBR export validates every scene material in strict mode before writing USD. Export settings are stored on the scene and expose a focused subset of Blender USD export controls, including:
-- Root prim naming, selection-only export, animation export, and custom property authoring.
-- Name, Unicode, and transform-op controls.
-- Geometry and rigging controls such as triangulation, subdivision, armatures, deform bones, and shape keys.
-- `Optimization > Optimize Source Textures` can be enabled to resize textures or transcode them to AVIF/PNG during direct PBR export; when disabled, the exporter keeps Apple-compatible AVIF, PNG, JPEG, and OpenEXR inputs in their source encoding and transcodes other LDR image formats to PNG. OpenEXR is always preserved byte-for-byte and ignores resize/format overrides to protect float/HDR data. Radiance HDR (`.hdr`) fails with guidance to convert it to OpenEXR.
-- Material validation fails closed by default. `Normalize Unsupported Values` is an explicit export-only exception for one safe case: an unlinked, constant, achromatic Principled `Specular Tint` above `1` is clamped to white. Colored or linked values still stop export. The source material and `.blend` are never modified; diagnostics record the source and exported values.
-- Failed exports always write `<output>.diagnostics.json`. `Keep Success Diagnostics` retains the same report after successful exports.
-
-Release 2.x enforces a non-configurable Apple spatial contract: Blender's native orientation conversion, `-Z` forward, `Y` up, meters at scale `1.0`, relative dependencies, and mesh/UV/normal export. Raw cameras, lights, Blender World dome lights, curves, point clouds, volumes, and hair cannot be enabled. One ordinary Blender 5.2 USD camera imported as `PerspectiveCameraComponent` in a macOS 27 smoke, but ordinary `UsdGeom.Camera` has no cross-platform RealityKit renderer guarantee and is therefore rejected by the portable profile. Author cameras and lighting in Reality Composer Pro 3 or RealityKit, and convert unsupported geometry to polygon meshes before export.
-
-Every failed export writes support-oriented diagnostics as `<output>.diagnostics.json`. Successful exports retain that sidecar only when `Keep Success Diagnostics` is enabled. The Diagnostics panel exposes the latest available report and support-bundle actions.
-
-## Profile-driven background baking
-When the selected profile requires baking, the single Export button launches a second Blender process, bakes textures, runs the same USD export pipeline, and updates live job status in the panel.
-
-Which option should I choose?
-
-| Goal | Use |
-|------|-----|
-| Translate compatible materials directly | `RealityKit PBR` → `Translate Materials` |
-| Bake complex materials but keep dynamic RealityKit lighting | `RealityKit PBR` → `Bake Materials` |
-| Export material color that ignores scene lighting | `RealityKit Unlit` → `Material Color Only` |
-| Preserve Blender lighting and shadows | `RealityKit Unlit` → `Lighting & Shadows` |
-
-Operational details:
-- The `.blend` file must be saved before starting a background bake.
-- Only one background bake/export job can run at a time.
-- Job state lives under `<export_dir>/.blendertorcp_jobs/<job_id>/`.
-- Each job writes `settings.json`, `status.json`, and `log.txt`; status also records the diagnostics path when available.
-- The panel shows progress, output path, log path, diagnostics path, and the current step, and supports cancel, clear, log open, diagnostics open, and support bundle actions.
-- The optional per-step watchdog remains available through the CLI and persisted plugin settings. It is disabled by default and intentionally omitted from the Blender panel.
-- Bake/export preflights external image files used by exported objects. Missing, unpacked textures fail early with an actionable pack-or-relink error.
-- Baked exports do not validate the source material graph. Unsupported Blender node groups are expected to be resolved by baking; strict graph validation applies to `RealityKit PBR` → `Translate Materials`.
-
-Bake modes:
-- `Material Color Only - Unlit` (`UNLIT_ALBEDO`): bakes light-independent material color and rewrites the exported materials as RealityKit Unlit materials, shown as-is and ignoring scene lighting. Blender shadows are not baked.
-- `Material Color Only - Lit PBR` (`LIT_ALBEDO`): bakes the same light-independent material color but authors Lit PBR materials so Reality Composer Pro or RealityKit lights the baked color. Blender shadows are not baked. When `RealityKit PBR > Bake Materials` is selected, the `Roughness` option in `Material Settings` chooses between a baked per-texel roughness map and a single averaged roughness value.
-- `Lighting & Shadows` (`LIT_IBL`, default): bakes the appearance under the selected lighting source, then still exports the final materials as RealityKit Unlit materials with lighting and shadows encoded into textures. Use this when the USDZ should match the Blender preview.
-- `Isolate Meshes for Shadows`: hides non-target meshes during lighting-and-shadows bakes to avoid cross-mesh shadow contribution.
-- `Optimization`: sets bake resolution, image format, and margin for baked routes. For direct PBR export, `Optimize Source Textures` enables maximum-resolution and format overrides; `Original` keeps Apple-compatible AVIF, PNG, JPEG, and OpenEXR encodings and `Keep Original` leaves source dimensions untouched. Unsupported LDR inputs are normalized to PNG. OpenEXR always bypasses overrides, while Radiance HDR must be converted to OpenEXR first. AVIF textures are written natively by Blender.
-
-## Material authoring and diagnostics
-BlenderToRCP is not export-only. The Shader Editor integration also supports:
-- Validating the active material against the current RealityKit compatibility rules.
-- Selecting offending nodes after validation.
-- Inserting bundled RealityKit PBR and Unlit node groups.
-- Browsing the generated RealityKit node catalog through `Add > RealityKit Nodes`.
-
-Diagnostics workflow:
-- Export failures always write diagnostics; `Keep Success Diagnostics` controls successful-export sidecars.
-- The diagnostics dialog summarizes converted and failed materials, copied and converted textures, fallback nodes, KTX-required nodes, omitted nodes, and truncated warning/error lists.
-- Diagnostics JSON can be inspected directly or opened in Blender's Text Editor for troubleshooting.
-- Support bundles are redacted ZIP files created from the Blender UI or with `blendertorcp support-bundle scene.blend -o output.usdz --diagnostics output.diagnostics.json`.
-- Support bundles include environment, scene/settings, asset dependency diagnostics, and export diagnostics. They include material validation only for non-baked exports. Background job files are included by the UI action for the active job or by passing `--job-dir` to the CLI. Source `.blend` files and exported assets are opt-in.
-- Redaction covers absolute paths in plain text and JSON-escaped Windows path strings; `--no-redact` disables that protection.
-
-For a PBR Surface 2 visual comparison of direct, clamp-only, and experimental `specularWeight` redistribution strategies, generate the research fixture described in [`References/SpecularTintResearch/README.md`](References/SpecularTintResearch/README.md). Weight redistribution is deliberately not used by production exports.
-
-## Troubleshooting and support capture
-For CLI failures, capture stdout and stderr separately:
-
-```bash
-blendertorcp --verbose export scene.blend -o output.usdz --format USDZ \
-  > blendertorcp-result.json \
-  2> blendertorcp-stderr.log
-```
-
-Attach `blendertorcp-result.json`, `blendertorcp-stderr.log`, the exact command, `blendertorcp version`, `blendertorcp preferences get`, the returned `.diagnostics.json`, and a redacted support bundle. For background bake/export, also include `<export_dir>/.blendertorcp_jobs/<job_id>/settings.json`, `status.json`, and `log.txt` or use the support bundle action.
-Use `--json` for automated support capture so load failures, validation failures, diagnostics paths, support-bundle hints, and process-output tails stay in a machine-readable JSON envelope.
-
 ## Release and packaging flow
+
 Release metadata has one source of truth: `Plugin/blender_manifest.toml`. The runtime version, versioned archive name, release tag check, and checksum sidecar all derive from it.
 
 The workflows divide the gates by trust and toolchain:
@@ -367,7 +465,7 @@ The workflows divide the gates by trust and toolchain:
 | Event | Automated gates |
 |---|---|
 | Pull request | `.github/workflows/ci.yml`: compile check, unit tests, archive build/validation/installed-extension smoke, and Blender 5.2 integration tests on GitHub-hosted Linux. The protected Apple runner is not exposed to pull requests. |
-| Push to `dev` | Portable CI always runs. `.github/workflows/apple-platform-validation.yml` also runs on the labelled Apple 27 self-hosted runner when its configured `Plugin`, `References`, `scripts`, `tests`, or workflow paths change. |
+| Push to `dev` | Portable CI always runs. `.github/workflows/apple-platform-validation.yml` also runs on the labeled Apple 27 self-hosted runner when its configured `Plugin`, `References`, `scripts`, `tests`, or workflow paths change. |
 | Push to `main` | Portable CI. The release candidate must first pass the protected Apple validation through `dev`; the Apple workflow cannot be dispatched directly from `main`. |
 | Manual workflow dispatch | The release workflow accepts dry runs only from trusted `dev`; the protected Apple workflow has no direct manual entry point. Dry runs never publish a GitHub release. |
 | Push of a bare `X.Y.Z` tag | `.github/workflows/build-archive.yml` first requires the tagged commit to be reachable from `origin/dev`, then calls both reusable validation workflows, verifies that the tag exactly matches the manifest version, builds one deterministic versioned archive and checksum, and publishes only after every gate succeeds. |
@@ -400,23 +498,3 @@ The files under `THIRD_PARTY_LICENSES/` and [THIRD_PARTY_NOTICES.txt](THIRD_PART
 cover only the Apple, MaterialX, and OpenPBR material redistributed by this
 repository. They preserve the upstream MIT and Apache-2.0 notices and do not
 make BlenderToRCP a dual-licensed project.
-
-## Documentation
-
-Full documentation index: [`docs/README.md`](docs/README.md).
-
-| Document | Covers |
-|---|---|
-| [`docs/ARCHITECTURE.MD`](docs/ARCHITECTURE.MD) | Codebase layout and module responsibilities |
-| [`docs/CLI.md`](docs/CLI.md) | Every command, flag, exit code, and the JSON envelope |
-| [`docs/SETTINGS.md`](docs/SETTINGS.md) | What every toggle changes, and which settings override each other |
-| [`docs/MATERIAL_TRANSLATION.md`](docs/MATERIAL_TRANSLATION.md) | Blender shader graph to RealityKit MaterialX ShaderGraph |
-| [`docs/BAKING.md`](docs/BAKING.md) | When a bake runs, what each mode captures, what scene state it overrides |
-| [`docs/EXPORT_PIPELINE.md`](docs/EXPORT_PIPELINE.md) | Geometry, units, animation, staging, USDZ packaging |
-
-The three pipeline documents each carry a section on the decisions the exporter
-makes **on your behalf**, and whether it tells you it made them. Start there if
-an export came out differently than you expected.
-
-Open defects are tracked in
-[`CODE_REVIEW_FINDINGS.md`](CODE_REVIEW_FINDINGS.md).

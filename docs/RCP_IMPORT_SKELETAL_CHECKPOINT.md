@@ -1,26 +1,33 @@
 # RCP skeletal `.import` checkpoint
 
-Checkpoint date: 2026-07-28
+This page is the restart point for the skeletal lane of the experimental
+`.import` generator. It records what the skeletal writer emits, which
+acceptance gates the generated candidates pass, and exactly what remains
+open. Read [RCP_IMPORT_EXPERIMENT.md](RCP_IMPORT_EXPERIMENT.md) first for
+the lane overview and for the definitions of record, buffer, reimport, and
+canonicalization.
 
-Branch: `experiment/rcp-import-export`, based on `origin/dev`
+*Applies to: Reality Composer Pro 3.0, `CFBundleVersion` `80.0.1.500.1`,
+Xcode build `27A5218g`, observed on macOS 27.0 build `26A5388g`.*
 
-RCP under test:
+No compatibility claim is made for the skeletal lane. Static mesh and
+sampled translation have their own accepted, build-pinned subsets.
 
-- Reality Composer Pro 3.0
-- `CFBundleVersion` `80.0.1.500.1`
-- Xcode build `27A5218g`
-- observed on macOS 27.0 build `26A5388g`
+Established:
 
-This document is the restart point for the full `.import` generator
-experiment. No compatibility claim is made for the skeletal lane. Static mesh
-and sampled translation have their own accepted, build-pinned subsets. The
-skeletal v2 output passes the three previously failing build-80 Truth loader
-paths, renders in RCP, survives save/reopen and two source reimports, and loads
-through the public RealityKit runtime with finite bounds and all four named
-clips. The current float32-normalized v3 output separately passes clean RCP
-load and the same public runtime checks; its two reimports remain to be
-repeated. Sequence Editor playback and a second structurally distinct skeletal
-fixture also remain open.
+- The skeletal v2 output passes the three previously failing build-80 Truth
+  loader paths, renders in Reality Composer Pro, survives save/reopen and
+  two source reimports, and loads through the public RealityKit runtime
+  with finite bounds and all four named clips.
+- The current float32-normalized v3 output separately passes clean RCP load
+  and the same public runtime checks.
+
+Still open:
+
+- v3's two reimports must be repeated; the v2 reimport evidence must not be
+  attributed to v3.
+- Sequence Editor playback.
+- A second structurally distinct skeletal fixture.
 
 The later 12-mesh/13-material Robot bake is a separate profile. It passes
 clean open/save/reopen and the supported-source RealityKit checks, but fails
@@ -29,10 +36,11 @@ single-mesh v2 acceptance claim to that profile.
 
 ## Where work stopped
 
-The generator can read the controlled `MeshyRiggedCharacter.usda` UsdSkel
-source and emit:
+The generator reads the controlled `MeshyRiggedCharacter.usda` UsdSkel
+source and emits:
 
-- 32-bit skinned triangle geometry and the measured interleaved vertex format;
+- 32-bit skinned triangle geometry and the measured interleaved vertex
+  format;
 - four vertex-interpolated joint indices and weights per point;
 - source and optimized entity variants;
 - skeleton hierarchy and definition records;
@@ -61,26 +69,27 @@ The decoded build-80 scene-tree layouts are:
 
 - names: NUL-terminated UTF-8 full joint paths;
 - nodes: one 56-byte little-endian `<QI11f` row per joint containing the
-  MurmurHash64A path, parent index, rest translation, quaternion, scale, and a
-  zero flag;
-- bones: one 64-byte little-endian `<QI13f` row per joint containing the path
-  hash, joint index, the first three columns of each inverse-bind matrix row,
-  and a zero flag.
+  MurmurHash64A path, parent index, rest translation, quaternion, scale, and
+  a zero flag;
+- bones: one 64-byte little-endian `<QI13f` row per joint containing the
+  path hash, joint index, the first three columns of each inverse-bind
+  matrix row, and a zero flag.
+
+### The missing `__asset_uuid`
 
 The original generated artifact opened and displayed the correctly skinned
-character but reproducibly reported:
+character but reproducibly reported three console errors:
 
 1. `Unexpected nil item`
 2. `Trying to lookup property of NULL truth object`
 3. `Trying to add NULL object to subobject set`
 
-LLDB on the pinned RCP loader identified the first error at
-`CoreRealityTools` `resolve_or_create_placeholder + 292`. Its caller,
+The first error originates in the pinned RCP loader at `CoreRealityTools`
+`resolve_or_create_placeholder + 292`. Its caller,
 `private__create_asset_data_from_path`, was processing
-`skeletons/root.tm_skeleton_hierarchy`. The caller looked up the
-MurmurHash64A key `0x28598ea17608bf3d`, which decodes to `__asset_uuid`, and
-passed an all-zero UUID because the generated hierarchy record omitted that
-field.
+`skeletons/root.tm_skeleton_hierarchy`: it looked up the MurmurHash64A key
+`0x28598ea17608bf3d`, which decodes to `__asset_uuid`, and received an
+all-zero UUID because the generated hierarchy record omitted that field.
 
 The writer now emits a deterministic `__asset_uuid` for the hierarchy. The
 structural contract also requires `__asset_uuid` on every known
@@ -95,14 +104,17 @@ candidate then:
 - rendered the correctly skinned robot in the RCP viewport with `Ready` and
   `Tasks: None`.
 
-The three Truth errors were therefore one causal chain, not three independent
-format defects. This clears the clean-loader gate for the controlled candidate;
-it does not yet clear the remaining editor and runtime gates.
+The three Truth errors were therefore one causal chain, not three
+independent format defects. This clears the clean-loader gate for the
+controlled candidate; it does not clear the remaining editor and runtime
+gates.
 
 Build-pinned evidence for this run is recorded in
 `tests/fixtures/rcp_import/evidence/rcp3-80.0.1.500.1/generated-skeletal-v2.json`.
 
-The corrected candidate was also saved normally in the disposable project,
+### Save/reopen persistence
+
+The corrected candidate was saved normally in the disposable project,
 closed, and reopened without repair. RCP's save canonicalized only
 `geometry/char1.tm_geometry`: two geometry buffer UUID prefixes/references,
 numeric formatting, and `validity_hash` changed. All 24 records, 19 opaque
@@ -120,14 +132,14 @@ A fresh, single-import disposable project was created at:
 
 `~/.codex/rcp-import-experiment/build-80.0.1.500.1/runs/accept-generated-v2-reimport.realitycomposerpro`
 
-`Editor > Reimport From...` bound the controlled source without changing any
-byte in the generated package. The source is not self-contained without its
-two referenced PNG sidecars: omitting them produced two explicit image-import
-errors; restoring the exact payloads cleared the console and rendered the
-textured robot with `Ready` and `Tasks: None`.
+**Editor > Reimport From...** bound the controlled source without changing
+any byte in the generated package. The source is not self-contained without
+its two referenced PNG sidecars: omitting them produced two explicit
+image-import errors; restoring the exact payloads cleared the console and
+rendered the textured robot with `Ready` and `Tasks: None`.
 
-Two subsequent ordinary `Editor > Reimport` cycles completed without errors.
-The pre-reimport package and both results were byte-identical:
+Two subsequent ordinary **Editor > Reimport** cycles completed without
+errors. The pre-reimport package and both results were byte-identical:
 
 - tree SHA-256
   `1e5c1440ea0deee79bd2d4f882c94f1f28cf6269331442d3f733baa5d444fa6d`;
@@ -161,15 +173,17 @@ It opens as `Ready` in a fresh disposable RCP project and compiles to a
 16 MiB `.reality` artifact with SHA-256
 `7733a0c5a40b3813ac90cc1ab55f6f0a0b40496f9901dff42e2be5a568c86bd7`.
 The public runtime again reports five entities, one model, all four named
-clips, the required skeletal components, and identical finite bounds. This is
-clean-load and runtime evidence for the current code; the two source reimports
-above were captured from v2 and must not be attributed to v3 until repeated.
+clips, the required skeletal components, and identical finite bounds. This
+is clean-load and runtime evidence for the current code; the two source
+reimports above were captured from v2 and must not be attributed to v3 until
+repeated.
 
 RCP also created a disposable Sequence, but the imported asset is read-only
-and the Sequence's Root Entity remained `(none)`. The custom hierarchy control
-could not bind an imported root without first authoring a project-owned
-Prototype/root entity. Therefore the four timeline records and public runtime
-keys are proven, but Sequence Editor range display and visual playback are not.
+and the Sequence's Root Entity remained `(none)`. The custom hierarchy
+control could not bind an imported root without first authoring a
+project-owned Prototype/root entity. Therefore the four timeline records and
+public runtime keys are proven, but Sequence Editor range display and visual
+playback are not.
 
 ## Multi-material Robot reimport boundary
 
@@ -180,8 +194,8 @@ The disposable Robot acceptance project is:
 Immutable phase captures are retained under its sibling `snapshots`
 directory. The generated phase had 83 records and 140 known buffers. RCP's
 first reimport canonicalized it to 83 records and 139 buffers and added
-`matched_skeleton_hierarchies`. The second reimport grew it to 147 records and
-306 buffers:
+`matched_skeleton_hierarchies`. The second reimport grew it to 147 records
+and 306 buffers:
 
 - 25 geometry records;
 - 25 mesh descriptors;
@@ -194,14 +208,15 @@ RCP retained the generated per-material body descriptors, added `(1)`
 duplicates for source meshes, and authored a combined body descriptor with
 two `subsets` entries. This is a failed idempotence gate, not volatile UUID
 churn. The captured subset records contain material paths, face counts, and
-references to new opaque face-index buffers. Those buffers and their resource
-links must be decoded from controlled RCP-authored fixtures before the writer
-uses this representation.
+references to new opaque face-index buffers. Those buffers and their
+resource links must be decoded from controlled RCP-authored fixtures before
+the writer uses this representation; see the
+[multi-material mesh contract](RCP_IMPORT_MULTI_MATERIAL_MESH.md).
 
-The 13 source color-space warnings are not the cause. Removing the per-texture
-ColorSpaceAPI or mapping its token to `srgb_texture` suppressed the warnings,
-but both A/B runs produced the exact same first-reimport package as the
-unmodified source.
+The 13 source color-space warnings are not the cause. Removing the
+per-texture ColorSpaceAPI or mapping its token to `srgb_texture` suppressed
+the warnings, but both A/B runs produced the exact same first-reimport
+package as the unmodified source.
 
 ## Clean-control evidence
 
@@ -232,25 +247,27 @@ under:
 This contains the RCP-authored baseline, controlled USDA source, generated
 candidates, disposable project clones, and immutable removed-package
 snapshots. Never put the approximately 100 MiB opaque corpus in Git. The
-stored `shell/Package.realitycomposerpro` is not a genuinely blank shell: its
-project metadata retains paths from the disposable source project. Treat it as
-a copied project template and assert the exact import contents on every run.
+stored `shell/Package.realitycomposerpro` is not a genuinely blank shell:
+its project metadata retains paths from the disposable source project. Treat
+it as a copied project template and assert the exact import contents on
+every run.
 
-The baseline package alone in a clone of the blank shell opens with no console
-errors. The generated package alone in the same kind of clean shell reports the
-three errors above. This isolates the failure to the generated package rather
-than the project shell.
+The baseline package alone in a clone of the blank shell opens with no
+console errors. The generated package alone in the same kind of clean shell
+reported the three errors above. This isolates the failure to the generated
+package rather than the project shell.
 
-Important harness correction: RCP recognizes an import package from its
-contents, not from the `.import` suffix. Renaming an old package inside a
-`.realitycomposerpro` directory does not remove it from consideration.
-Immutable before/after snapshots must be moved completely outside the project
-package, and every probe must assert that exactly one import package is present.
+An important harness rule: Reality Composer Pro recognizes an import package
+from its contents, not from the `.import` suffix. Renaming an old package
+inside a `.realitycomposerpro` directory does not remove it from
+consideration. Move immutable before/after snapshots completely outside the
+project package, and assert in every probe that exactly one import package
+is present.
 
 ## Hypotheses already tested
 
-Each of the following was tested in a clean, single-import disposable project
-and did **not** remove the three console errors:
+Each of the following was tested in a clean, single-import disposable
+project and did **not** remove the three console errors:
 
 - adding the decoded scene-tree buffers;
 - reducing the skeletal animation to one aggregate clip;
@@ -262,91 +279,106 @@ and did **not** remove the three console errors:
 - substituting the exact RCP-authored scene-tree and inverse-bind buffers;
 - substituting baseline output/session caches separately and together.
 
-Do not repeat those as isolated experiments unless new evidence changes another
-variable. None of the substitutions belongs in production code: opaque
-baseline data was used only for disposable differential probes.
+Do not repeat those as isolated experiments unless new evidence changes
+another variable. None of the substitutions belongs in production code:
+opaque baseline data was used only for disposable differential probes.
 
-At the stopping point, normalized non-UUID scalar shapes match the baseline for
-settings, source and optimized entities, geometry, mesh descriptor, merged
-resource, skeleton definition, and most hierarchy fields. Both UUID graphs
-have only the expected unresolved system graph ID
+At the stopping point, normalized non-UUID scalar shapes match the baseline
+for settings, source and optimized entities, geometry, mesh descriptor,
+merged resource, skeleton definition, and most hierarchy fields. Both UUID
+graphs have only the expected unresolved system graph ID
 `feefd623-b26a-6155-97b0-2dd807e0e1c3`.
 
 Known residual differences include:
 
 - generated UUID identity and reference assignment;
 - the generated bootstrap geometry validity hash;
-- record ordering/format details and possible private identity invariants not
-  represented by the structural inspector;
+- record ordering/format details and possible private identity invariants
+  not represented by the structural inspector;
 - the simplified generated material graph, although replacing the entire
   material graph did not clear the errors.
 
 ## Differential harness
 
-`scripts/hybridize_rcp_import.py` now creates disposable record-group hybrids
+`scripts/hybridize_rcp_import.py` creates disposable record-group hybrids
 from the RCP-authored baseline and a generated candidate. It:
 
-- partitions directories, settings, entities, geometry, skeleton, animations,
-  and materials;
+- partitions directories, settings, entities, geometry, skeleton,
+  animations, and materials;
 - maps generated record identities to structurally corresponding baseline
   `__uuid` and `__asset_uuid` values;
 - maps content-identical buffers by parent path, byte count, and SHA-256;
 - rewrites mapped references and buffer prefixes;
-- rejects unknown paths, symlinks, overwrite attempts, ambiguous mappings, and
-  newly introduced dangling UUID references;
+- rejects unknown paths, symlinks, overwrite attempts, ambiguous mappings,
+  and newly introduced dangling UUID references;
 - writes its manifest beside, never inside, the `.import` directory.
 
 On the controlled corpus it found 516 identity mappings and 15
 content-identical buffers. An animations-only substitution correctly failed
 closed on a new dangling reference; settings and animations form a coupled
-group for that candidate. This harness remains a reverse-engineering tool, not
-an exporter.
+group for that candidate. This harness is a reverse-engineering tool, not an
+exporter.
 
 ## Exact next steps
 
 1. Implement the bounded two-slot contract captured in
-   [the multi-material mesh note](RCP_IMPORT_MULTI_MATERIAL_MESH.md): one full
-   descriptor per source mesh, one content-hashed little-endian 32-bit
+   [the multi-material mesh note](RCP_IMPORT_MULTI_MATERIAL_MESH.md): one
+   full descriptor per source mesh, one content-hashed little-endian 32-bit
    face-index buffer per subset, and matching model-material slot order.
-2. Generate into a fresh disposable project and require two exact, non-growing
-   reimports before describing multi-material support as compatible. Keep
-   unassigned/overlapping faces, empty or sparse slots, three-plus materials,
-   shared materials, and different RCP builds fail-closed until separately
-   measured.
-3. Complete two `Editor > Reimport` cycles on the float32-normalized v3
+2. Generate into a fresh disposable project and require two exact,
+   non-growing reimports before describing multi-material support as
+   compatible. Keep unassigned/overlapping faces, empty or sparse slots,
+   three-plus materials, shared materials, and different RCP builds
+   fail-closed until separately measured.
+3. Complete two **Editor > Reimport** cycles on the float32-normalized v3
    candidate and require the same structural, opaque-payload, UUID, and
    runtime invariants recorded for v2.
-4. In a disposable project, create a project-owned Prototype/root entity from
-   the generated asset, bind it as the Sequence Root Entity, then capture the
-   displayed ranges and playback evidence for `Agree_Gesture`, `Running`,
-   `Walking`, and `walking_2`.
+4. In a disposable project, create a project-owned Prototype/root entity
+   from the generated asset, bind it as the Sequence Root Entity, then
+   capture the displayed ranges and playback evidence for `Agree_Gesture`,
+   `Running`, `Walking`, and `walking_2`.
 5. Add a second controlled skeletal fixture with materially different joint
-   hierarchy, topology, animation length, and clip partitioning while retaining
-   the explicit build-80 profile. The generator now has a deterministic
-   multi-mesh scaffold measured from the local 12-mesh `Robot`/`RobotUnlit`
-   records. The real `Robot.blend` background bake/CLI path now generates a
-   structurally valid 12-mesh/12-material/12-texture package, but that scaffold
-   still needs its own committed acceptance manifest and RCP acceptance.
-6. Repeat clean load, save/reopen, two reimports, Sequence Editor, `realitytool`,
-   and public RealityKit bounds/component/animation checks for that fixture.
+   hierarchy, topology, animation length, and clip partitioning while
+   retaining the explicit build-80 profile. The generator has a
+   deterministic multi-mesh scaffold measured from the local 12-mesh
+   `Robot`/`RobotUnlit` records. The real `Robot.blend` background bake/CLI
+   path generates a structurally valid 12-mesh/12-material/12-texture
+   package, but that scaffold still needs its own committed acceptance
+   manifest and RCP acceptance.
+6. Repeat clean load, save/reopen, two reimports, Sequence Editor,
+   `realitytool`, and public RealityKit bounds/component/animation checks
+   for that fixture.
 7. Only after both fixtures pass may the skeletal subset be described as a
-   staging writer. The multi-mesh contract must remain tied to the separately
-   measured Robot optimizer/source records rather than inferred from the
-   single-mesh corpus.
+   staging writer. The multi-mesh contract must remain tied to the
+   separately measured Robot optimizer/source records rather than inferred
+   from the single-mesh corpus.
 
 ## Restart and product boundary
 
 The intended product remains a full `.import` generator, but implementation
 must remain a set of explicit, build-pinned profiles. The current skeletal
-profile must fail closed unless all measured preconditions hold: exact build,
-joint ordering, one to four vertex influences, supported interpolation, identity
-geometry bind, integer sample range, and known animation layout.
+profile must fail closed unless all measured preconditions hold: exact
+build, joint ordering, one to four vertex influences, supported
+interpolation, identity geometry bind, integer sample range, and known
+animation layout.
 
-Hierarchy rest transforms and inverse-bind matrices are now quantized to
-float32 before deciding whether identity fields may be omitted. A targeted
-unit fixture proves that near-zero and near-one source doubles follow the same
+Hierarchy rest transforms and inverse-bind matrices are quantized to float32
+before deciding whether identity fields may be omitted. A targeted unit
+fixture proves that near-zero and near-one source doubles follow the same
 serialization decision as the build-80 records.
 
 Do not enable skeletal generation as a compatibility default, claim RCP
 support, fabricate an unknown binary payload, push, merge, or touch the
 original checkout until the acceptance gates above pass.
+
+## Verification
+
+The facts on this page were established against Reality Composer Pro 3.0
+(build `80.0.1.500.1`, Xcode build `27A5218g`) on macOS 27.0 build
+`26A5388g`. Build-pinned structural evidence lives in
+`tests/fixtures/rcp_import/evidence/rcp3-80.0.1.500.1/`, including
+`generated-skeletal-v2.json`. The read-only measurement corpus — baseline,
+controlled source, generated candidates, project clones, and snapshots —
+lives outside Git under
+`~/.codex/rcp-import-experiment/build-80.0.1.500.1`. The implementation
+lives on the `experiment/rcp-import-export` branch, based on `origin/dev`.

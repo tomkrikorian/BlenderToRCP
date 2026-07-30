@@ -1,12 +1,16 @@
 # RCP `.import` multi-material mesh contract
 
-Status: measured on Reality Composer Pro 3.0 build `80.0.1.500.1`; writer
-support is not accepted yet.
+This page records how Reality Composer Pro represents one mesh carrying
+multiple face materials inside an `.import` package, and what the
+experimental writer must change to author that representation. It describes
+only the controlled two-material skinned Robot fixture and is deliberately
+build-pinned. Read [RCP_IMPORT_EXPERIMENT.md](RCP_IMPORT_EXPERIMENT.md)
+first for the lane overview and for the definitions of record, buffer,
+reimport, and canonicalization.
 
-This note records what is required to replace the experiment's current
-per-material mesh splitting with the representation authored by RCP for one
-mesh carrying multiple face materials. It is deliberately build-pinned and
-describes only the controlled two-material skinned Robot fixture.
+*Applies to: Reality Composer Pro 3.0, build `80.0.1.500.1`.*
+
+Status: the representation is measured; writer support is not accepted yet.
 
 ## Why the current writer is insufficient
 
@@ -14,16 +18,17 @@ The current experiment can load a USD mesh with multiple material-bound
 `GeomSubset` children, but it turns each subset into an independent generated
 mesh resource. That package:
 
-- opens, saves, closes, and reopens in RCP;
+- opens, saves, closes, and reopens in Reality Composer Pro;
 - compiles with `realitytool` and loads through public RealityKit;
 - preserves both materials in the generated/runtime artifact;
 - completes one genuine RCP reimport without resource growth.
 
 It does not pass the second-reimport gate. The package grows from 83
-records/139 buffers after reimport 1 to 147 records/306 buffers after reimport
-2. RCP retains the split resources, creates duplicate source resources, and
-adds its own combined mesh representation. A rendering success is therefore
-not proof that the generated resource graph matches RCP's private contract.
+records/139 buffers after reimport 1 to 147 records/306 buffers after
+reimport 2. RCP retains the split resources, creates duplicate source
+resources, and adds its own combined mesh representation. A rendering
+success is therefore not proof that the generated resource graph matches
+RCP's private contract.
 
 ## Measured RCP-authored representation
 
@@ -46,9 +51,9 @@ The descriptor keeps the source mesh whole:
 
 The model entity likewise keeps one model component and one mesh-resource
 reference. Its `materials` array is ordered consistently with the descriptor
-subsets. In the observed two-slot case, slot 0 omits `index`; slot 1 explicitly
-stores `index: 1`. This is evidence for those two slots only, not a general
-default-material or arbitrary-slot rule.
+subsets. In the observed two-slot case, slot 0 omits `index`; slot 1
+explicitly stores `index: 1`. This is evidence for those two slots only, not
+a general default-material or arbitrary-slot rule.
 
 ### Subset records
 
@@ -79,16 +84,17 @@ The first payload decodes to `[0, 2, 4, ... 10574]`; the second decodes to
 exactly every face ordinal from 0 through 10,575. Each filename suffix also
 equals the existing build-80 `buffer_content_hash(payload)` result.
 
-This proves that the subset payload is not an opaque buffer we need to invent:
-for this controlled case it is a directly reproducible encoding of authored
-USD face membership. It does not yet prove how RCP represents unassigned,
-overlapping, empty, or non-partitioned subsets.
+This proves that the subset payload is not an opaque buffer that must be
+invented: for this controlled case it is a directly reproducible encoding of
+authored USD face membership. It does not yet prove how RCP represents
+unassigned, overlapping, empty, or non-partitioned subsets.
 
 ## Canonical schema (from the shipped type index)
 
 The app's own Truth schema (`__type_index.tm_meta`, see
-`docs/RCP_IMPORT_EXPERIMENT.md` and `scripts/_lib/rcp_type_index.py`) settles
-the record shapes the observations above were reverse-measuring, and
+[RCP_IMPORT_EXPERIMENT.md](RCP_IMPORT_EXPERIMENT.md) and
+`scripts/_lib/rcp_type_index.py`) settles the record shapes the observations
+above were reverse-measuring, and
 `tests/unit/test_rcp_contract_matches_type_index.py` pins them as the writer
 specification:
 
@@ -107,10 +113,10 @@ specification:
 - `tm_mesh_descriptor.winding_order` is a defaulted uint32 the writer has
   never needed to author.
 
-Schema legality is necessary, not sufficient: buffer payload encodings beyond
-the measured face-ordinal arrays, and RCP's behaviour for the unmeasured
-subset cases listed above, still require controlled fixtures and the
-acceptance gates below.
+Schema legality is necessary, not sufficient: buffer payload encodings
+beyond the measured face-ordinal arrays, and RCP's behavior for the
+unmeasured subset cases listed above, still require controlled fixtures and
+the acceptance gates below.
 
 ## Required writer changes
 
@@ -124,21 +130,23 @@ than adding a second material reference to the current split model:
    mesh topology once. Fail on out-of-range indices, overlap, unsupported
    subset families, unsupported hierarchy, or an unmeasured coverage rule.
 3. Write one mesh descriptor with a `subsets` array. For every accepted
-   subset, write one deterministic UUID and one content-hashed, little-endian
-   32-bit face-index buffer.
+   subset, write one deterministic UUID and one content-hashed,
+   little-endian 32-bit face-index buffer.
 4. Write one geometry, one mesh resource model, one model component, and one
    skinning component per source mesh. Do not multiply skeleton/timeline
    resources by the material count.
 5. Keep one material/texture record per actual material and emit the model
-   component's material array in exactly the same slot order as the descriptor
-   subsets.
+   component's material array in exactly the same slot order as the
+   descriptor subsets.
 6. Give subset records and buffers deterministic, namespaced identities so a
-   repeat generation is byte/contract stable without borrowing captured UUIDs.
-7. Apply the same representation to optimizer input. A source mesh must remain
-   one model with material slots, not several material-partition models.
+   repeat generation is byte/contract stable without borrowing captured
+   UUIDs.
+7. Apply the same representation to optimizer input. A source mesh must
+   remain one model with material slots, not several material-partition
+   models.
 
-The static and skinned paths should share this subset model; skinning remains
-an orthogonal descriptor block.
+The static and skinned paths should share this subset model; skinning
+remains an orthogonal descriptor block.
 
 ## Fail-closed boundary
 
@@ -160,8 +168,8 @@ These are research lanes, not reasons to silently approximate the package.
 ## Acceptance plan
 
 Implementation is supportable as a staging experiment now that the two-slot
-payload and graph shape are measured. Compatibility is not supportable until a
-new generated package passes all of these gates:
+payload and graph shape are measured. Compatibility is not supportable until
+a new generated package passes all of these gates:
 
 1. deterministic generation and structural inspection with no unknown fields
    or derived/unknown buffer suffixes;
@@ -174,7 +182,16 @@ new generated package passes all of these gates:
 6. Sequence Editor clip visibility and playback for the animated skeletal
    fixture.
 
-After the two-material static and skinned lanes pass, add separate controlled
-fixtures for three materials, unassigned faces, shared materials, slot
-reordering, and multiple multi-material meshes. Any RCP build change starts a
-new versioned corpus lane.
+After the two-material static and skinned lanes pass, add separate
+controlled fixtures for three materials, unassigned faces, shared materials,
+slot reordering, and multiple multi-material meshes. Any RCP build change
+starts a new versioned corpus lane.
+
+## Verification
+
+The measurements come from the preserved second-reimport capture of the
+disposable Robot acceptance project; see
+[the skeletal checkpoint](RCP_IMPORT_SKELETAL_CHECKPOINT.md) for the
+capture locations. The canonical schema is pinned by
+`tests/unit/test_rcp_contract_matches_type_index.py` against the shipped
+`__type_index.tm_meta`, parsed by `scripts/_lib/rcp_type_index.py`.
