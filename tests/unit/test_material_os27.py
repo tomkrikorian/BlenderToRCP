@@ -53,7 +53,9 @@ def test_manifest_records_rcp3_materialx_provenance_and_exact_pbr2_contract():
     assert metadata["materialx_reference_release"] == "1.39.4"
     assert metadata["reality_composer_pro"] == {
         "version": "3.0",
-        "build": "79.3.0.500.4",
+        # Verified 2026-07-30: every References nodedef is signature-identical
+        # in the installed 80.0.1.500.1 libraries; the pin moved forward.
+        "build": "80.0.1.500.1",
     }
     assert all(not Path(path).is_absolute() for path in metadata["source_files"])
 

@@ -1133,14 +1133,22 @@ _KNOWN_NODEDEF_NAMES: frozenset[str] | None = None
 
 
 def _known_nodedef_names() -> frozenset[str] | None:
-    """The manifest's nodedef names, loaded once; None when unavailable."""
+    """The manifest's bindable nodedef names, loaded once; None when unavailable.
+
+    Excludes ``editor_unresolvable`` entries: those ids exist in Apple's USD
+    parsing libraries (the manifest carries them for completeness) but RCP's
+    ShaderGraph editor has no definition and the runtime cannot render them,
+    so authoring one is exactly as broken as authoring a fabricated id.
+    """
     global _KNOWN_NODEDEF_NAMES
     if _KNOWN_NODEDEF_NAMES is None:
         try:
             from ..manifest.materialx_nodes import load_manifest
 
             _KNOWN_NODEDEF_NAMES = frozenset(
-                load_manifest().get("nodes", {}).keys()
+                name
+                for name, node in load_manifest().get("nodes", {}).items()
+                if not (node.get("policy") or {}).get("editor_unresolvable")
             )
         except Exception:
             return None
@@ -1188,8 +1196,8 @@ def _check_materialx_nodedefs(
             "error",
             "UNKNOWN_MATERIALX_NODEDEF",
             (
-                "Shader authors an info:id that exists in no MaterialX "
-                "library; RealityKit cannot bind it."
+                "Shader authors an info:id that RealityKit's ShaderGraph "
+                "cannot resolve; the material would fail to bind."
             ),
             prim.GetPath(),
             nodedef=shader_id,

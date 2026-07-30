@@ -47,13 +47,86 @@ FALLBACK_NODEDEFS = {
     "ND_realitykit_environment_radiance",
 }
 
+# Nodedefs in Apple's public definition bundle that the RCP ShaderGraph editor
+# cannot resolve. Measured against the installed RealityComposerPro.app 3.0
+# (build 80.0.1.500.1): these 56 ids appear in the app only inside the
+# CoreRealityIO / USD-loader parsing libraries (usdMtlx can read them), never
+# in ShaderGraph.framework's shading libraries — the editor has no definition
+# and the runtime cannot render them. All are pbrlib closure-domain nodes
+# (BSDF/EDF/VDF, displacement, ND_surface/ND_volume, roughness helpers) plus
+# the stdlib arrayappend family. The exporter never authors them; the flag
+# exists so selection and preflight refuse them instead of green-lighting an
+# id RCP would fail to bind. tests/unit/test_manifest_matches_editor_libraries.py
+# recomputes this set from the installed app and fails on drift.
+EDITOR_UNRESOLVABLE_NODEDEFS = {
+    "ND_absorption_vdf",
+    "ND_add_bsdf",
+    "ND_add_edf",
+    "ND_add_vdf",
+    "ND_anisotropic_vdf",
+    "ND_arrayappend_color3_color3array",
+    "ND_arrayappend_color3array_color3array",
+    "ND_arrayappend_color4_color4array",
+    "ND_arrayappend_color4array_color4array",
+    "ND_arrayappend_float_floatarray",
+    "ND_arrayappend_floatarray_floatarray",
+    "ND_arrayappend_integer_integerarray",
+    "ND_arrayappend_integerarray_integerarray",
+    "ND_arrayappend_string_stringarray",
+    "ND_arrayappend_stringarray_stringarray",
+    "ND_arrayappend_vector2_vector2array",
+    "ND_arrayappend_vector2array_vector2array",
+    "ND_arrayappend_vector3_vector3array",
+    "ND_arrayappend_vector3array_vector3array",
+    "ND_arrayappend_vector4_vector4array",
+    "ND_arrayappend_vector4array_vector4array",
+    "ND_artistic_ior",
+    "ND_blackbody",
+    "ND_burley_diffuse_bsdf",
+    "ND_conductor_bsdf",
+    "ND_conical_edf",
+    "ND_dielectric_bsdf",
+    "ND_displacement_float",
+    "ND_displacement_vector3",
+    "ND_generalized_schlick_bsdf",
+    "ND_generalized_schlick_edf",
+    "ND_glossiness_anisotropy",
+    "ND_layer_bsdf",
+    "ND_layer_vdf",
+    "ND_light",
+    "ND_measured_edf",
+    "ND_mix_bsdf",
+    "ND_mix_edf",
+    "ND_mix_vdf",
+    "ND_multiply_bsdfC",
+    "ND_multiply_bsdfF",
+    "ND_multiply_edfC",
+    "ND_multiply_edfF",
+    "ND_multiply_vdfC",
+    "ND_multiply_vdfF",
+    "ND_oren_nayar_diffuse_bsdf",
+    "ND_roughness_anisotropy",
+    "ND_roughness_dual",
+    "ND_sheen_bsdf",
+    "ND_subsurface_bsdf",
+    "ND_surface",
+    "ND_thin_film_bsdf",
+    "ND_thin_surface",
+    "ND_translucent_bsdf",
+    "ND_uniform_edf",
+    "ND_volume",
+}
+
 
 # The generated manifest is a checked-in interoperability contract, not a
 # snapshot of whichever SDK happens to be installed on a contributor's Mac.
 MATERIALX_PROFILE = "1.39"
 MATERIALX_REFERENCE_RELEASE = "1.39.4"
 REALITY_COMPOSER_PRO_VERSION = "3.0"
-REALITY_COMPOSER_PRO_BUILD = "79.3.0.500.4"
+# Verified 2026-07-30 against the installed app: every nodedef in the
+# References bundle is signature-identical (modulo whitespace) in build
+# 80.0.1.500.1's shipped libraries, and no manifest nodedef was removed.
+REALITY_COMPOSER_PRO_BUILD = "80.0.1.500.1"
 APPLE_PLATFORM_GENERATION = "27.0"
 
 
@@ -246,6 +319,7 @@ def _extract_nodedef_info(
             "requires_ktx": requires_ktx,
             "half_type": is_half,
             "fallback": is_fallback,
+            "editor_unresolvable": nodedef_name in EDITOR_UNRESOLVABLE_NODEDEFS,
         },
         # Keep stable paths (avoid machine-specific absolute paths).
         "source_file": _format_source_path(repo_root, filepath),

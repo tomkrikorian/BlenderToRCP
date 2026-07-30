@@ -147,6 +147,7 @@ def select_nodedef_name_for_node(
         name
         for name in candidates
         if _nodedef_satisfies(manifest, name, input_type, output_type)
+        and not _editor_unresolvable(manifest, name)
     ]
 
     if not candidates:
@@ -201,6 +202,19 @@ def _validate_manifest(manifest: Dict[str, Any], manifest_path: Path) -> None:
 
 def _normalize_type(type_name: Optional[str]) -> str:
     return (type_name or "").strip().lower()
+
+
+def _editor_unresolvable(manifest: Dict[str, Any], nodedef_name: str) -> bool:
+    """Whether RCP's ShaderGraph editor has no definition for this nodedef.
+
+    Measured against the installed app (3.0, build 80.0.1.500.1): the pbrlib
+    closure-domain defs and the arrayappend family ship only in the USD
+    parsing libraries — usdMtlx reads them, but the editor cannot resolve
+    them and the runtime cannot render them, so selecting one would author an
+    id RCP fails to bind.
+    """
+    node = manifest.get("nodes", {}).get(nodedef_name)
+    return bool(node and node.get("policy", {}).get("editor_unresolvable"))
 
 
 def _pick_nodedef(

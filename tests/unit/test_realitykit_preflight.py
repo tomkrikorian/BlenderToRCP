@@ -1400,6 +1400,23 @@ def test_manifest_backed_nodedefs_are_accepted():
     assert "UNKNOWN_MATERIALX_NODEDEF" not in _codes(report)
 
 
+def test_editor_unresolvable_nodedefs_are_rejected():
+    """ND_dielectric_bsdf is in the manifest (Apple's public bundle carries
+    the pbrlib closures) but RCP's ShaderGraph editor has no definition for
+    it — measured against the installed build 80.0.1.500.1, it ships only in
+    the USD parsing libraries. Authoring it is as broken as a fabricated id
+    and must not pass just because the manifest knows the name."""
+    stage, mesh = _stage_with_mesh()
+    material = UsdShade.Material.Define(stage, "/Root/Material")
+    shader = UsdShade.Shader.Define(stage, "/Root/Material/Closure")
+    shader.CreateIdAttr("ND_dielectric_bsdf")
+    UsdShade.MaterialBindingAPI.Apply(mesh.GetPrim()).Bind(material)
+
+    report = validate_stage(stage)
+
+    assert "UNKNOWN_MATERIALX_NODEDEF" in _codes(report)
+
+
 def test_usd_schema_ids_are_not_judged_as_nodedefs():
     """The retained preview network's ids are USD schemas, not MaterialX."""
     stage, mesh = _stage_with_mesh()

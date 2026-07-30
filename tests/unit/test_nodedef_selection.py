@@ -202,3 +202,16 @@ def test_every_literal_nodedef_request_in_the_resolver_is_satisfiable(manifest):
         "these _nodedef_for call sites can never resolve and would fail every "
         f"material that reaches them: {unsatisfiable}"
     )
+
+
+def test_editor_unresolvable_nodedefs_are_never_selected(manifest):
+    """The pbrlib closure defs exist in the manifest but only in RCP's USD
+    parsing libraries — the ShaderGraph editor cannot resolve them (measured
+    against build 80.0.1.500.1). Selection must skip them entirely; without
+    the filter the by_node fallback happily returned ND_dielectric_bsdf."""
+    for node_name in ("dielectric_bsdf", "mix_bsdf", "displacement", "surface"):
+        selected = select_nodedef_name_for_node(manifest, node_name)
+        node = manifest["nodes"].get(selected) if selected else None
+        assert not (
+            node and node.get("policy", {}).get("editor_unresolvable")
+        ), (node_name, selected)
