@@ -32,3 +32,6 @@ tests/tmp/
 # RCP .import research fixtures: opaque buffer payloads stay local.
 # See docs/RCP_IMPORT_EXPERIMENT.md — these are regenerated, never committed.
 *.import/
+
+# Local manual-evaluation scenes; regenerate with TestScenes/build_scenarios.py
+TestScenes/
