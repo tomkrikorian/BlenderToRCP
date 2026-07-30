@@ -230,6 +230,20 @@ def cmd_settings_list(parsed: argparse.Namespace) -> int:
     return _result_exit_code(result)
 
 
+
+def _print_success_warnings(result: dict) -> None:
+    """Surface a successful export's warnings on stderr.
+
+    Not gated by --quiet: that flag suppresses progress, and "your baked
+    textures will be black" is not progress. Measured before this existed, a
+    no-light Lighting & Shadows bake printed "Done in 34.5s", exited 0, and
+    its warning was reachable only inside a diagnostics sidecar. In --json
+    mode the same list is already in the payload.
+    """
+    for warning in result.get("warnings") or []:
+        print(f"Warning: {warning}", file=sys.stderr)
+
+
 def cmd_export(parsed: argparse.Namespace) -> int:
     args = {"filepath": parsed.output}
     if parsed.format:
@@ -250,6 +264,7 @@ def cmd_export(parsed: argparse.Namespace) -> int:
     _print_json(result)
     exit_code = _result_exit_code(result)
     if exit_code == 0:
+        _print_success_warnings(result)
         _log(f"Done in {result.get('duration_seconds', '?')}s", parsed.quiet)
     return exit_code
 
@@ -303,6 +318,7 @@ def cmd_bake_export(parsed: argparse.Namespace) -> int:
     _print_json(result)
     exit_code = _result_exit_code(result)
     if exit_code == 0:
+        _print_success_warnings(result)
         _log(f"Done in {result.get('duration_seconds', '?')}s", parsed.quiet)
     return exit_code
 

@@ -315,7 +315,7 @@ def Mesh "ExternalMesh" {
     )
     warnings = [
         warning
-        for warning in diagnostics.data["warnings"]
+        for warning in diagnostics.data.get("info", [])
         if "doubleSided=false" in warning
     ]
     assert len(warnings) == 1

@@ -690,6 +690,9 @@ def _handle(args: dict, settings) -> dict:
             "format": requested_format,
             "duration_seconds": round(duration, 2),
             "bake_stats": bake_stats,
+            # See export.py: a black bake reported "complete" with its warning
+            # unreachable from every default surface.
+            "warnings": list(diag.data.get("warnings") or []),
             "diagnostics_path": saved_diagnostics_path,
             "support_bundle_hint": _support_hint(bpy.data.filepath, filepath, saved_diagnostics_path),
         }
@@ -733,10 +736,13 @@ def _handle(args: dict, settings) -> dict:
         # the watchdog still armed, so the run was later reported as a
         # BAKE_STEP_TIMEOUT that never happened. The background runner already
         # guards each step individually; this path now matches it.
+        restore_failures: list[str] = []
+
         def _restore(label: str, action) -> None:
             try:
                 action()
             except Exception as exc:
+                restore_failures.append(label)
                 try:
                     diag.add_error(f"Could not restore {label}: {exc}")
                 except Exception:
@@ -791,10 +797,15 @@ def _handle(args: dict, settings) -> dict:
                         staging_dir=cleanup_staging_dir,
                     ),
                 )
-            try:
-                _save_diagnostics(diag, diagnostics_path)
-            except Exception:
-                pass
+            # Only when a restore step failed. Saving unconditionally here
+            # dropped a diagnostics sidecar beside every clean bake - even
+            # under --no-diagnostics - while the result payload reported
+            # diagnostics_path: null, denying the file it had just written.
+            if restore_failures:
+                try:
+                    _save_diagnostics(diag, diagnostics_path)
+                except Exception:
+                    pass
         finally:
             # Unconditional: a live watchdog thread reports a timeout that did
             # not happen and calls os._exit(124), masking the real error.

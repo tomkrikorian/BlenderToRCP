@@ -151,7 +151,7 @@ def test_owned_mesh_specs_author_false_and_warn_once_per_true_owner(tmp_path):
     assert unauthored_mesh.GetDoubleSidedAttr().Get() is False
     portability_warnings = [
         warning
-        for warning in diagnostics.data["warnings"]
+        for warning in diagnostics.data.get("info", [])
         if "doubleSided=false" in warning
     ]
     assert len(portability_warnings) == 1
@@ -236,7 +236,7 @@ def test_inactive_variant_mesh_specs_are_normalized_without_changing_selection(
     assert len(
         [
             warning
-            for warning in diagnostics.data["warnings"]
+            for warning in diagnostics.data.get("info", [])
             if "doubleSided=false" in warning
         ]
     ) == 1
@@ -327,7 +327,7 @@ def test_used_blender_class_prototype_mesh_is_normalized_in_place(tmp_path):
     assert len(
         [
             warning
-            for warning in diagnostics.data["warnings"]
+            for warning in diagnostics.data.get("info", [])
             if "doubleSided=false" in warning
         ]
     ) == 1

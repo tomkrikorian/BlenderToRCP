@@ -231,8 +231,13 @@ def _normalize_owned_double_sided_mesh_specs(
                 continue
             owner_key = f"{layer.identifier}:{prim_path}"
             affected_owners.append(owner_key)
-            if diagnostics is not None and hasattr(diagnostics, "add_warning"):
-                diagnostics.add_warning(
+            if diagnostics is not None and hasattr(diagnostics, "add_info"):
+                # Info, not warning: this fires for every mesh on essentially
+                # every export (Blender authors doubleSided=true by default),
+                # names the mesh by USD prim path and a temp staging layer the
+                # artist can never open, and there is nothing to act on for
+                # closed geometry. As a warning it drowned the real ones.
+                diagnostics.add_info(
                     "RealityKit portability normalization authored "
                     f"doubleSided=false for Mesh owner {prim_path} in layer "
                     f"'{layer.identifier}'. Backfaces are unsupported by the "

@@ -188,6 +188,18 @@ class ExportDiagnostics:
         """Add a warning message"""
         self.data['warnings'].append(warning)
 
+    def add_info(self, message: str):
+        """Record routine pipeline notes that need no artist action.
+
+        Warnings are the channel for "your asset may not be what you expect";
+        the UI shows only the first few and the CLI surfaces them on success.
+        Boilerplate that fires on every export - the doubleSided
+        normalization note, the post-processing completion line - was filed
+        as warnings, so real ones (a black bake, a dropped take) could never
+        win those slots.
+        """
+        self.data.setdefault('info', []).append(message)
+
     def add_validation_issue(self, material_name: str, issue: dict, severity: str = "error"):
         """Record a structured validation issue."""
         entry = {

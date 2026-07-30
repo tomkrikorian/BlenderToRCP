@@ -50,13 +50,20 @@ class TestExport:
         diagnostics_path = Path(result.json["diagnostics_path"])
         diagnostics = json.loads(diagnostics_path.read_text())
         assert diagnostics["realitykit_preflight"]["ok"] is True
+        # Reclassified from warning to info: it fires for every mesh on
+        # essentially every export (Blender authors doubleSided=true by
+        # default), so as a warning it drowned the actionable ones. The
+        # normalization itself is unchanged and still recorded.
         matching = [
-            warning
-            for warning in diagnostics["warnings"]
-            if "doubleSided=false" in warning
+            note
+            for note in diagnostics.get("info", [])
+            if "doubleSided=false" in note
         ]
         assert len(matching) == 1
         assert "closed or thick geometry is required" in matching[0]
+        assert not any(
+            "doubleSided=false" in warning for warning in diagnostics["warnings"]
+        )
 
     def test_export_usdz(self, run_cli, blend_file, tmp_output):
         out = tmp_output / "scene.usdz"

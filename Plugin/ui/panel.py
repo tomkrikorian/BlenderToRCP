@@ -681,6 +681,12 @@ def _draw_job_monitor(layout, status, job_state, job_running):
             state_row.label(text="Background Job - Failed", icon='STATUS_ERROR')
         elif job_state == "done":
             state_row.label(text="Background Job - Done", icon='CHECKMARK')
+            # A completed bake can still need attention - measured: a scene
+            # with no lights baked black textures and showed only this green
+            # checkmark. The runner now forwards its top warnings.
+            for warning_text in (status.get("warnings") or [])[:3]:
+                warning_row = monitor.row()
+                warning_row.label(text=str(warning_text)[:120], icon='ERROR')
         elif job_state == "canceled":
             state_row.label(text="Background Job - Canceled", icon='CANCEL')
         else:

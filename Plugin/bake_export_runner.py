@@ -646,12 +646,14 @@ def main() -> int:
     progress_reporter.update(0.1, "Preparing Blender scene")
     terminal_status = None
 
-    def _defer_terminal_status(state: str, message: str) -> None:
+    def _defer_terminal_status(state: str, message: str, warnings=None) -> None:
         nonlocal terminal_status
         terminal_status = {
             "state": state,
             "message": message,
         }
+        if warnings:
+            terminal_status["warnings"] = list(warnings)
 
     try:
         if rcp_import_export and Path(export_path).exists():
@@ -773,7 +775,15 @@ def main() -> int:
         if success_diagnostics_enabled:
             _set_running_stage(0.95, "Writing diagnostics")
             _save_diagnostics(diag, diagnostics_path)
-        _defer_terminal_status("done", "Bake Textures & Export complete")
+        # Carry the warnings into the terminal status. Without this the UI
+        # showed a green checkmark and "complete" for a bake whose diagnostics
+        # said the textures would be black - the warning existed but reached no
+        # surface, since diagnostics_path is nulled on success.
+        done_warnings = list(diag.data.get("warnings") or [])
+        completion = "Bake Textures & Export complete"
+        if done_warnings:
+            completion += f" - {len(done_warnings)} warning(s)"
+        _defer_terminal_status("done", completion, warnings=done_warnings[:5])
         return 0
 
     except Exception as exc:

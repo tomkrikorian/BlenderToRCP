@@ -119,7 +119,9 @@ def process_usd_stage(usd_path: str, settings, context, diagnostics=None) -> Non
             diagnostics.end_phase("stage_save")
 
         if diagnostics:
-            diagnostics.add_warning("USD stage post-processed for RealityKit compatibility")
+            # A progress note, not a warning: it fires on every successful
+            # export and consumed one of the few user-visible warning slots.
+            diagnostics.add_info("USD stage post-processed for RealityKit compatibility")
     finally:
         cleanup_image_staging_session(diagnostics)
 

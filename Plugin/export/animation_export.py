@@ -198,7 +198,10 @@ def prepare_animation_export(context, settings, diagnostics=None) -> dict:
     _warn_about_stashed_actions(actions, diagnostics)
 
     if not actions:
-        if diagnostics:
+        if diagnostics and targets:
+            # Only when animated targets exist: with none at all, the warning
+            # three lines up already said so, and a static scene with
+            # export_animation stored on got the same fact twice.
             diagnostics.add_warning(
                 "Export animation enabled but no target-owned Action slots were found."
             )

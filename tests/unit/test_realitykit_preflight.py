@@ -728,7 +728,7 @@ def test_shared_postprocess_normalizes_blender_authored_open_mesh_and_warns(
     assert diagnostics.data["realitykit_preflight"]["ok"] is True
     warnings = [
         warning
-        for warning in diagnostics.data["warnings"]
+        for warning in diagnostics.data.get("info", [])
         if "doubleSided=false" in warning
     ]
     assert len(warnings) == 1

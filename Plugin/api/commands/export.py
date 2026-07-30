@@ -360,6 +360,11 @@ def _handle(args: dict, settings) -> dict:
         "export_path": filepath,
         "format": requested_format,
         "duration_seconds": round(duration, 2),
+        # A successful export can still carry findings the artist must see -
+        # measured: a no-light Lighting & Shadows bake produced a black asset
+        # with ok: true and the (excellent) warning reachable only inside a
+        # sidecar the UI hides. Success payloads now say so directly.
+        "warnings": list(diag.data.get("warnings") or []),
         "diagnostics_path": saved_diagnostics_path,
         "support_bundle_hint": _support_hint(bpy.data.filepath, filepath, saved_diagnostics_path),
     }
