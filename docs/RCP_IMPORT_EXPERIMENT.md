@@ -103,6 +103,61 @@ geometry buffers and rewrites the UUID portion on save. Buffer layouts still
 remain build-private contracts and must be implemented only where a controlled
 fixture and RCP acceptance establish their semantics.
 
+## Ground truth: the shipped Truth schema
+
+Binary reconnaissance of the installed app (2026-07-30, build `80.0.1.500.1`)
+replaced several of the sample-measured findings above with first-party facts:
+
+- **The format is Our Machinery's "The Truth".** RCP is built on the The
+  Machinery engine; `CoreRealityTools.framework` embeds `the_truth.c` /
+  `the_truth_migration.c` build paths and owns the text serializer, buffer
+  store, and every `__`-dunder token. The `tm_*` record families are
+  registered by ~100 `libtm-*.dylib` engine plugins (`libtm-usd.dylib` owns
+  `tm_usd_asset` and the `%p{tm_uuid_t}%p{tm_str_t}.import` package naming;
+  `libtm-asset_importer.dylib` owns the Reimport commands).
+- **The complete schema ships in plain ASCII** at
+  `Contents/Resources/rcp_app_data.bundle/Contents/Resources/data/core/__type_index.tm_meta`
+  — 963 types with property names, kinds, target hashes, and defaults.
+  `scripts/_lib/rcp_type_index.py` parses it and
+  `tests/unit/test_rcp_contract_matches_type_index.py` holds the structural
+  contract, the generator's emitted types, and the hashing rule to it. Diffing
+  this one file across RCP updates is the cheapest possible format-drift check.
+- **Every cross-reference hash is `murmur64a(type_name, seed 0)`** — verified
+  for all 436 referenced `type_hash` values; the single nonmember is the
+  wildcard `8944e0b1cefd4756` = `murmur64a("tm_anything")`. The unpadded 1-16
+  hex-digit buffer suffix is proven by the serializer's own format string
+  (`%s.tm_buffers/%llx%s%s`); buffers may gain an extension suffix and can be
+  LZ4-compressed on save (`tm_compress_buffers_when_saving`).
+- **`members_sort_values` is a declared schema property** — a `subobject_set`
+  of `tm_double` on `tm_timeline_group`. The generator's emission is legal;
+  RCP's own files merely omit an optional sort-value set. The earlier
+  uncertainty is closed.
+- **The canonical multi-material mesh form is fully known:**
+  `tm_mesh_descriptor.subsets` is a `subobject_set` of
+  `tm_mesh_descriptor_subset` (`name`, `index`, `face_indices` buffer,
+  `face_count`) and `material_bindings` is a **singular** subobject of
+  `tm_mesh_descriptor_material_binding` (`mesh_material_index`,
+  `subset_to_material_index` buffer, `subset_count`). The clean-to-reimport
+  canonicalization observed above is RCP normalizing into this shape.
+- **Serializer grammar tokens beyond those documented above:**
+  `__instantiated` (prototype-instantiated set members, seen as a
+  property-name suffix), `__removed` (prototype-removed members), `__types` /
+  `__tm_types`. Some schema property names literally contain spaces
+  (`"skeleton hierarchy"`, `"pose masks"`, `"joint chains"`).
+- **Build pinning is forward-tolerant.** The engine has a real migration
+  system: per-project `__migration_index.tm_meta` lists applied migration ids,
+  types carry deprecated-name registries, and hard gates exist only for the
+  binary database formats. A newer RCP build migrates old text data on open;
+  the pin protects our writer, not RCP's reader.
+- **Reimport has an automatic mode.** Beyond the manual **Editor > Reimport**,
+  `libtm-asset_importer` registers USD file watchers on `source_path`
+  (`tm_editor_command_reimport_automatically`), governed by a per-directory
+  Import Settings hierarchy (`dcc_import_settings`). The
+  `Trying to lookup property of NULL truth object` message that Import File
+  triggers is one of ~15 generic Truth accessor errors, not an import-path
+  diagnostic — consistent with dangling-reference lookups after a duplicate
+  asset is created.
+
 ## Experimental static generator
 
 The branch implements a complete 13-record, 7-buffer constant-material static
