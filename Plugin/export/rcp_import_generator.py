@@ -25,7 +25,19 @@ _MURMUR_MULTIPLIER = 0xC6A4A7935BD1E995
 _MURMUR_SHIFT = 47
 _U64_MASK = (1 << 64) - 1
 _SAFE_NAME = re.compile(r"[^A-Za-z0-9_.-]+")
-_BOOTSTRAP_GEOMETRY_VALIDITY_HASH = "2cfcf0b4ccf2dcd8"
+# RCP derives tm_geometry.validity_hash from the geometry's content and its
+# transform-settings graph; it is the cache token for the derived
+# output_geometry. The chain half is known - it is the same cross-slot murmur
+# chain that names the geometry buffers - but the settings half is the return
+# of a generic Truth-object property walker that has not been transcribed, and
+# the evidence conflicts on whether it is stable for one settings shape (four
+# RCP packages agree on a value for the static 3-primvar block, yet nine
+# geometries with byte-identical settings elsewhere disagree). A wrong-but-
+# plausible token is worse than an obviously stale one: it risks RCP trusting
+# a stale output_geometry. This constant can never equal a computed hash, so
+# RCP always recomputes - measured harmless, the two-material cube loads and
+# renders correctly with it in place.
+_STALE_GEOMETRY_VALIDITY_HASH = "2cfcf0b4ccf2dcd8"
 _SKINNED_VERTEX_ID_BASE = 396600484
 # Skin weights are float32 in USD and some exporters quantize them, so an
 # exactly-1.0 sum is not reachable. This is wide enough to absorb that and far
@@ -2306,7 +2318,13 @@ def _geometry_block(
 \t\t}}'''
         uv_offset_value = uv_offset
         normal_offset_value = normal_offset
-        material_channel = f'''
+        # Semantic 14 is Skin Data, NOT a material index - RCP has no
+        # per-vertex or per-face material semantic at all; a subset range is
+        # the only binding mechanism. The UUID derivation label below still
+        # reads material_index because it is an opaque input to uuid5:
+        # renaming it would change every skinned package's UUIDs, and the
+        # accepted skeletal evidence is pinned to the current ones.
+        skin_data_channel = f'''
 \t\t{{
 \t\t\t__uuid: "{ids(f"{label}.material_index_channel")}"
 \t\t\tsemantic: 14
@@ -2319,7 +2337,7 @@ def _geometry_block(
     else:
         uv_offset_value = corner_count * 12
         normal_offset_value = corner_count * 20
-        material_channel = ""
+        skin_data_channel = ""
     index_stride = _geometry_index_stride(mesh)
     index_format = 67108896 if index_stride == 4 else 67108880
     _, subset_ranges = _geometry_subset_layout(mesh)
@@ -2382,7 +2400,7 @@ def _geometry_block(
 \t\t\tstride: 12
 \t\t\tformat: 16910368
 \t\t\tprimvar_name: "normals"
-\t\t}}{material_channel}{extra_channels}
+\t\t}}{skin_data_channel}{extra_channels}
 \t]{subset_block}
 \tindices: {{
 \t\t__uuid: "{ids(f"{label}.indices")}"
@@ -2520,7 +2538,7 @@ input_geometry: {input_geometry}
 transform: "3865a2eea51b6038"
 transform_settings: {_geometry_transform_settings(mesh, ids)}
 output_geometry: {output_geometry}
-validity_hash: "{_BOOTSTRAP_GEOMETRY_VALIDITY_HASH}"
+validity_hash: "{_STALE_GEOMETRY_VALIDITY_HASH}"
 __asset_uuid: "{ids("geometry.asset")}"'''
 
 
