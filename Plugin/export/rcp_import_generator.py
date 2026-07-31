@@ -412,6 +412,44 @@ def _triangulated_corner_indices(face_counts: Sequence[int]) -> tuple[int, ...]:
     return tuple(result)
 
 
+def _geometry_subset_layout(
+    mesh: StaticMesh,
+) -> tuple[tuple[int, ...], tuple[tuple[str, int], ...]]:
+    """Triangle index stream and per-subset ranges for the render geometry.
+
+    RCP's renderer draws material subsets as contiguous ranges of the
+    geometry index stream (measured live on build 80: descriptor subsets
+    plus an indexed materials array alone still render the whole mesh as
+    slot 0 — the geometry-side ``subsets`` ranges are what activate the
+    partition). For a multi-slot mesh the triangle indices are emitted
+    subset-sorted — every subset's triangles consecutive, in slot order —
+    and each range is reported as (material display name, index count),
+    the naming RCP's own import authors. Single-slot meshes keep the plain
+    face-order stream and no ranges.
+    """
+    slots = _mesh_material_slots(mesh)
+    if len(slots) <= 1 or not mesh.subsets:
+        return _triangulated_corner_indices(mesh.face_counts), ()
+    per_face: list[tuple[int, ...]] = []
+    corner = 0
+    for count in mesh.face_counts:
+        if count < 3:
+            raise ImportGenerationError("faces must have at least three vertices")
+        triangles: list[int] = []
+        for index in range(1, count - 1):
+            triangles.extend((corner, corner + index, corner + index + 1))
+        per_face.append(tuple(triangles))
+        corner += count
+    ordered: list[int] = []
+    ranges: list[tuple[str, int]] = []
+    for slot, subset in zip(slots, mesh.subsets):
+        start = len(ordered)
+        for face_ordinal in subset.face_indices:
+            ordered.extend(per_face[face_ordinal])
+        ranges.append((slot.name, len(ordered) - start))
+    return tuple(ordered), tuple(ranges)
+
+
 def _write_mesh_buffers(destination: Path, mesh: StaticMesh, ids: _Ids) -> dict[str, str]:
     buffer_ids = {
         key: ids(f"buffer.{key}")
@@ -517,7 +555,7 @@ def _write_mesh_buffers(destination: Path, mesh: StaticMesh, ids: _Ids) -> dict[
                 for joint, weight in zip(indices, weights)
             )
         )
-    triangles = _triangulated_corner_indices(mesh.face_counts)
+    triangles, _subset_ranges = _geometry_subset_layout(mesh)
     triangle_data = (
         struct.pack(f"<{len(triangles)}H", *triangles)
         if len(mesh.face_indices) <= 65535
@@ -2224,6 +2262,26 @@ def _geometry_block(
         material_channel = ""
     index_stride = 4 if corner_count > 65535 else 2
     index_format = 67108896 if corner_count > 65535 else 67108880
+    _, subset_ranges = _geometry_subset_layout(mesh)
+    subset_block = ""
+    if subset_ranges:
+        offset = 0
+        entries: list[str] = []
+        for slot_index, (subset_name, index_count) in enumerate(subset_ranges):
+            lines = [
+                "\t\t{",
+                f'\t\t\t__uuid: "{ids(f"{label}.subset.{slot_index}")}"',
+                f'\t\t\tname: "{subset_name}"',
+            ]
+            if slot_index:
+                lines.append(f"\t\t\tindex: {slot_index}")
+            if offset:
+                lines.append(f"\t\t\toffset: {offset}")
+            lines.append(f"\t\t\tcount: {index_count}")
+            lines.append("\t\t}")
+            entries.append("\n".join(lines))
+            offset += index_count * index_stride
+        subset_block = "\n\tsubsets: [\n" + "\n".join(entries) + "\n\t]"
     return f'''{{
 \t__uuid: "{ids(label)}"
 \tbuffers: [
@@ -2265,7 +2323,7 @@ def _geometry_block(
 \t\t\tformat: 16910368
 \t\t\tprimvar_name: "normals"
 \t\t}}{material_channel}{extra_channels}
-\t]
+\t]{subset_block}
 \tindices: {{
 \t\t__uuid: "{ids(f"{label}.indices")}"
 \t\tsemantic: 9

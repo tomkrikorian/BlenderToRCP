@@ -844,6 +844,45 @@ def test_multi_material_descriptor_subsets_record_shape(tmp_path: Path) -> None:
     assert len(first_uuids) == len(set(first_uuids)) == 2
 
 
+def test_multi_material_geometry_authors_subset_ranges(tmp_path: Path) -> None:
+    """The render geometry must carry subset ranges over a subset-sorted
+    index stream. Measured live on RCP build 80: descriptor subsets plus an
+    indexed materials array alone still render the whole mesh as material
+    slot 0 - the geometry-side subsets are what activate the partition."""
+    import struct
+
+    source = _multi_material_source(tmp_path)
+
+    destination = generate_static_import(source, tmp_path / "GeoSubsets.import")
+
+    geometry_files = sorted((destination / "geometry").glob("*.tm_geometry"))
+    assert len(geometry_files) == 1
+    geometry = geometry_files[0].read_text()
+    # Both geometry blocks (input and output) carry the ranges: slot 0 with
+    # offset elided, slot 1 with index and a byte offset of 18 uint16 indices.
+    assert geometry.count("subsets: [") == 2
+    assert geometry.count('name: "Red"') == 2
+    # The fixture is two triangles: 3 uint16 indices per subset, so the blue
+    # range starts at byte offset 6. Slot 0 elides offset, slot 1 stores both.
+    blue_entries = re.findall(
+        r'name: "Blue"\n\s*index: 1\n\s*offset: (\d+)\n\s*count: (\d+)', geometry
+    )
+    assert [(int(a), int(b)) for a, b in blue_entries] == [(6, 3), (6, 3)]
+
+    # The triangle index buffer is subset-sorted: red's face-0 corners (0-2)
+    # first, blue's face-1 corners (3-5) after.
+    buffers_dir = geometry_files[0].with_suffix(".tm_buffers")
+    triangle_payloads = [
+        f.read_bytes()
+        for f in sorted(buffers_dir.iterdir())
+        if len(f.read_bytes()) == 6 * 2
+    ]
+    assert triangle_payloads, "no uint16 triangle index payload found"
+    indices = struct.unpack("<6H", triangle_payloads[0])
+    assert set(indices[:3]) == {0, 1, 2}
+    assert set(indices[3:]) == {3, 4, 5}
+
+
 def test_multi_material_subset_buffers_hold_little_endian_face_ordinals(
     tmp_path: Path,
 ) -> None:
