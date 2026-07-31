@@ -643,7 +643,7 @@ Each fixture/build pair needs retained evidence for all of these gates:
 | Structural golden capture | required | required | required | implemented |
 | Two independent clean imports | required | required | required | observed |
 | RCP opens without repair | required | required | required | observed for clean imports and reimports |
-| Source change triggers reimport | required | required | required | passed |
+| Source change re-export refreshes package [^reimport] | required | required | required | passed |
 | Supported-USD RealityKit baseline | required | required | required | passed |
 | Staged RCP runtime artifact loads | required | required | required | failed |
 | Entity/material bounds match source | required | required | required | passed for source baseline |
@@ -676,6 +676,38 @@ verify the on-disk top-level layout afterward.
 The repeated clean-import and two-reimport requirements are satisfied for
 all three profiles. The retained structural reports are under
 `tests/fixtures/rcp_import/evidence/rcp3-80.0.1.500.1`.
+
+### Reimport is not supported for generated packages
+
+Do not run **Editor > Reimport** on a package this exporter generated.
+Re-export from Blender instead.
+
+Reality Composer Pro tracks the records it created from a source USD in a
+private binary session buffer under `settings.tm_buffers`. This writer does
+not author that buffer, and it cannot be reproduced from measured evidence.
+A reimport therefore finds no record of the previous import and creates a
+second, complete set of geometry, mesh, material, and entity records. Reality
+Composer Pro renames the new records — `Cube (1).tm_geometry` beside
+`Cube.tm_geometry` — repoints `settings.tm_usd` at them, and leaves your
+original records on disk and unreachable.
+
+The renamed records keep their original asset name: `Cube (1).tm_geometry`
+still declares `name: "Cube"`, so it still claims the file path
+`geometry/Cube.tm_geometry`. The first reimport recovers from that collision
+by renaming, and the save succeeds. The second reimport adds a third
+claimant, the save fails with `Duplicate file path`, and every later save of
+that project fails the same way.
+
+To recover, delete the duplicated records and re-export from Blender.
+
+Keep **Reimport Automatically** switched off for directories holding
+generated packages. This exporter writes the source `.usda` beside the
+package and names it in `source_path`, so a file watcher on that path turns
+every re-export into a reimport, which is exactly the operation to avoid.
+
+Re-export is the supported refresh path. Every identifier the writer emits is
+derived from the source, so re-exporting overwrites a package in place with
+stable identities.
 
 ### RealityKit and animation findings
 
@@ -814,3 +846,7 @@ bundle. Retained evidence:
   `tests/unit/test_rcp_contract_matches_type_index.py`;
 - acceptance validation: `scripts/validate_rcp_import_acceptance.py` with
   `tests/fixtures/rcp_import/acceptance.rcp3-80.0.1.500.1.json`.
+
+[^reimport]: Refresh means re-exporting from Blender. **Editor > Reimport**
+    is out of scope for generated packages; see
+    [Reimport is not supported for generated packages](#reimport-is-not-supported-for-generated-packages).

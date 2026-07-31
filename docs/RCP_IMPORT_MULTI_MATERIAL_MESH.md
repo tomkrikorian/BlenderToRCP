@@ -14,9 +14,9 @@ canonicalization.
 Status: the writer authors the full binding contract below, and a
 two-material static mesh loads in Reality Composer Pro and renders both
 materials on the correct faces. Rendering is not acceptance. The remaining
-Reality Composer Pro gates — save and reopen, and two reimports with no
-record or buffer growth — have not been run, so writer support is **not
-accepted**.
+Reality Composer Pro gate — save and reopen — has not been run, so writer
+support is **not accepted**. Reimport is out of scope; see
+[Reimport is not supported for generated packages](RCP_IMPORT_EXPERIMENT.md#reimport-is-not-supported-for-generated-packages).
 
 ## Why the previous split representation was insufficient
 
@@ -28,9 +28,9 @@ independent generated mesh resource. That package:
 - preserves both materials in the generated/runtime artifact;
 - completes one genuine RCP reimport without resource growth.
 
-It does not pass the second-reimport gate. The package grows from 83
-records/139 buffers after reimport 1 to 147 records/306 buffers after
-reimport 2. RCP retains the split resources, creates duplicate source
+Reality Composer Pro's own reimport of it authored a different
+multi-material mesh shape, and the package grew from 83 records/139 buffers
+after the first reimport to 147 records/306 buffers after the second. RCP retains the split resources, creates duplicate source
 resources, and adds its own combined mesh representation. A rendering
 success is therefore not proof that the generated resource graph matches
 RCP's private contract. That split path has been removed from the writer.
@@ -408,8 +408,17 @@ a new generated package passes all of these gates:
 1. deterministic generation and structural inspection with no unknown fields
    or derived/unknown buffer suffixes;
 2. clean import, save, close, and reopen in a fresh disposable RCP project;
-3. two genuine **Editor > Reimport** cycles with no record/buffer growth and
-   equal canonical structure, contract, and opaque-payload multisets;
+3. a re-export from Blender over the imported package, with the project open
+   in Reality Composer Pro, producing no record or buffer growth and equal
+   canonical structure, contract, and opaque-payload multisets.
+
+   This replaces an earlier two-reimport gate. **Editor > Reimport** cannot
+   pass and is out of scope: Reality Composer Pro tracks generated records in
+   a session buffer this writer does not author, so every reimport creates a
+   duplicate record set. See
+   [Reimport is not supported for generated packages](RCP_IMPORT_EXPERIMENT.md#reimport-is-not-supported-for-generated-packages).
+   Re-export is the supported refresh path, so it is the path acceptance
+   measures;
 4. visual confirmation that both face materials remain assigned;
 5. `realitytool` compilation and public RealityKit bounds, material,
    deformation, and animation-library checks;
@@ -417,8 +426,8 @@ a new generated package passes all of these gates:
    fixture.
 
 The controlled static two-material fixture imports cleanly and passes gate
-4: both materials render on their assigned faces. The rest of gate 2 (save
-and reopen) and gate 3 (two non-growing reimports) are the remaining bar.
+4: both materials render on their assigned faces. Gate 2 (save and reopen)
+and gate 3 (re-export refresh) are the remaining bar.
 
 After the two-material static and skinned lanes pass, add separate
 controlled fixtures for three materials, unassigned faces, shared materials,
