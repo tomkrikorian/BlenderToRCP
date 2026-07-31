@@ -862,12 +862,17 @@ def test_multi_material_geometry_authors_subset_ranges(tmp_path: Path) -> None:
     # offset elided, slot 1 with index and a byte offset of 18 uint16 indices.
     assert geometry.count("subsets: [") == 2
     assert geometry.count('name: "Red"') == 2
-    # The fixture is two triangles: 3 uint16 indices per subset, so the blue
-    # range starts at byte offset 6. Slot 0 elides offset, slot 1 stores both.
+    # Measured invariant: RCP writes 32-bit indices for every geometry that
+    # carries subsets (8/8 subset-bearing blocks in RCP-authored packages,
+    # the smallest at 438 vertices), so a subset-bearing mesh takes the
+    # 32-bit path regardless of corner count. The fixture is two triangles:
+    # 3 uint32 indices per subset, so blue starts at byte offset 12.
+    assert "stride: 4" in geometry
+    assert "format: 67108896" in geometry
     blue_entries = re.findall(
         r'name: "Blue"\n\s*index: 1\n\s*offset: (\d+)\n\s*count: (\d+)', geometry
     )
-    assert [(int(a), int(b)) for a, b in blue_entries] == [(6, 3), (6, 3)]
+    assert [(int(a), int(b)) for a, b in blue_entries] == [(12, 3), (12, 3)]
 
     # The triangle index buffer is subset-sorted: red's face-0 corners (0-2)
     # first, blue's face-1 corners (3-5) after.
@@ -875,12 +880,26 @@ def test_multi_material_geometry_authors_subset_ranges(tmp_path: Path) -> None:
     triangle_payloads = [
         f.read_bytes()
         for f in sorted(buffers_dir.iterdir())
-        if len(f.read_bytes()) == 6 * 2
+        if len(f.read_bytes()) == 6 * 4
     ]
-    assert triangle_payloads, "no uint16 triangle index payload found"
-    indices = struct.unpack("<6H", triangle_payloads[0])
+    assert triangle_payloads, "no uint32 triangle index payload found"
+    indices = struct.unpack("<6I", triangle_payloads[0])
     assert set(indices[:3]) == {0, 1, 2}
     assert set(indices[3:]) == {3, 4, 5}
+
+
+def test_single_material_geometry_keeps_16_bit_indices(tmp_path: Path) -> None:
+    """The 32-bit switch is scoped to subset-bearing geometry. A single-slot
+    mesh under the corner limit must keep stride 2 / format 67108880 so every
+    accepted single-material package regenerates byte-identical."""
+    source = _source(tmp_path)
+
+    destination = generate_static_import(source, tmp_path / "OneMaterial.import")
+
+    geometry = sorted((destination / "geometry").glob("*.tm_geometry"))[0].read_text()
+    assert "subsets: [" not in geometry
+    assert "stride: 2" in geometry
+    assert "format: 67108880" in geometry
 
 
 def test_multi_material_subset_buffers_hold_little_endian_face_ordinals(

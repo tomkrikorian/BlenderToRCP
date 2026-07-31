@@ -450,6 +450,22 @@ def _geometry_subset_layout(
     return tuple(ordered), tuple(ranges)
 
 
+def _geometry_index_stride(mesh: StaticMesh) -> int:
+    """Byte width of one triangle index in the render geometry.
+
+    RCP writes 16-bit indices for meshes under the 65535-corner limit
+    (440 of 440 measured subset-free index blocks in RCP-authored packages)
+    but switches to 32-bit whenever the geometry carries material subsets
+    (8 of 8 measured subset-bearing blocks, the smallest at 438 vertices /
+    1644 indices - so subset presence, not mesh size, is the trigger).
+    Follow the measured invariant rather than the corner count alone.
+    """
+    _, ranges = _geometry_subset_layout(mesh)
+    if ranges:
+        return 4
+    return 4 if len(mesh.face_indices) > 65535 else 2
+
+
 def _write_mesh_buffers(destination: Path, mesh: StaticMesh, ids: _Ids) -> dict[str, str]:
     buffer_ids = {
         key: ids(f"buffer.{key}")
@@ -557,9 +573,9 @@ def _write_mesh_buffers(destination: Path, mesh: StaticMesh, ids: _Ids) -> dict[
         )
     triangles, _subset_ranges = _geometry_subset_layout(mesh)
     triangle_data = (
-        struct.pack(f"<{len(triangles)}H", *triangles)
-        if len(mesh.face_indices) <= 65535
-        else _pack_u32(triangles)
+        _pack_u32(triangles)
+        if _geometry_index_stride(mesh) == 4
+        else struct.pack(f"<{len(triangles)}H", *triangles)
     )
     geometry_dir = destination / "geometry" / f"{mesh.mesh_name}.tm_buffers"
     _write_buffer(geometry_dir, buffer_ids["geometry"], geometry)
@@ -2260,8 +2276,8 @@ def _geometry_block(
         uv_offset_value = corner_count * 12
         normal_offset_value = corner_count * 20
         material_channel = ""
-    index_stride = 4 if corner_count > 65535 else 2
-    index_format = 67108896 if corner_count > 65535 else 67108880
+    index_stride = _geometry_index_stride(mesh)
+    index_format = 67108896 if index_stride == 4 else 67108880
     _, subset_ranges = _geometry_subset_layout(mesh)
     subset_block = ""
     if subset_ranges:
