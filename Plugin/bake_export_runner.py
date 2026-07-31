@@ -446,6 +446,13 @@ def main() -> int:
         if rcp_import_export and export_path
         else export_path
     )
+    # ``--replace`` reaches the worker as the serialized scene setting the
+    # sidebar checkbox writes; ``replace`` in the payload is the explicit
+    # per-run request. Either enables a refresh, neither is the default.
+    rcp_import_replace = rcp_import_export and (
+        bool(payload.get("replace"))
+        or bool(getattr(scene_settings, "rcp_import_replace", False))
+    )
     if rcp_import_export:
         # The private package is generated from the post-processed USDA.
         scene_settings.export_format = "USDA"
@@ -656,12 +663,16 @@ def main() -> int:
             terminal_status["warnings"] = list(warnings)
 
     try:
-        if rcp_import_export and Path(export_path).exists():
-            _defer_terminal_status(
-                "error",
-                f"Refusing to overwrite existing .import directory: {export_path}",
-            )
-            return 1
+        rcp_import_publish = _import_package_module("export.rcp_import_publish")
+        if rcp_import_export:
+            try:
+                rcp_import_publish.check_destination(
+                    export_path,
+                    replace=rcp_import_replace,
+                )
+            except rcp_import_publish.ImportPublishError as exc:
+                _defer_terminal_status("error", str(exc))
+                return 1
         bake_ops._ensure_object_mode(bpy.context)
         bake_ops._set_render_engine(bpy.context.scene, 'CYCLES')
         animation_export._link_processing_objects_for_bake(
@@ -752,17 +763,23 @@ def main() -> int:
                 diag
             )
         elif rcp_import_export:
-            _set_running_stage(0.86, "Publishing USDA source")
-            if temp_usd_path != usd_export_path:
-                blender_usd_export.publish_unpacked_export(
-                    temp_usd_path, usd_export_path, diag
-                )
-            _set_running_stage(0.92, "Generating RCP import")
-            rcp_import_generator = _import_package_module(
-                "export.rcp_import_generator"
-            )
-            rcp_import_generator.generate_static_import(
-                usd_export_path, export_path
+            _set_running_stage(0.86, "Generating RCP import")
+
+            def _publish_usda_source():
+                _set_running_stage(0.92, "Publishing USDA source")
+                if temp_usd_path != usd_export_path:
+                    blender_usd_export.publish_unpacked_export(
+                        temp_usd_path, usd_export_path, diag
+                    )
+
+            # Staged first, swapped in last: an interrupted or failed refresh
+            # leaves the previous package and its .usda source in place.
+            rcp_import_publish.publish_static_import(
+                staged_source=temp_usd_path,
+                recorded_source=usd_export_path,
+                destination=export_path,
+                replace=rcp_import_replace,
+                commit_source=_publish_usda_source,
             )
             diag.add_generated_file(
                 "rcp_import", export_path, source=usd_export_path

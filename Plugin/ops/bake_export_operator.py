@@ -153,6 +153,24 @@ class BLENDERTORCP_OT_bake_export_background(Operator, ExportHelper):
                 self.report({'ERROR'}, "A background job is already running. Cancel it first.")
                 return {'CANCELLED'}
 
+        # The worker re-checks this immediately before it publishes, but there
+        # is no reason to launch a background Blender only to have it refuse.
+        if export_format == 'RCP_IMPORT':
+            from ..export import rcp_import_publish
+
+            try:
+                rcp_import_publish.check_destination(
+                    self.filepath,
+                    replace=bool(getattr(settings, "rcp_import_replace", False)),
+                )
+            except rcp_import_publish.ImportPublishError as exc:
+                message = str(exc)
+                _write_prelaunch_failure_diagnostics(
+                    context, settings, message, code=exc.code
+                )
+                self.report({'ERROR'}, message)
+                return {'CANCELLED'}
+
         try:
             objects_to_export = _collect_export_objects(context, settings)
         except Exception as exc:

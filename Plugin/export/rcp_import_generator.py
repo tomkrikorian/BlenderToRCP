@@ -4681,9 +4681,11 @@ def _generate_multi_static_import(
     source_path: Path,
     destination_path: Path,
     asset: StaticAsset,
+    recorded_source: Path | None = None,
 ) -> Path:
     """Generate the measured many-model static package."""
 
+    recorded_source = recorded_source or source_path
     identity = hashlib.sha256(source_path.read_bytes()).hexdigest()
     ids = _Ids(f"{RCP_BUILD}|{identity}|{asset.asset_name}")
     mesh_ids = {
@@ -4754,7 +4756,7 @@ def _generate_multi_static_import(
             "settings.tm_usd": _settings_record(
                 first_mesh,
                 ids,
-                os.path.relpath(source_path, destination_path.parent).replace(
+                os.path.relpath(recorded_source, destination_path.parent).replace(
                     os.sep,
                     "/",
                 ),
@@ -4821,7 +4823,7 @@ def _generate_multi_static_import(
                 records[f"textures/{texture.name}.tm_texture"] = _texture_record(
                     texture,
                     material_scope,
-                    source_path=source_path,
+                    source_path=recorded_source,
                 )
         if has_textures:
             records["textures/__tm_directory.tm_dir"] = _directory_record(
@@ -4847,9 +4849,11 @@ def _generate_multi_skeletal_import(
     source_path: Path,
     destination_path: Path,
     asset: StaticAsset,
+    recorded_source: Path | None = None,
 ) -> Path:
     """Generate the measured shared-skeleton, many-model package."""
 
+    recorded_source = recorded_source or source_path
     identity = hashlib.sha256(source_path.read_bytes()).hexdigest()
     ids = _Ids(f"{RCP_BUILD}|{identity}|{asset.asset_name}")
     mesh_ids = {
@@ -4937,7 +4941,7 @@ def _generate_multi_skeletal_import(
             "settings.tm_usd": _settings_record(
                 first_mesh,
                 ids,
-                os.path.relpath(source_path, destination_path.parent).replace(
+                os.path.relpath(recorded_source, destination_path.parent).replace(
                     os.sep,
                     "/",
                 ),
@@ -5036,7 +5040,7 @@ def _generate_multi_skeletal_import(
                 records[f"textures/{texture.name}.tm_texture"] = _texture_record(
                     texture,
                     material_scope,
-                    source_path=source_path,
+                    source_path=recorded_source,
                 )
         if has_textures:
             records["textures/__tm_directory.tm_dir"] = _directory_record(
@@ -5071,11 +5075,24 @@ def generate_static_import(
     destination: str | Path,
     *,
     asset_name: str | None = None,
+    record_source: str | Path | None = None,
 ) -> Path:
-    """Generate a complete build-80 static or sampled-translation artifact."""
+    """Generate a complete build-80 static or sampled-translation artifact.
+
+    ``source`` is the USD that is read. ``record_source`` overrides the path
+    the package *records* as its source, which lets a publisher build the
+    package from a staged USD before that USD is published to its final home
+    (see ``rcp_import_publish``). It changes nothing else: the recorded source
+    is the only place the source path reaches the output, so generating from a
+    staged copy with the final path recorded is byte-identical to generating
+    from the published file. It need not exist yet.
+    """
 
     source_path = Path(source).resolve()
     destination_path = Path(destination).resolve()
+    recorded_source = (
+        Path(record_source).resolve() if record_source is not None else source_path
+    )
     if not source_path.is_file():
         raise ImportGenerationError(f"source USD does not exist: {source_path}")
     if destination_path.suffix != ".import":
@@ -5093,8 +5110,14 @@ def generate_static_import(
                 source_path,
                 destination_path,
                 asset,
+                recorded_source,
             )
-        return _generate_multi_static_import(source_path, destination_path, asset)
+        return _generate_multi_static_import(
+            source_path,
+            destination_path,
+            asset,
+            recorded_source,
+        )
     mesh = asset.meshes[0]
     animation = (
         None if mesh.skinning is not None else load_transform_animation(source_path, mesh)
@@ -5143,7 +5166,7 @@ def generate_static_import(
             "settings.tm_usd": _settings_record(
                 mesh,
                 ids,
-                os.path.relpath(source_path, destination_path.parent).replace(
+                os.path.relpath(recorded_source, destination_path.parent).replace(
                     os.sep, "/"
                 ),
                 animation=animation,
@@ -5184,7 +5207,7 @@ def generate_static_import(
                     f"textures/{texture.name}.tm_texture": _texture_record(
                         texture,
                         ids,
-                        source_path=source_path,
+                        source_path=recorded_source,
                     )
                     for texture in material_textures
                 }

@@ -124,12 +124,20 @@ class BLENDERTORCP_OT_export(Operator, ExportHelper):
             if rcp_import_export
             else self.filepath
         )
-        if rcp_import_export and Path(self.filepath).exists():
-            self.report(
-                {'ERROR'},
-                f"Refusing to overwrite existing .import directory: {self.filepath}",
-            )
-            return {'CANCELLED'}
+        from ..export import rcp_import_publish
+
+        rcp_import_replace = rcp_import_export and bool(
+            getattr(settings, "rcp_import_replace", False)
+        )
+        if rcp_import_export:
+            try:
+                rcp_import_publish.check_destination(
+                    self.filepath,
+                    replace=rcp_import_replace,
+                )
+            except rcp_import_publish.ImportPublishError as exc:
+                self.report({'ERROR'}, str(exc))
+                return {'CANCELLED'}
         surface_profile = getattr(
             settings,
             "materialx_surface_profile",
@@ -282,16 +290,21 @@ class BLENDERTORCP_OT_export(Operator, ExportHelper):
                     diag
                 )
             elif rcp_import_export:
-                blender_usd_export.publish_unpacked_export(
-                    temp_usd_path, usd_filepath, diag
-                )
-                from ..export.rcp_import_generator import generate_static_import
-
                 self.report(
                     {'INFO'},
                     "Generating build-80 Reality Composer Pro .import...",
                 )
-                generate_static_import(usd_filepath, self.filepath)
+                # Staged beside the destination and swapped in last, so a
+                # refresh cannot leave the artist without a package.
+                rcp_import_publish.publish_static_import(
+                    staged_source=temp_usd_path,
+                    recorded_source=usd_filepath,
+                    destination=self.filepath,
+                    replace=rcp_import_replace,
+                    commit_source=lambda: blender_usd_export.publish_unpacked_export(
+                        temp_usd_path, usd_filepath, diag
+                    ),
+                )
                 diag.add_generated_file(
                     "rcp_import", self.filepath, source=usd_filepath
                 )

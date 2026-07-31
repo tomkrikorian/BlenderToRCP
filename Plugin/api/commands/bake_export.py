@@ -319,12 +319,25 @@ def _handle(args: dict, settings) -> dict:
     usd_filepath = (
         str(Path(filepath).with_suffix(".usda")) if rcp_import_export else filepath
     )
-    if rcp_import_export and Path(filepath).exists():
-        raise CommandError(
-            f"Refusing to overwrite existing .import directory: {filepath}",
-            code="RCP_IMPORT_EXISTS",
-            stage="validation",
+    from ...export import rcp_import_publish
+
+    try:
+        replace_existing = rcp_import_publish.resolve_replace_request(
+            args,
+            settings,
+            rcp_import_export=rcp_import_export,
         )
+        if rcp_import_export:
+            rcp_import_publish.check_destination(
+                filepath,
+                replace=replace_existing,
+            )
+    except rcp_import_publish.ImportPublishError as exc:
+        raise CommandError(
+            str(exc),
+            code=exc.code,
+            stage="validation",
+        ) from exc
 
     import bpy
     from ...export import (
@@ -636,16 +649,7 @@ def _handle(args: dict, settings) -> dict:
                 context={"file_size": Path(filepath).stat().st_size if Path(filepath).exists() else None},
             )
         elif rcp_import_export:
-            step_watchdog.enter_step("Publishing USDA source")
-            if temp_usd_path != usd_filepath:
-                blender_usd_export.publish_unpacked_export(
-                    temp_usd_path, usd_filepath, diag
-                )
-            else:
-                diag.add_generated_file("export", usd_filepath)
             step_watchdog.enter_step("Generating RCP import")
-            from ...export.rcp_import_generator import generate_static_import
-
             diag.begin_phase(
                 "generate_rcp_import",
                 {
@@ -653,9 +657,29 @@ def _handle(args: dict, settings) -> dict:
                     "source_usd_path": usd_filepath,
                     "rcp_version": "3.0",
                     "rcp_build": "80.0.1.500.1",
+                    "replace_existing": replace_existing,
                 },
             )
-            generate_static_import(usd_filepath, filepath)
+
+            def _publish_usda_source():
+                step_watchdog.enter_step("Publishing USDA source")
+                if temp_usd_path != usd_filepath:
+                    blender_usd_export.publish_unpacked_export(
+                        temp_usd_path, usd_filepath, diag
+                    )
+                else:
+                    diag.add_generated_file("export", usd_filepath)
+
+            # The package is staged from the pre-publication USD and swapped in
+            # last, so the .usda source and the package are refreshed together
+            # or not at all.
+            rcp_import_publish.publish_static_import(
+                staged_source=temp_usd_path,
+                recorded_source=usd_filepath,
+                destination=filepath,
+                replace=replace_existing,
+                commit_source=_publish_usda_source,
+            )
             diag.add_generated_file("rcp_import", filepath, source=usd_filepath)
             diag.end_phase("generate_rcp_import")
         else:
@@ -703,6 +727,15 @@ def _handle(args: dict, settings) -> dict:
         _save_diagnostics(diag, diagnostics_path)
         exc.artifacts.update(_artifacts(diagnostics_path, filepath, bpy.data.filepath))
         raise
+    except rcp_import_publish.ImportPublishError as exc:
+        diag.add_exception(exc, stage="generate_rcp_import")
+        _save_diagnostics(diag, diagnostics_path)
+        raise CommandError(
+            str(exc),
+            code=exc.code,
+            stage="generate_rcp_import",
+            artifacts=_artifacts(diagnostics_path, filepath, bpy.data.filepath),
+        ) from exc
     except Exception as exc:
         diag.add_exception(exc, stage="bake_export")
         _save_diagnostics(diag, diagnostics_path)

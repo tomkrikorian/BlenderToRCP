@@ -174,7 +174,19 @@ class BlenderToRCPExportSettings(PropertyGroup):
         default='USDA',
         update=_on_settings_changed,
     )
-    
+
+    rcp_import_replace: BoolProperty(
+        name="Replace Existing .import",
+        description=(
+            "Refresh an existing Reality Composer Pro .import package instead of "
+            "refusing to overwrite it. The replacement is written beside the old "
+            "package and swapped in only once it is complete; a directory that is "
+            "not a generated .import package is never touched"
+        ),
+        default=False,
+        update=_on_settings_changed,
+    )
+
     root_prim_name: StringProperty(
         name="Root Prim",
         description="Root prim path or name (e.g. /root or Scene)",
@@ -629,6 +641,8 @@ class BLENDERTORCP_PT_export_panel(Panel):
             export_box.enabled = not job_running
             export_box.prop(settings, "filepath", placeholder="//export/scene.usdz")
             export_box.prop(settings, "export_format")
+            if settings.export_format == 'RCP_IMPORT':
+                export_box.prop(settings, "rcp_import_replace")
             export_box.label(text="Profile")
             profile_row = export_box.row(align=True)
             profile_row.prop(settings, "ui_material_type", expand=True)
