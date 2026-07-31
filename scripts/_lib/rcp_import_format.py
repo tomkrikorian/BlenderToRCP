@@ -65,7 +65,8 @@ def murmur_hash64a(data: bytes, *, seed: int = 0) -> int:
     """Return RCP build-80's unsigned 64-bit content hash for ``data``.
 
     This is MurmurHash64A with the seed and constants observed in the shipped
-    CoreRealityTools binary.  RCP prints the result as 16 lowercase hex digits.
+    CoreRealityTools binary. RCP prints the result with ``%llx``: lowercase and
+    NOT zero-padded, so a value whose leading nibble is zero has 15 digits.
     """
 
     multiplier = _MURMUR_MULTIPLIER

@@ -45,14 +45,24 @@ Established for the pinned build:
   required skeleton-hierarchy `__asset_uuid`. Save/reopen persistence in
   Reality Composer Pro passes for the controlled candidate.
 - The 12-mesh/13-material Robot candidate opens, saves, and reopens.
+- The contract that binds materials to faces is established: descriptor
+  face subsets, the slot `index` on each model-component material entry,
+  geometry subset ranges over a subset-sorted triangle index stream, and
+  Reality Composer Pro's separate naming rule for geometry buffers. The
+  writer authors all of it, and a two-material static mesh loads and renders
+  both materials on their assigned faces.
 
 Not established — the lane is not accepted:
 
-- The Robot candidate's second genuine reimport is not idempotent. Reality
-  Composer Pro duplicates the generated resources and authors a different
-  multi-material mesh shape.
-- Canonical face subsets, clip playback, and a public RealityKit handoff
-  from RCP-authored output remain open.
+- The canonical multi-material writer has not been through save/reopen or
+  two non-growing reimports. Rendering correctly is not acceptance.
+- The superseded split representation — one generated mesh resource per
+  material — failed the second genuine reimport of the Robot candidate.
+  Reality Composer Pro duplicated the generated resources and authored a
+  different multi-material mesh shape. That path has been removed from the
+  writer.
+- Clip playback and a public RealityKit handoff from RCP-authored output
+  remain open.
 
 See [the skeletal checkpoint](RCP_IMPORT_SKELETAL_CHECKPOINT.md) and the
 [measured multi-material mesh contract](RCP_IMPORT_MULTI_MATERIAL_MESH.md)
@@ -143,12 +153,22 @@ their containing disposable workspace.
 
 ### Buffer filenames
 
-Buffer filenames contain an ID plus a 16-hex content hash. The hash is
-MurmurHash64A with seed zero, multiplier `0xc6a4a7935bd1e995`, and shift 47.
-Reality Composer Pro accepts content-hashed geometry buffers and rewrites the
-UUID portion on save. Buffer layouts remain build-private contracts;
-implement a layout only where a controlled fixture and RCP acceptance
-establish its semantics.
+Buffer filenames contain an ID plus a hex hash suffix. The hash is
+MurmurHash64A with seed zero, multiplier `0xc6a4a7935bd1e995`, and shift 47;
+the payload length is truncated to 32 bits before the initial mix. Reality
+Composer Pro prints the value with `%llx`, so the suffix is lowercase and not
+zero-padded — 1 to 16 digits, not always 16.
+
+Two naming rules exist. Buffers under `mesh_descriptors`, `settings`, and the
+texture directories hash their own payload. Geometry buffers do not: their
+names come from a hash chained across every slot of the geometry. Getting
+that rule wrong makes Reality Composer Pro fail to resolve the vertex
+buffer. See
+[the multi-material mesh contract](RCP_IMPORT_MULTI_MATERIAL_MESH.md) for
+both rules. Reality Composer Pro rewrites the UUID portion of a buffer
+filename on save. Buffer layouts remain build-private contracts; implement a
+layout only where a controlled fixture and RCP acceptance establish its
+semantics.
 
 ## Ground truth: the shipped Truth schema
 
@@ -193,7 +213,10 @@ facts:
   `tm_mesh_descriptor_material_binding` (`mesh_material_index`,
   `subset_to_material_index` buffer, `subset_count`). The
   clean-to-first-reimport canonicalization described above is RCP
-  normalizing into this shape.
+  normalizing into this shape. The descriptor is one of three layers a
+  multi-material mesh binds through; the model component and the geometry
+  carry the other two. See
+  [the multi-material mesh contract](RCP_IMPORT_MULTI_MATERIAL_MESH.md).
 - **Serializer grammar tokens beyond those documented above:**
   `__instantiated` (prototype-instantiated set members, seen as a
   property-name suffix), `__removed` (prototype-removed members), `__types` /
@@ -252,7 +275,9 @@ mesh descriptor and authors the canonical `subsets` array RCP itself uses:
 one entry per subset carrying the full GeomSubset prim path, a deterministic
 UUID, and a content-hashed buffer of little-endian 32-bit face ordinals,
 with the model component's materials listed in exactly descriptor-subset
-order (see
+order and carrying their slot `index`. The geometry gets the matching
+subset ranges over a subset-sorted 32-bit triangle index stream — the
+representation the renderer actually draws from (see
 [RCP_IMPORT_MULTI_MATERIAL_MESH.md](RCP_IMPORT_MULTI_MATERIAL_MESH.md)).
 Up to two material slots are supported — the measured corpus. Overlapping,
 out-of-range, empty, or non-exhaustive subsets, materials shared across
@@ -335,13 +360,14 @@ compatibility boundary in a disposable project:
   meshes, and authored one combined body descriptor with two `subsets`
   entries and face-index buffers.
 
-The two reimport phases therefore do **not** validate the current strategy of
-representing one USD mesh with multiple face materials as independent RCP
-mesh resources. RCP's canonical form keeps one mesh descriptor and records
-material partitions in its nested `subsets` field. The inspector recognizes
-`matched_skeleton_hierarchies` and `subsets` only as measured RCP-authored
-fields; the writer must not synthesize either until their UUID and opaque
-buffer contracts have been independently reproduced.
+The two reimport phases therefore do **not** validate the superseded
+strategy of representing one USD mesh with multiple face materials as
+independent RCP mesh resources. RCP's canonical form keeps one mesh
+descriptor and records material partitions in its nested `subsets` field.
+The writer now authors that form, with deterministic UUIDs and reproduced
+buffer payloads. It still must not synthesize
+`matched_skeleton_hierarchies`, which the inspector recognizes only as a
+measured RCP-authored field.
 
 The preserved second-reimport capture establishes the bounded subset payload
 contract. Each of the two descriptor subsets points to a content-hashed
@@ -351,9 +377,10 @@ each buffer exactly match the corresponding source USDA
 faces. The combined model component references one mesh resource and carries
 two materials in matching slot order. See
 [the multi-material mesh contract](RCP_IMPORT_MULTI_MATERIAL_MESH.md) for
-record identities, hashes, implementation requirements, unsupported cases,
-and the acceptance plan. This makes a bounded staging implementation
-possible, but does not change the failed compatibility status.
+record identities, hashes, the three layers that bind materials to faces,
+implementation requirements, unsupported cases, and the acceptance plan.
+This makes a bounded staging implementation possible, but does not change
+the failed compatibility status.
 
 Each reimport of the unmodified Blender-authored source emitted 13
 `Unknown color space <private> encountered` warnings, one per baked texture.
@@ -717,12 +744,12 @@ python scripts/validate_rcp_import_acceptance.py \
    multiple animated nodes, and arbitrary skeletons remain outside the
    validated subset.
 4. UUID lifetime rules show stable clean and first-reimport phases for the
-   single-mesh corpus. The multi-material Robot candidate instead duplicates
-   resources on its second reimport because the writer partitions one source
-   mesh into multiple descriptors rather than authoring RCP's canonical
-   nested `subsets` representation. The controlled two-slot subset payload
-   and resource graph are now measured, but not implemented or
-   reimport-accepted.
+   single-mesh corpus. The superseded split writer, which partitioned one
+   source mesh into multiple descriptors, made the multi-material Robot
+   candidate duplicate resources on its second reimport. The writer now
+   authors RCP's canonical nested `subsets` representation and the geometry
+   and model-component layers that bind with it, and a two-material static
+   mesh renders. No reimport evidence exists for that output yet.
 5. RCP may enforce hidden version/build migrations or invariants beyond the
    text records.
 6. RCP 3 demonstrably flattens the named `RealityKit.AnimationLibrary` clip
@@ -746,18 +773,20 @@ python scripts/validate_rcp_import_acceptance.py \
    pending):** all three bake modes pass the Blender/CLI and structural
    gates for one mesh. Multi-mesh/single-material source shapes pass
    supported USD compilation and RealityKit runtime checks. A mesh with
-   multiple face materials remains experimental-only because the second RCP
-   reimport duplicates resources.
+   multiple face materials renders both materials with the canonical
+   representation, but remains experimental-only until save/reopen and two
+   non-growing reimports pass.
 4. **Transform generator (implemented, final acceptance in progress):** the
    aggregate sampled timeline, translation/time buffers, entity component,
    and four named clip records pass RCP open/save. Reopen, Sequence Editor,
    and playback evidence remain required.
 5. **Skeletal generator (rendering, not accepted):** the controlled
    hierarchy, definition, binding, sampled timeline, scene-tree buffers, and
-   four named clip records are generated. Next, implement the measured
-   representation of one mesh with multiple materials as a single descriptor
-   with `subsets` and content-hashed 32-bit face-index buffers, then require
-   two idempotent reimports before enabling that input shape as compatible.
+   four named clip records are generated. One mesh with multiple materials
+   is now written as a single descriptor with `subsets` and content-hashed
+   32-bit face-index buffers, plus the geometry subset ranges and material
+   slot indices that bind it, and it renders. Two idempotent reimports are
+   still required before that input shape counts as compatible.
 6. **Acceptance automation:** retain reproducible RCP open/reimport
    captures; extend the RealityKit probe from bounds/resource discovery to
    controlled playback duration only for clips that RCP actually exposes.
@@ -780,7 +809,8 @@ bundle. Retained evidence:
   `tests/fixtures/rcp_import/evidence/rcp3-80.0.1.500.1`;
 - corpus catalog with pinned source sizes and SHA-256:
   `tests/fixtures/rcp_import/corpus.json`;
-- pinned tests: `tests/unit/test_rcp_import_contract.py` and
+- pinned tests: `tests/unit/test_rcp_import_contract.py`,
+  `tests/unit/test_rcp_import_generator.py`, and
   `tests/unit/test_rcp_contract_matches_type_index.py`;
 - acceptance validation: `scripts/validate_rcp_import_acceptance.py` with
   `tests/fixtures/rcp_import/acceptance.rcp3-80.0.1.500.1.json`.
