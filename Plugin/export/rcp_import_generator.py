@@ -223,8 +223,10 @@ class _Ids:
         return str(uuid.uuid5(_NAMESPACE, f"{self.identity}|{label}"))
 
 
-def _murmur_hash64a(data: bytes) -> int:
-    value = (len(data) * _MURMUR_MULTIPLIER) & _U64_MASK
+def _murmur_hash64a(data: bytes, *, seed: int = 0) -> int:
+    # RCP truncates the length to 32 bits before the initial mix (`mov w9, w1`
+    # in CoreRealityTools/libtm-geometry) and seeds the accumulator.
+    value = ((((len(data) & 0xFFFFFFFF) * _MURMUR_MULTIPLIER) & _U64_MASK) ^ seed) & _U64_MASK
     whole_words = len(data) // 8
     for index in range(whole_words):
         offset = index * 8
@@ -246,7 +248,39 @@ def _murmur_hash64a(data: bytes) -> int:
 
 
 def _content_hash(data: bytes) -> str:
-    return f"{_murmur_hash64a(data):016x}"
+    # RCP's format string is "%s.tm_buffers/%s.%llx%s%s" - %llx is not
+    # zero-padded, so a hash whose top nibble is zero has 15 digits, not 16.
+    return f"{_murmur_hash64a(data):x}"
+
+
+def _combine_hashes(first: int, second: int) -> int:
+    """RCP's 16-byte pair mix used to derive per-slot geometry hashes."""
+    return _murmur_hash64a(struct.pack("<QQ", first, second))
+
+
+def _geometry_buffer_names(payloads: Sequence[bytes]) -> tuple[str, ...]:
+    """Filename hash suffixes for a geometry's ``.tm_buffers`` payloads.
+
+    Geometry payloads are NOT named by their own content hash (that rule holds
+    only for descriptor/settings/texture buffers). RCP chains every non-empty
+    slot in ascending order, feeding the running value in as the next seed,
+    then names slot 0 with that chain value and slot i>0 with
+    combine(chain, i) - where i is the ``index:`` written on the matching
+    entry of ``input_geometry.buffers``.
+
+    Measured against RCP's own import of the two-material cube: chain =
+    da42368cdc00a47d (slot 0) and combine(chain, 1) = d7139fa844fd406a
+    (slot 1), both reproducing RCP's filenames exactly for byte-identical
+    payloads.
+    """
+    chain = 0
+    for data in payloads:
+        if data:
+            chain = _murmur_hash64a(data, seed=chain)
+    return tuple(
+        f"{chain:x}" if index == 0 else f"{_combine_hashes(chain, index):x}"
+        for index, _ in enumerate(payloads)
+    )
 
 
 def _safe_name(value: str, fallback: str) -> str:
@@ -578,8 +612,18 @@ def _write_mesh_buffers(destination: Path, mesh: StaticMesh, ids: _Ids) -> dict[
         else struct.pack(f"<{len(triangles)}H", *triangles)
     )
     geometry_dir = destination / "geometry" / f"{mesh.mesh_name}.tm_buffers"
-    _write_buffer(geometry_dir, buffer_ids["geometry"], geometry)
-    _write_buffer(geometry_dir, buffer_ids["triangles"], triangle_data)
+    # Slot order MUST match the order of input_geometry.buffers in
+    # _geometry_block: slot 0 is the vertex buffer (no index:), slot 1 the
+    # triangle indices (index: 1). The names are chained across slots, so the
+    # two sites cannot drift independently.
+    geometry_payloads = (geometry, triangle_data)
+    geometry_dir.mkdir(parents=True, exist_ok=True)
+    for buffer_key, data, suffix in zip(
+        ("geometry", "triangles"),
+        geometry_payloads,
+        _geometry_buffer_names(geometry_payloads),
+    ):
+        (geometry_dir / f"{buffer_ids[buffer_key]}.{suffix}").write_bytes(data)
     return buffer_ids
 
 

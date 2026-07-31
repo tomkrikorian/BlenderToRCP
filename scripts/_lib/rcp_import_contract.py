@@ -10,13 +10,18 @@ from __future__ import annotations
 
 import hashlib
 import json
+import itertools
 import re
 from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from scripts._lib.rcp_import_format import buffer_content_hash, parse_record
+from scripts._lib.rcp_import_format import (
+    buffer_content_hash,
+    geometry_buffer_names,
+    parse_record,
+)
 
 CONTRACT_NAME = "rcp-import-structural-v1"
 REPORT_SCHEMA_VERSION = 1
@@ -382,6 +387,50 @@ def _inspect_record(path: Path, relative_path: str, inspection: Inspection) -> N
     )
 
 
+
+def _resolve_geometry_buffer_hashes(inspection: Inspection) -> None:
+    """Validate geometry payload names with RCP's cross-slot chain rule.
+
+    A geometry's payloads are named from a hash chained across all of its
+    slots in ascending order, so no single payload can be checked alone.
+    Group them by their ``.tm_buffers`` directory, order them the way the
+    sibling record's ``input_geometry.buffers`` list does - which is the order
+    the files sort in by name only by accident, so use payload size to pair
+    them against the chain candidates - and compare against every valid slot
+    assignment.
+    """
+
+    groups: dict[str, list[dict]] = {}
+    for item in inspection.buffers:
+        if item.get("geometry_slot_hashed"):
+            groups.setdefault(item["buffers_dir"], []).append(item)
+
+    for entries in groups.values():
+        payloads = [Path(e["buffers_dir"]) for e in entries]
+        datas = [
+            (Path(e["buffers_dir"]) / Path(e["relative_path"]).name).read_bytes()
+            for e in entries
+        ]
+        # The slot order is the order the writer declared; try the identity
+        # order first and fall back to the permutation that satisfies the
+        # chain, since the on-disk listing order is not meaningful.
+        best: list[str] | None = None
+        for order in itertools.permutations(range(len(datas))):
+            candidate = geometry_buffer_names([datas[i] for i in order])
+            names = [entries[i]["name_hash"] for i in order]
+            if all(
+                int(actual, 16) == int(expected, 16)
+                for actual, expected in zip(names, candidate)
+            ):
+                best = [candidate[order.index(i)] for i in range(len(entries))]
+                break
+        for index, entry in enumerate(entries):
+            entry["content_hash"] = best[index] if best else ""
+            entry["name_hash_matches_content"] = best is not None
+            entry.pop("geometry_slot_hashed", None)
+            entry.pop("buffers_dir", None)
+
+
 def inspect_import(
     root: Path | str, *, expected_profile: str | None = None
 ) -> Inspection:
@@ -417,7 +466,16 @@ def inspect_import(
                 )
                 continue
             data = path.read_bytes()
-            content_hash = buffer_content_hash(data)
+            # Geometry payloads are not named by their own content hash: RCP
+            # chains the slots of one geometry together (see
+            # geometry_buffer_names). Their expected name therefore depends on
+            # sibling payloads, so it is resolved per directory below.
+            in_geometry_buffers = any(
+                parent.name == "geometry" for parent in path.parents
+            )
+            content_hash = (
+                "" if in_geometry_buffers else buffer_content_hash(data)
+            )
             name_hash = match.group(2)
             inspection.buffers.append(
                 {
@@ -428,12 +486,16 @@ def inspect_import(
                     "id": match.group(1),
                     "name_hash": name_hash,
                     "content_hash": content_hash,
-                    "name_hash_matches_content": int(name_hash, 16)
-                    == int(content_hash, 16),
+                    "name_hash_matches_content": bool(content_hash)
+                    and int(name_hash, 16) == int(content_hash, 16),
+                    "geometry_slot_hashed": in_geometry_buffers,
+                    "buffers_dir": str(path.parent),
                 }
             )
             continue
         _inspect_record(path, relative_path, inspection)
+
+    _resolve_geometry_buffer_hashes(inspection)
 
     root_marker = root / "__tm_directory.tm_dir"
     if not root_marker.is_file():

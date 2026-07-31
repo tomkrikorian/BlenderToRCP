@@ -14,6 +14,7 @@ hash is intentionally not guessed here.
 
 from __future__ import annotations
 
+import struct
 from dataclasses import dataclass
 from typing import Union
 
@@ -68,7 +69,8 @@ def murmur_hash64a(data: bytes, *, seed: int = 0) -> int:
     """
 
     multiplier = _MURMUR_MULTIPLIER
-    value = (seed ^ (len(data) * multiplier)) & _U64_MASK
+    # RCP truncates the length to 32 bits before the initial mix (`mov w9, w1`).
+    value = ((((len(data) & 0xFFFFFFFF) * multiplier) & _U64_MASK) ^ seed) & _U64_MASK
     whole_words = len(data) // 8
 
     for index in range(whole_words):
@@ -93,9 +95,36 @@ def murmur_hash64a(data: bytes, *, seed: int = 0) -> int:
 
 
 def buffer_content_hash(data: bytes) -> str:
-    """Return the lowercase suffix used for ordinary build-80 buffers."""
+    """Return the lowercase suffix used for ordinary build-80 buffers.
 
-    return f"{murmur_hash64a(data):016x}"
+    RCP formats the value with ``%llx``, which is not zero-padded: a hash
+    whose leading nibble is zero is written with 15 digits, not 16.
+    """
+
+    return f"{murmur_hash64a(data):x}"
+
+
+def geometry_buffer_names(payloads: "Sequence[bytes]") -> list[str]:
+    """Filename hash suffixes for ``geometry/<name>.tm_buffers`` payloads.
+
+    Geometry payloads are not content-addressed individually. RCP chains the
+    non-empty slots in ascending order, feeding each result in as the next
+    seed, then names slot 0 with the chain value and slot ``i`` with
+    ``murmur(pack(chain, i))``. ``payloads`` must be given in slot order,
+    where the slot number is the ``index:`` on the matching entry of
+    ``input_geometry.buffers`` (absent means 0).
+    """
+
+    chain = 0
+    for data in payloads:
+        if data:
+            chain = murmur_hash64a(data, seed=chain)
+    return [
+        f"{chain:x}"
+        if index == 0
+        else f"{murmur_hash64a(struct.pack('<QQ', chain, index)):x}"
+        for index, _ in enumerate(payloads)
+    ]
 
 
 class _Parser:
