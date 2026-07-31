@@ -3391,12 +3391,19 @@ def _model_material_entries(
             )
         ]
     else:
+        # RCP binds each subset to the materials entry whose ``index``
+        # property matches the subset's index — array order alone is not the
+        # mapping. Measured live on build 80: without an explicit index every
+        # entry defaults to slot 0 and the whole mesh renders one material.
+        # Slot 0 elides the default, matching the serializer convention and
+        # the Robot capture ("slot 0 omits index; slot 1 stores index: 1").
         entries = [
             (
                 f"{indent}{{\n"
                 f'{indent}\t__uuid: "{ids(f"{label}.material_binding.{slot_index}")}"\n'
                 f'{indent}\tname: "{slot.name}"\n'
-                f'{indent}\tmaterial: "{material_ids[slot.key]("material")}"\n'
+                + (f"{indent}\tindex: {slot_index}\n" if slot_index else "")
+                + f'{indent}\tmaterial: "{material_ids[slot.key]("material")}"\n'
                 f"{indent}}}"
             )
             for slot_index, slot in enumerate(slots)

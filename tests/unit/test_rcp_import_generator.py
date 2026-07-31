@@ -893,10 +893,16 @@ def test_multi_material_model_component_orders_materials_like_subsets(
             r"materials: \[\n(.*?)\n\t{6}\]", entity, re.S
         )
         assert materials_block is not None
-        names = re.findall(r'name: "([^"]+)"\n\s*material: "([0-9a-f-]{36})"',
-                           materials_block.group(1))
+        entries = re.findall(
+            r'name: "([^"]+)"\n(?:\s*index: (\d+)\n)?\s*material: "([0-9a-f-]{36})"',
+            materials_block.group(1),
+        )
         # One entry per slot, in descriptor-subset order, named by material.
-        assert names == [("Red", red_uuid), ("Blue", blue_uuid)]
+        # RCP binds subsets to entries by the ``index`` property, not array
+        # order (measured live on build 80: with index elided on both
+        # entries the whole mesh rendered one material). Slot 0 elides the
+        # default; slot N must store index: N.
+        assert entries == [("Red", "", red_uuid), ("Blue", "1", blue_uuid)]
 
 
 def test_generate_multi_material_mesh_is_deterministic(tmp_path: Path) -> None:
