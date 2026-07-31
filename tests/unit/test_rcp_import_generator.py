@@ -680,6 +680,186 @@ def _skinned_multi_material_source(
     return source
 
 
+def _wrapped_cube_source(tmp_path: Path) -> Path:
+    """The Blender object/data pair: an object Xform wrapping one Mesh prim."""
+
+    source = tmp_path / "WrappedCube.usda"
+    source.write_text(
+        _CUBE_USDA.replace(
+            '    def Mesh "Cube"\n    {',
+            '    def Xform "CubeObject"\n'
+            "    {\n"
+            "        double3 xformOp:translate = (1, 2, 3)\n"
+            '        uniform token[] xformOpOrder = ["xformOp:translate"]\n'
+            '        def Mesh "Cube"\n'
+            "        {",
+        ).replace("\n}\n", "\n    }\n}\n"),
+        encoding="utf-8",
+    )
+    return source
+
+
+def _parse_record(text: str) -> dict:
+    """Parse an RCP record's text form into nested dicts and lists.
+
+    The writer's literal indentation is not meaningful to RCP, so this reads
+    structure from the braces and brackets rather than from leading tabs.
+    """
+
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    position = 0
+
+    def parse_object(terminator: str | None) -> dict:
+        nonlocal position
+        node: dict = {}
+        while position < len(lines):
+            line = lines[position]
+            if line == terminator:
+                position += 1
+                return node
+            position += 1
+            key, _, value = line.partition(": ")
+            if value == "{":
+                node[key] = parse_object("}")
+            elif value == "[":
+                node[key] = parse_array()
+            else:
+                node[key] = value.strip('"')
+        return node
+
+    def parse_array() -> list:
+        nonlocal position
+        items: list = []
+        while position < len(lines):
+            line = lines[position]
+            if line == "]":
+                position += 1
+                return items
+            position += 1
+            items.append(parse_object("}") if line == "{" else line.strip('"'))
+        return items
+
+    return parse_object(None)
+
+
+def _component_types(entity: dict) -> list[str]:
+    return [
+        component.get("__type", "")
+        for component in entity.get("components", [])
+    ]
+
+
+def test_wrapped_mesh_keeps_the_object_xform_as_its_own_entity(
+    tmp_path: Path,
+) -> None:
+    """A Mesh inside an object Xform stays TWO entities, named per prim.
+
+    Collapsing the pair is what made RCP's Editor > Reimport fail to
+    recognise its own records and author a parallel copy of every one of
+    them. RCP's own import of the same USD keeps
+    ``root -> <Xform> -> <Mesh>`` with the model component on the inner
+    entity and every record named after the Mesh prim.
+    """
+
+    source = _wrapped_cube_source(tmp_path)
+
+    destination = generate_static_import(source, tmp_path / "WrappedCube.import")
+
+    for name in ("__WrappedCube.tm_entity", "__WrappedCube_optimized.tm_entity"):
+        record = _parse_record((destination / name).read_text())
+        root = record["children"][0]
+        assert root["name"] == "root"
+
+        wrapper = root["children"][0]
+        assert wrapper["name"] == "CubeObject"
+        assert _component_types(wrapper) == ["tm_transform_component"]
+        position = wrapper["components"][0]["local_position_double"]
+        assert [float(position[axis]) for axis in ("x", "y", "z")] == [1.0, 2.0, 3.0]
+
+        model = wrapper["children"][0]
+        assert model["name"] == "Cube"
+        assert _component_types(model) == [
+            "tm_transform_component",
+            "tm_model_component",
+        ]
+        # The Mesh prim carries no transform of its own, so its entity holds
+        # the identity the reference capture shows.
+        mesh_position = model["components"][0]["local_position_double"]
+        assert set(mesh_position) == {"__uuid"}
+        assert "children" not in model
+
+    # Records are named after the Mesh prim, not the wrapping Xform.
+    assert (destination / "geometry" / "Cube.tm_geometry").is_file()
+    assert (destination / "meshes" / "Cube.tm_mesh_resource").is_file()
+    assert (destination / "mesh_descriptors" / "Cube.tm_mesh_descriptor").is_file()
+    assert not (destination / "geometry" / "CubeObject.tm_geometry").exists()
+    resource = (destination / "meshes" / "Cube.tm_mesh_resource").read_text()
+    assert 'name: "Cube"' in resource
+
+
+def test_unwrapped_mesh_stays_one_entity(tmp_path: Path) -> None:
+    """A Mesh directly below the root prim has no second level to emit."""
+
+    source = _source(tmp_path)
+
+    destination = generate_static_import(source, tmp_path / "Cube.import")
+
+    record = _parse_record((destination / "__Cube.tm_entity").read_text())
+    root = record["children"][0]
+    assert root["name"] == "root"
+    assert len(root["children"]) == 1
+    model = root["children"][0]
+    assert model["name"] == "Cube"
+    assert _component_types(model) == [
+        "tm_transform_component",
+        "tm_model_component",
+    ]
+    assert "children" not in model
+
+
+def test_wrapped_mesh_import_is_deterministic(tmp_path: Path) -> None:
+    """The wrapper entity's ids are derived, so repeat runs stay identical."""
+
+    source = _wrapped_cube_source(tmp_path)
+
+    first = generate_static_import(
+        source, tmp_path / "First.import", asset_name="WrappedCube"
+    )
+    second = generate_static_import(
+        source, tmp_path / "Second.import", asset_name="WrappedCube"
+    )
+
+    assert {
+        path.relative_to(first): path.read_bytes()
+        for path in first.rglob("*")
+        if path.is_file()
+    } == {
+        path.relative_to(second): path.read_bytes()
+        for path in second.rglob("*")
+        if path.is_file()
+    }
+
+
+def test_wrapped_multi_mesh_import_keeps_both_levels(tmp_path: Path) -> None:
+    """The many-mesh lane wraps each model entity the same way."""
+
+    source = _multi_mesh_source(tmp_path)
+
+    destination = generate_static_import(source, tmp_path / "TwoMeshes.import")
+
+    record = _parse_record((destination / "__TwoMeshes.tm_entity").read_text())
+    root = record["children"][0]
+    assert [child["name"] for child in root["children"]] == ["Left", "Right"]
+    for wrapper, mesh_name in zip(root["children"], ("LeftMesh", "RightMesh")):
+        assert _component_types(wrapper) == ["tm_transform_component"]
+        model = wrapper["children"][0]
+        assert model["name"] == mesh_name
+        assert _component_types(model) == [
+            "tm_transform_component",
+            "tm_model_component",
+        ]
+
+
 def test_generate_static_import_passes_structural_contract(tmp_path: Path) -> None:
     source = _source(tmp_path)
     destination = tmp_path / "Cube.import"
@@ -721,8 +901,8 @@ def test_generate_multi_mesh_import_authors_each_resource_and_material(
     assert source_entity.count('__type: "tm_model_component"') == 2
     assert optimized_entity.count('__type: "tm_model_component"') == 2
     assert sorted(path.name for path in (destination / "meshes").glob("*.tm_mesh_resource")) == [
-        "Left.tm_mesh_resource",
-        "Right.tm_mesh_resource",
+        "LeftMesh.tm_mesh_resource",
+        "RightMesh.tm_mesh_resource",
     ]
     assert sorted(path.name for path in (destination / "materials").glob("*.tm_material")) == [
         "Blue.tm_material",
@@ -810,7 +990,7 @@ def test_generate_multi_material_mesh_authors_single_descriptor_with_subsets(
     assert [
         path.name
         for path in (destination / "meshes").glob("*.tm_mesh_resource")
-    ] == ["Panel.tm_mesh_resource"]
+    ] == ["PanelMesh.tm_mesh_resource"]
     entity = (destination / "__TwoMaterials.tm_entity").read_text()
     assert entity.count('__type: "tm_model_component"') == 1
 
@@ -823,7 +1003,7 @@ def test_multi_material_descriptor_subsets_record_shape(tmp_path: Path) -> None:
     destination = generate_static_import(source, tmp_path / "TwoMaterials.import")
 
     descriptor = (
-        destination / "mesh_descriptors" / "Panel.tm_mesh_descriptor"
+        destination / "mesh_descriptors" / "PanelMesh.tm_mesh_descriptor"
     ).read_text()
     subsets_match = re.search(r"\nsubsets: \[\n(.*?)\n\]\n", descriptor, re.S)
     assert subsets_match is not None
@@ -914,11 +1094,11 @@ def test_multi_material_subset_buffers_hold_little_endian_face_ordinals(
     destination = generate_static_import(source, tmp_path / "TwoMaterials.import")
 
     descriptor = (
-        destination / "mesh_descriptors" / "Panel.tm_mesh_descriptor"
+        destination / "mesh_descriptors" / "PanelMesh.tm_mesh_descriptor"
     ).read_text()
     buffer_ids = re.findall(r'face_indices: "([0-9a-f-]{36})"', descriptor)
     assert len(buffer_ids) == 2
-    buffer_dir = destination / "mesh_descriptors" / "Panel.tm_buffers"
+    buffer_dir = destination / "mesh_descriptors" / "PanelMesh.tm_buffers"
     expected_payloads = (struct.pack("<I", 0), struct.pack("<I", 1))
     for buffer_id, expected in zip(buffer_ids, expected_payloads):
         payload_path = next(buffer_dir.glob(f"{buffer_id}.*"))
@@ -1076,7 +1256,7 @@ def test_single_exhaustive_subset_collapses_to_proven_single_material(
 
     destination = generate_static_import(source, tmp_path / "OneSubset.import")
     descriptor = (
-        destination / "mesh_descriptors" / "Panel.tm_mesh_descriptor"
+        destination / "mesh_descriptors" / "PanelMesh.tm_mesh_descriptor"
     ).read_text()
     assert "subsets" not in descriptor
     assert inspect_import(destination).errors == []
@@ -1364,7 +1544,7 @@ def test_generate_static_import_reindexes_unsplit_mesh_to_itself(
 
     destination = generate_static_import(source, tmp_path / "TwoMeshes.import")
 
-    assert _descriptor_points(destination, "Left") == [
+    assert _descriptor_points(destination, "LeftMesh") == [
         (0.0, 0.0, 0.0),
         (1.0, 0.0, 0.0),
         (0.0, 1.0, 0.0),
@@ -1942,6 +2122,58 @@ def Xform "root"
         0,
         0,
     )
+
+
+def test_wrapped_animated_mesh_targets_the_object_xform_entity(
+    tmp_path: Path,
+) -> None:
+    """Blender authors object animation on the wrapping Xform, not the Mesh.
+
+    The wrapper is its own entity now, so the sampled clip must still name it.
+    """
+
+    source = tmp_path / "AnimatedWrapped.usda"
+    source.write_text(
+        """#usda 1.0
+(
+    defaultPrim = "root"
+    startTimeCode = 1
+    endTimeCode = 3
+    timeCodesPerSecond = 2
+)
+def Xform "root"
+{
+    def Xform "Mover"
+    {
+        double3 xformOp:translate.timeSamples = {
+            1: (0, 0, 0),
+            2: (1, 0, 0),
+            3: (2, 0, 0),
+        }
+        uniform token[] xformOpOrder = ["xformOp:translate"]
+        def Mesh "Triangle"
+        {
+            int[] faceVertexCounts = [3]
+            int[] faceVertexIndices = [0, 1, 2]
+            point3f[] points = [(0, 0, 0), (1, 0, 0), (0, 1, 0)]
+        }
+    }
+}
+""",
+        encoding="utf-8",
+    )
+
+    destination = generate_static_import(source, tmp_path / "AnimatedWrapped.import")
+
+    settings = (destination / "settings.tm_usd").read_text()
+    assert 'node_name: "root/Mover"' in settings
+    assert "sample_count: 3" in settings
+    # The records still belong to the Mesh prim.
+    assert (destination / "meshes" / "Triangle.tm_mesh_resource").is_file()
+    record = _parse_record((destination / "__AnimatedWrapped.tm_entity").read_text())
+    wrapper = record["children"][0]["children"][0]
+    assert wrapper["name"] == "Mover"
+    assert wrapper["children"][0]["name"] == "Triangle"
 
 
 def test_generate_transform_import_rejects_unmeasured_rotation_samples(

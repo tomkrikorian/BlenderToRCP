@@ -131,6 +131,17 @@ class StaticMesh:
     # a measured multi-slot mesh and is ordered exactly like the slots.
     material_slots: tuple[MaterialData, ...] = ()
     subsets: tuple[FaceSubset, ...] = ()
+    # The object Xform that wraps a single Mesh prim - Blender writes one per
+    # object. RCP keeps BOTH levels: a transform-only entity named after the
+    # Xform that parents the model entity named after the Mesh (measured on
+    # RCP's own import of /root/DuoCube/Cube and on the bakeTest_02 capture).
+    # Collapsing the pair makes RCP fail to recognise its own records on
+    # reimport and duplicate every one of them. ``None`` when the Mesh sits
+    # directly under the root prim and there is no second level to emit.
+    wrapper_name: str | None = None
+    wrapper_translation: tuple[float, float, float] = (0.0, 0.0, 0.0)
+    wrapper_rotation: tuple[float, float, float, float] = (0.0, 0.0, 0.0, 1.0)
+    wrapper_scale: tuple[float, float, float] = (1.0, 1.0, 1.0)
 
 
 @dataclass(frozen=True)
@@ -415,6 +426,59 @@ def _transform_component_values(
         + scale_text
         + "\t\t\t\t}\n"
         + "\t\t\t}"
+    )
+
+
+def _wrapper_transform_component(ids: _Ids, label: str, mesh: StaticMesh) -> str:
+    """Render the object Xform entity's transform-only component."""
+
+    return _transform_component_values(
+        ids,
+        label,
+        mesh.wrapper_translation,
+        mesh.wrapper_rotation,
+        mesh.wrapper_scale,
+    )
+
+
+def _indent_block(text: str, depth: int) -> str:
+    """Shift a rendered block by ``depth`` tabs, leaving blank lines alone."""
+
+    pad = "\t" * depth
+    return "\n".join(f"{pad}{line}" if line else line for line in text.split("\n"))
+
+
+def _wrap_model_entity(
+    mesh: StaticMesh,
+    ids: _Ids,
+    model_entity: str,
+    *,
+    label: str,
+    depth: int,
+) -> str:
+    """Nest a model entity under its object-Xform entity when there is one.
+
+    RCP keeps Blender's object/data pair as two entities: the Xform carries
+    only its transform, the Mesh carries the transform plus the model
+    component. ``model_entity`` is already rendered at ``depth`` tabs; it is
+    shifted two levels deeper when a wrapper exists.
+    """
+
+    if mesh.wrapper_name is None:
+        return model_entity
+    pad = "\t" * depth
+    transform = _wrapper_transform_component(ids, f"{label}.transform", mesh)
+    return (
+        f"{pad}{{\n"
+        f'{pad}\t__uuid: "{ids(f"{label}.entity")}"\n'
+        f'{pad}\tname: "{mesh.wrapper_name}"\n'
+        f"{pad}\tcomponents: [\n"
+        f"{pad}\t\t{transform}\n"
+        f"{pad}\t]\n"
+        f"{pad}\tchildren: [\n"
+        f"{_indent_block(model_entity, 2)}\n"
+        f"{pad}\t]\n"
+        f"{pad}}}"
     )
 
 
@@ -1493,28 +1557,37 @@ def load_static_mesh(source: str | Path, *, asset_name: str | None = None) -> St
     if not root_prim:
         raise ImportGenerationError("USD stage requires a defaultPrim")
     if skinning is not None:
-        model_prim = mesh_prim
+        wrapper_prim = None
     elif parent == root_prim:
-        model_prim = mesh_prim
+        wrapper_prim = None
     elif (
         parent.GetParent() == root_prim
         and parent.IsA(UsdGeom.Xform)
         and len(tuple(parent.GetChildren())) == 1
     ):
-        # Blender 5.2 writes an object Xform containing its Mesh data. RCP's
-        # entity graph collapses that pair to one model entity.
-        model_prim = parent
+        # Blender 5.2 writes an object Xform containing its Mesh data. RCP
+        # keeps both levels, so the Xform becomes a transform-only entity that
+        # parents the model entity named after the Mesh.
+        wrapper_prim = parent
     else:
         raise ImportGenerationError(
             "build-80 subset requires a mesh directly below defaultPrim or "
             "inside one single-mesh object Xform"
         )
     root_translation, root_rotation, root_scale = _local_transform(root_prim)
-    mesh_translation, mesh_rotation, mesh_scale = _local_transform(model_prim)
+    mesh_translation, mesh_rotation, mesh_scale = _local_transform(mesh_prim)
+    if wrapper_prim is not None:
+        wrapper_translation, wrapper_rotation, wrapper_scale = _local_transform(
+            wrapper_prim
+        )
+    else:
+        wrapper_translation = (0.0, 0.0, 0.0)
+        wrapper_rotation = (0.0, 0.0, 0.0, 1.0)
+        wrapper_scale = (1.0, 1.0, 1.0)
     return StaticMesh(
         asset_name=resolved_asset_name,
         root_name=_safe_name(root_prim.GetName(), "root"),
-        mesh_name=_safe_name(model_prim.GetName(), "Mesh"),
+        mesh_name=_safe_name(mesh_prim.GetName(), "Mesh"),
         material_name=material_data.name,
         points=points,
         face_counts=face_counts,
@@ -1537,6 +1610,14 @@ def load_static_mesh(source: str | Path, *, asset_name: str | None = None) -> St
         skinning=skinning,
         material_key=material_data.key,
         source_prim_path=str(mesh_prim.GetPath()),
+        wrapper_name=(
+            _safe_name(wrapper_prim.GetName(), "Object")
+            if wrapper_prim is not None
+            else None
+        ),
+        wrapper_translation=wrapper_translation,
+        wrapper_rotation=wrapper_rotation,
+        wrapper_scale=wrapper_scale,
     )
 
 
@@ -1827,7 +1908,11 @@ def load_static_asset(
             uvs = tuple((0.0, 0.0) for _ in face_indices)
 
         parent = mesh_prim.GetParent()
+        wrapper_prim = None
         if skinning is not None:
+            # The skeletal entity shape is measured against RCP's own skeletal
+            # captures, where the armature entity already provides the second
+            # level; leave it as measured.
             model_prim = parent if wrapped_skeletal_mesh else mesh_prim
         elif parent == root_prim:
             model_prim = mesh_prim
@@ -1836,19 +1921,33 @@ def load_static_asset(
             and parent.IsA(UsdGeom.Xform)
             and len(tuple(parent.GetChildren())) == 1
         ):
-            model_prim = parent
+            model_prim = mesh_prim
+            wrapper_prim = parent
         else:
             raise ImportGenerationError(
                 "build-80 multi-mesh subset requires each mesh directly below "
                 "defaultPrim or inside a single-mesh object Xform"
             )
         if skinning is None:
-            for op in UsdGeom.Xformable(model_prim).GetOrderedXformOps():
-                if op.GetAttr().GetNumTimeSamples():
-                    raise ImportGenerationError(
-                        "build-80 multi-mesh subset does not yet support animation"
-                    )
+            for animated_prim in (
+                prim for prim in (wrapper_prim, model_prim) if prim is not None
+            ):
+                for op in UsdGeom.Xformable(animated_prim).GetOrderedXformOps():
+                    if op.GetAttr().GetNumTimeSamples():
+                        raise ImportGenerationError(
+                            "build-80 multi-mesh subset does not yet support animation"
+                        )
         mesh_translation, mesh_rotation, mesh_scale = _local_transform(model_prim)
+        if wrapper_prim is not None:
+            (
+                wrapper_translation,
+                wrapper_rotation,
+                wrapper_scale,
+            ) = _local_transform(wrapper_prim)
+        else:
+            wrapper_translation = (0.0, 0.0, 0.0)
+            wrapper_rotation = (0.0, 0.0, 0.0, 1.0)
+            wrapper_scale = (1.0, 1.0, 1.0)
 
         direct_material = UsdShade.MaterialBindingAPI(
             mesh_prim
@@ -2018,6 +2117,14 @@ def load_static_asset(
                 source_prim_path=prim_path,
                 material_slots=material_slots,
                 subsets=face_subsets,
+                wrapper_name=(
+                    _safe_name(wrapper_prim.GetName(), "Object")
+                    if wrapper_prim is not None
+                    else None
+                ),
+                wrapper_translation=wrapper_translation,
+                wrapper_rotation=wrapper_rotation,
+                wrapper_scale=wrapper_scale,
             )
         )
 
@@ -2050,7 +2157,12 @@ def load_transform_animation(
     stage = Usd.Stage.Open(str(source_path))
     if stage is None:
         raise ImportGenerationError(f"cannot open USD stage: {source_path}")
-    mesh_prim = stage.GetDefaultPrim().GetChild(mesh.mesh_name)
+    # A wrapped mesh keeps its object Xform as its own entity, and Blender
+    # authors the object animation there, so the animated prim is the wrapper
+    # when there is one and the mesh itself otherwise.
+    mesh_prim = stage.GetDefaultPrim().GetChild(
+        mesh.wrapper_name or mesh.mesh_name
+    )
     if not mesh_prim or not (
         mesh_prim.IsA(UsdGeom.Mesh) or mesh_prim.IsA(UsdGeom.Xform)
     ):
@@ -3440,6 +3552,36 @@ def _entity_record(
 \t\t\t\t__type: "tm_animation_library_component"
 \t\t\t\t__uuid: "{ids(f"{prefix}.animation_library_component")}"
 \t\t\t}}'''
+    model_entity = f'''\t\t\t{{
+\t\t\t\t__uuid: "{ids(f"{prefix}.mesh")}"
+\t\t\t\tname: "{mesh.mesh_name}"
+\t\t\t\tcomponents: [
+\t\t\t\t\t{mesh_transform}
+\t\t\t\t\t{{
+\t\t\t\t\t\t__type: "tm_model_component"
+\t\t\t\t\t\t__uuid: "{ids(f"{prefix}.model_component")}"
+\t\t\t\t\t\tmesh_resource: {{
+\t\t\t\t\t\t\t__type: "tm_mesh_resource_reference"
+\t\t\t\t\t\t\t__uuid: "{ids(f"{prefix}.mesh_reference")}"
+\t\t\t\t\t\t\tmesh_resource: "{ids("mesh_resource")}"
+\t\t\t\t\t\t}}
+\t\t\t\t\t\tmaterials: [
+\t\t\t\t\t\t\t{{
+\t\t\t\t\t\t\t\t__uuid: "{ids(f"{prefix}.material_binding")}"
+\t\t\t\t\t\t\t\tname: "{mesh.mesh_name}"
+\t\t\t\t\t\t\t\tmaterial: "{ids("material")}"
+\t\t\t\t\t\t\t}}
+\t\t\t\t\t\t]
+\t\t\t\t\t}}
+\t\t\t\t]
+\t\t\t}}'''
+    root_children = _wrap_model_entity(
+        mesh,
+        ids,
+        model_entity,
+        label=f"{prefix}.wrapper",
+        depth=3,
+    )
     return f'''__type: "tm_entity"
 __uuid: "{ids(f"{prefix}.entity")}"
 name: "/"
@@ -3467,29 +3609,7 @@ children: [
 \t\t\t{animation_component}
 \t\t]
 \t\tchildren: [
-\t\t\t{{
-\t\t\t\t__uuid: "{ids(f"{prefix}.mesh")}"
-\t\t\t\tname: "{mesh.mesh_name}"
-\t\t\t\tcomponents: [
-\t\t\t\t\t{mesh_transform}
-\t\t\t\t\t{{
-\t\t\t\t\t\t__type: "tm_model_component"
-\t\t\t\t\t\t__uuid: "{ids(f"{prefix}.model_component")}"
-\t\t\t\t\t\tmesh_resource: {{
-\t\t\t\t\t\t\t__type: "tm_mesh_resource_reference"
-\t\t\t\t\t\t\t__uuid: "{ids(f"{prefix}.mesh_reference")}"
-\t\t\t\t\t\t\tmesh_resource: "{ids("mesh_resource")}"
-\t\t\t\t\t\t}}
-\t\t\t\t\t\tmaterials: [
-\t\t\t\t\t\t\t{{
-\t\t\t\t\t\t\t\t__uuid: "{ids(f"{prefix}.material_binding")}"
-\t\t\t\t\t\t\t\tname: "{mesh.mesh_name}"
-\t\t\t\t\t\t\t\tmaterial: "{ids("material")}"
-\t\t\t\t\t\t\t}}
-\t\t\t\t\t\t]
-\t\t\t\t\t}}
-\t\t\t\t]
-\t\t\t}}
+{root_children}
 \t\t]
 \t}}
 ]
@@ -3582,8 +3702,7 @@ def _multi_entity_record(
             label=label,
             indent="\t" * 7,
         )
-        children.append(
-            f'''\t\t\t{{
+        model_entity = f'''\t\t\t{{
 \t\t\t\t__uuid: "{ids(f"{label}.entity")}"
 \t\t\t\tname: "{mesh.mesh_name}"
 \t\t\t\tcomponents: [
@@ -3602,6 +3721,14 @@ def _multi_entity_record(
 \t\t\t\t\t}}
 \t\t\t\t]
 \t\t\t}}'''
+        children.append(
+            _wrap_model_entity(
+                mesh,
+                ids,
+                model_entity,
+                label=f"{label}.wrapper",
+                depth=3,
+            )
         )
     children_text = "\n".join(children)
     return f'''__type: "tm_entity"
