@@ -13,9 +13,12 @@ canonicalization.
 
 Status: the writer authors the full binding contract below, and a
 two-material static mesh loads in Reality Composer Pro and renders both
-materials on the correct faces. Rendering is not acceptance. The remaining
-Reality Composer Pro gate — save and reopen — has not been run, so writer
-support is **not accepted**. Reimport is out of scope; see
+materials on the correct faces. The controlled static two-material fixture has
+passed the import, save/reopen, refresh, visual, and compile gates in
+Reality Composer Pro 3.0 build `80.0.1.500.1`. Writer support remains
+**experimental**: one fixture is not a corpus, the skinned lane is unproven,
+and every case on the fail-closed boundary below is still refused by design.
+Reimport is out of scope; see
 [Reimport is not supported for generated packages](RCP_IMPORT_EXPERIMENT.md#reimport-is-not-supported-for-generated-packages).
 
 ## Why the previous split representation was insufficient
@@ -425,9 +428,20 @@ a new generated package passes all of these gates:
 6. Sequence Editor clip visibility and playback for the animated skeletal
    fixture.
 
-The controlled static two-material fixture imports cleanly and passes gate
-4: both materials render on their assigned faces. Gate 2 (save and reopen)
-and gate 3 (re-export refresh) are the remaining bar.
+The controlled static two-material fixture passes gates 1 through 5:
+
+| Gate | Result |
+|---|---|
+| 1. deterministic generation, clean structural inspection | passes |
+| 2. clean import, save, close, reopen | passes — no record or buffer growth |
+| 3. re-export refresh with the project open | passes — `--replace` refreshes in place, and Reality Composer Pro shows the changed material |
+| 4. both face materials assigned correctly | passes |
+| 5. `realitytool` compilation and `usdchecker --arkit --strict` | passes |
+| 6. Sequence Editor clip playback | not applicable to a static fixture |
+
+Refreshing needs the explicit opt-in: pass `--replace` on the command line, or
+tick **Replace Existing .import** in the sidebar. Without it the exporter
+refuses to overwrite an existing package.
 
 After the two-material static and skinned lanes pass, add separate
 controlled fixtures for three materials, unassigned faces, shared materials,

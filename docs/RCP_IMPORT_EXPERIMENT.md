@@ -705,9 +705,15 @@ generated packages. This exporter writes the source `.usda` beside the
 package and names it in `source_path`, so a file watcher on that path turns
 every re-export into a reimport, which is exactly the operation to avoid.
 
-Re-export is the supported refresh path. Every identifier the writer emits is
-derived from the source, so re-exporting overwrites a package in place with
-stable identities.
+Re-export is the supported refresh path, and it needs an explicit opt-in:
+pass `--replace` on the command line, or tick **Replace Existing .import** in
+the sidebar. Without it the exporter refuses to overwrite an existing package.
+A refresh stages the new package beside the old one and swaps it in by
+rename, so an interrupted run always leaves one complete package on disk.
+
+Measured on the pinned build: refreshing a package while its project is open
+in Reality Composer Pro produced no record or buffer growth, and the editor
+showed the changed material after a save and reopen.
 
 ### RealityKit and animation findings
 
