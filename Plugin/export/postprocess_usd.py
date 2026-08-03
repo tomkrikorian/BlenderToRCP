@@ -111,6 +111,13 @@ def process_usd_stage(usd_path: str, settings, context, diagnostics=None) -> Non
         )
         _run_step(
             diagnostics,
+            "normalize_preview_normal_map_transform",
+            _normalize_preview_normal_map_transform,
+            stage,
+            diagnostics,
+        )
+        _run_step(
+            diagnostics,
             "realitykit_preflight",
             _require_realitykit_preflight,
             stage,
@@ -306,6 +313,51 @@ def _retag_unmapped_color_space_names(stage, diagnostics=None) -> None:
             "Renamed Blender colour-space tokens RealityKit has no alias for: "
             + ", ".join(f"{old} -> {new}" for old, new in pairs)
             + f" ({len(retagged)} prims)"
+        )
+
+
+
+#: UsdPreviewSurface's normal-map encoding: the RGB channels are remapped from
+#: [0,1] to [-1,1], and alpha is left alone. Blender 5.2's USD exporter writes
+#: the remap into the alpha component too - scale (2,2,2,2), bias
+#: (-1,-1,-1,-1) - which is meaningless for an opacity channel and off-spec.
+#: Reality Composer Pro converts those inputs to a colour type and the
+#: out-of-range alpha yields NaN in the imported material.
+_PREVIEW_NORMAL_SCALE = (2.0, 2.0, 2.0, 2.0)
+_PREVIEW_NORMAL_BIAS = (-1.0, -1.0, -1.0, -1.0)
+
+
+def _normalize_preview_normal_map_transform(stage, diagnostics=None) -> None:
+    """Clamp the retained preview network's normal-map scale/bias to spec."""
+    from pxr import Gf, UsdShade
+
+    fixed = []
+    for prim in stage.Traverse():
+        shader = UsdShade.Shader(prim)
+        if not shader:
+            continue
+        if str(shader.GetIdAttr().Get() or "") != "UsdUVTexture":
+            continue
+        scale_input = shader.GetInput("scale")
+        bias_input = shader.GetInput("bias")
+        if scale_input is None or bias_input is None:
+            continue
+        scale, bias = scale_input.Get(), bias_input.Get()
+        if scale is None or bias is None:
+            continue
+        if (
+            tuple(round(float(v), 6) for v in scale) != _PREVIEW_NORMAL_SCALE
+            or tuple(round(float(v), 6) for v in bias) != _PREVIEW_NORMAL_BIAS
+        ):
+            continue
+        scale_input.Set(Gf.Vec4f(2.0, 2.0, 2.0, 1.0))
+        bias_input.Set(Gf.Vec4f(-1.0, -1.0, -1.0, 0.0))
+        fixed.append(str(prim.GetPath()))
+
+    if fixed and diagnostics:
+        diagnostics.add_info(
+            "Clamped the retained preview network's normal-map scale/bias to "
+            "the UsdPreviewSurface contract (alpha 1/0): " + ", ".join(sorted(fixed))
         )
 
 

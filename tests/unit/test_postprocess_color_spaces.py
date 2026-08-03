@@ -68,3 +68,44 @@ def test_retag_is_reported_as_info_not_warning():
     assert not any("srgb_rec709_display" in w for w in warnings)
     infos = diagnostics.data.get("info") or []
     assert any("srgb_rec709_display" in note for note in infos)
+
+
+def test_preview_normal_map_scale_bias_is_clamped_to_spec():
+    """Blender 5.2 writes scale (2,2,2,2) / bias (-1,-1,-1,-1) on normal-map
+    textures. UsdPreviewSurface remaps only RGB; scaling alpha by 2 and biasing
+    it by -1 is off-spec, and Reality Composer Pro converts the out-of-range
+    alpha into NaN in the imported material."""
+    from pxr import Gf
+    from Plugin.export.postprocess_usd import _normalize_preview_normal_map_transform
+
+    stage = Usd.Stage.CreateInMemory()
+    root = stage.DefinePrim("/Root", "Xform")
+    stage.SetDefaultPrim(root)
+    shader = UsdShade.Shader.Define(stage, "/Root/Material/Image_Texture")
+    shader.CreateIdAttr("UsdUVTexture")
+    shader.CreateInput("scale", Sdf.ValueTypeNames.Float4).Set(Gf.Vec4f(2, 2, 2, 2))
+    shader.CreateInput("bias", Sdf.ValueTypeNames.Float4).Set(Gf.Vec4f(-1, -1, -1, -1))
+
+    _normalize_preview_normal_map_transform(stage, None)
+
+    assert tuple(shader.GetInput("scale").Get()) == (2.0, 2.0, 2.0, 1.0)
+    assert tuple(shader.GetInput("bias").Get()) == (-1.0, -1.0, -1.0, 0.0)
+
+
+def test_unrelated_scale_bias_is_left_alone():
+    """Only the exact normal-map encoding pattern is rewritten."""
+    from pxr import Gf
+    from Plugin.export.postprocess_usd import _normalize_preview_normal_map_transform
+
+    stage = Usd.Stage.CreateInMemory()
+    root = stage.DefinePrim("/Root", "Xform")
+    stage.SetDefaultPrim(root)
+    shader = UsdShade.Shader.Define(stage, "/Root/Material/Tint")
+    shader.CreateIdAttr("UsdUVTexture")
+    shader.CreateInput("scale", Sdf.ValueTypeNames.Float4).Set(Gf.Vec4f(1, 1, 1, 1))
+    shader.CreateInput("bias", Sdf.ValueTypeNames.Float4).Set(Gf.Vec4f(0, 0, 0, 0))
+
+    _normalize_preview_normal_map_transform(stage, None)
+
+    assert tuple(shader.GetInput("scale").Get()) == (1.0, 1.0, 1.0, 1.0)
+    assert tuple(shader.GetInput("bias").Get()) == (0.0, 0.0, 0.0, 0.0)
