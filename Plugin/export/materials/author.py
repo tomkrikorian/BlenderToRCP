@@ -28,6 +28,7 @@ from .textures import (
     _create_texture_connection,
     _materialx_file_colorspace,
     _texture_cache_key,
+    texture_source_lacks_alpha,
 )
 from .mapping import require_realitykit_mapping_contract
 
@@ -69,6 +70,11 @@ def create_materialx_material(
             channel = (input_value.get("channel") or "").lower()
             output_type = (input_value.get("output_type") or "").lower()
             if channel == "a":
+                # A file with no alpha channel never gets a four-channel
+                # reader; _create_texture_connection refuses the read and the
+                # input keeps its default.
+                if texture_source_lacks_alpha(input_value):
+                    continue
                 texture_prefs[key] = "color4"
                 texture_alpha_usage[key] = True
             elif output_type in {"color4", "vector4"}:

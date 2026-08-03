@@ -192,7 +192,10 @@ Material-relevant preflight codes:
 
 | Code | Severity | Meaning |
 |------|----------|---------|
-| `TEXTURE_COLOR_SPACE_MISMATCH` | error | perceptual-color texture not sRGB/lin_rec709 (`:1394-1407`), or data texture not raw (`:1408-1418`) |
+| `TEXTURE_COLOR_SPACE_MISMATCH` | error | perceptual-color texture not sRGB/lin_rec709, or data texture tagged as color |
+| `TEXTURE_COLOR_SPACE_UNSUPPORTED_TOKEN` | error | MaterialX image reader carries a color-space token RealityKit cannot map |
+| `TEXTURE_ALPHA_SOURCE_MISSING` | warning | four-channel reader points at a texture with no alpha channel |
+| `MATERIALX_NODEDEF_UNSUPPORTED_BY_RCP` | error | four-channel vector reader or extractor Reality Composer Pro replaces with a placeholder |
 | `TEXTURE_COLOR_ROLES_CONFLICT` | error | one texture feeds both a color and a data input (`:1386-1393`) |
 | `TEXTURE_COLOR_ROLE_UNRESOLVED` | info | role could not be inferred (`:1419-1426`) |
 | `TEXTURE_ASSET_MISSING` | error | dependency does not resolve after staging (`:1374-1381`) |
@@ -345,9 +348,9 @@ anywhere.
 | Color input, image tagged **Non-Color/Raw** | authored `lin_rec709` | **Warning** | retag the image, or accept |
 | Color input, image tagged **sRGB** or untagged | authored `srgb_texture` | — | — |
 | Color input, image tagged **Linear Rec.709** | authored `lin_rec709` | — | — |
-| Data input, image tagged **Non-Color/Raw** | authored `raw` | — | — |
+| Data input, image tagged **Non-Color/Raw** | no color space authored | — | — |
 | Data input, image tagged **sRGB/lin_rec709** | **export fails** | **Error** | retag the image `Non-Color` |
-| Data input, **alpha channel**, any tagging | forced `raw` | **Silent** | — |
+| Data input, **alpha channel**, any tagging | no color space authored | **Silent** | — |
 | Any input, color space outside the verified set | **export fails** | **Error** | retag to sRGB / Non-Color / Linear Rec.709 |
 | Baked AO texture | forced `Non-Color` | **Silent** | — |
 
@@ -355,6 +358,18 @@ The token set the preflight accepts, and the postprocess rename of Blender's
 ColorSpaceAPI opinion `srgb_rec709_display` to `srgb_texture`, follow what the
 RealityKit engine actually recognizes — see the color-space section of
 [APPLE_PLATFORM_CONTRACT.md](APPLE_PLATFORM_CONTRACT.md).
+
+A data texture carries no MaterialX color space at all. An absent color space
+is MaterialX's no-transform contract, which is exactly what a roughness,
+metallic, or normal image needs. RealityKit has no mapping for the lowercase
+`raw` token, and a reader that carries it makes Reality Composer Pro replace
+the whole material with a striped placeholder. The check you retag images for
+is unchanged: a roughness or normal map left at sRGB still stops the export.
+
+The retained `UsdPreviewSurface` network is separate. It keeps
+`sourceColorSpace = "raw"` and `colorSpace:name = "data"` on its
+`UsdUVTexture` nodes, which is the USD preview contract and is what Quick Look
+reads.
 
 Each surface input has a role: `color` or `data`
 (`texture_colorspace_role`, `Plugin/export/materials/graph.py:41-50`). The
@@ -504,9 +519,15 @@ is still allowed, since no encoder runs.
 | Bump node anywhere in the chain | **export fails** (strict validator) | **Error** |
 
 The decoder choice lives at `_can_use_realitykit_normal_map_decode`
-(`Plugin/export/materials/textures.py:662-665`) and the branch at
-`:272-322`. The image reader itself is always authored `raw`/`vector3`
-(`_image_output_hint`, `:627-628`).
+(`Plugin/export/materials/textures.py`) and the branch above it. The image
+reader is always `ND_image_vector3` with no authored color space
+(`_image_output_hint`). It also carries `inputs:default = (0.5, 0.5, 1.0)`, a
+flat tangent normal, so a texture that fails to resolve degrades to unbumped
+shading instead of feeding `(-1, -1, -1)` into the decoder.
+
+Both RealityKit surfaces take the same chain. `ND_image_vector3` →
+`ND_normal_map_decode` → `inputs:normal` is what the portable profile and PBR
+Surface 2 author, and it is the chain shipping RealityKit packages use.
 
 RealityKit expects the OpenGL green-channel convention, so the DirectX
 convention is rejected (`Plugin/nodes/validate.py:557-565`). The PBR2 strength
@@ -1057,26 +1078,45 @@ role `texture_override` (`Plugin/export/usd_textures.py:492-500`).
 
 ### Reader authoring and channel extraction
 
-The reader type is picked by `_image_output_hint`
-(`Plugin/export/materials/textures.py:617-646`):
+The reader follows what the shader input needs, not what the file contains.
+`_image_output_hint` (`Plugin/export/materials/textures.py`) picks it:
 
 | Situation | Reader |
 |---|---|
 | normal map | `ND_image_vector3` |
-| data role | `ND_image_vector4` — a four-channel reader preserves packed scalars without color conversion (`:637-639`) |
-| alpha channel, or explicit color4/vector4 | `ND_image_color4` / `ND_image_vector4` |
+| one scalar channel — roughness, metallic, occlusion | `ND_image_color3`, then a swizzle |
+| a shader input that needs the alpha channel | `ND_image_color4`, then a `separate4` |
 | everything else | `ND_image_color3` |
 
-Channel selection then inserts a `swizzle` node (`:889-943`), or a
-`separate4` when the reader is `color4` (`:766-806`), or `separate4` +
-`combine3` when the same image must serve both RGB and alpha (`:714-733`).
-Every swizzle emits an informational warning naming the nodedef and channel
-(`:938-941`).
+Two four-channel readers exist in the MaterialX libraries but are never
+authored: `ND_image_vector4` and its partner `ND_swizzle_vector4_float`.
+Reality Composer Pro 3.0 cannot instantiate them and replaces the whole
+material with a striped placeholder. The preflight rejects them, along with
+`ND_extract_vector4` and `ND_separate4_vector4`, so the export stops instead
+of shipping a placeholder.
+
+Channel selection then inserts a `swizzle` node, or a `separate4` when the
+reader is `color4`, or `separate4` + `combine3` when the same image must serve
+both RGB and alpha. Every swizzle emits an informational warning naming the
+nodedef and channel.
 
 Readers are shared via a cache keyed on path, texcoord, the full mapping
-tuple, colorspace, colorspace role, alpha mode, type, output type,
-**channel**, image-type override, the `force_separate4` flag, and the
-sampling modes (`_texture_cache_key`, `:18-44`).
+tuple, colorspace, colorspace role, alpha mode, type, image-type override, the
+`force_separate4` flag, and the sampling modes (`_texture_cache_key`). The
+requested output type and channel are deliberately not part of the key: one
+file is one reader, and each consumer hangs its own swizzle off it.
+
+### When a texture has no alpha
+
+Asking for the alpha channel of a file that has only three is the one case
+where the source's real channel count matters. The exporter measures it from
+the Blender image datablock, falling back to the file header, and refuses the
+read: the shader input keeps its default — fully opaque, for opacity — and a
+warning names the file and the input. No four-channel reader is authored over
+a three-channel file.
+
+A file that has alpha nothing reads is unaffected. The reader stays
+`ND_image_color3`; alpha alone never upgrades it.
 
 Non-default sampling modes from the Blender Image Texture node are authored
 on the reader as the uniform string inputs the shipped RCP 3 (80.0.1.500.1)
@@ -1087,14 +1127,15 @@ on the reader as the uniform string inputs the shipped RCP 3 (80.0.1.500.1)
 are the nodedef defaults and author nothing (`_image_node_sampling`,
 `Plugin/export/materials/extract/core.py`).
 
-Because `channel` is part of the cache key, a packed ORM texture read for two
-different channels produces two separate image readers. One `orm.png` feeding
-Roughness (G) and Metallic (B) through a Separate Color node authors two
-`ND_image_vector4` prims — one swizzled to `b`, one to `g` — both pointing at
-the same staged file with `colorSpace = "raw"`.
+A packed ORM texture read for two channels produces one reader. One `orm.png`
+feeding Roughness (G) and Metallic (B) through a Separate Color node authors a
+single `ND_image_color3` prim with two `ND_swizzle_color3_float` nodes hanging
+off it — one set to `b`, one to `g` — and no authored color space.
 
-*Verification: the ORM reader pair was observed by exporting from
-Blender 5.2.*
+*Verification: checked against Reality Composer Pro 3.0 (80.0.1.500.1) and
+Blender 5.2. `tests/unit/test_reader_chain_rcp_contract.py` pins the reader,
+swizzle, and color-space contract; `tests/integration/test_supported_node_sweep.py`
+pins it across a real Blender export.*
 
 ### Worked example
 
@@ -1112,9 +1153,10 @@ def Shader "pbr_surfaceshader_1" {
     color3f inputs:emissiveColor = (0, 0, 0)
 }
 def Shader "Image"   { ND_image_color3  ... ( colorSpace = "srgb_texture" ) }
-def Shader "Image_1" { ND_image_vector4 ... ( colorSpace = "raw" ) }
-def Shader "Image_2" { ND_image_vector4 ... ( colorSpace = "raw" ) }
-def Shader "Image_3" { ND_image_vector3 ... ( colorSpace = "raw" ) }
+def Shader "Image_1" { ND_image_color3  ... }
+def Shader "swizzle_metallic_b"  { ND_swizzle_color3_float  inputs:channels = "b" }
+def Shader "swizzle_roughness_g" { ND_swizzle_color3_float  inputs:channels = "g" }
+def Shader "Image_2" { ND_image_vector3 ...  float3 inputs:default = (0.5, 0.5, 1) }
 def Shader "NormalMap_normal" { ND_normal_map_decode }
 ```
 

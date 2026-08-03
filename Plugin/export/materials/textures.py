@@ -36,12 +36,33 @@ def _texture_cache_key(texture_spec: Dict[str, Any]) -> Tuple[Any, ...]:
         texture_spec.get("colorspace_role"),
         texture_spec.get("alpha_mode"),
         texture_spec.get("type"),
-        texture_spec.get("output_type"),
-        texture_spec.get("channel"),
+        # Neither the requested output type nor the requested channel belongs
+        # here. One file read for two channels is one reader with two
+        # swizzles hanging off it, which is what every working RealityKit
+        # package authors; keying on them produced one duplicate reader prim
+        # per consumed channel.
         texture_spec.get("image_type_override"),
         bool(texture_spec.get("force_separate4")),
         tuple(sorted((texture_spec.get("sampling") or {}).items())),
     )
+
+
+def texture_source_lacks_alpha(texture_spec: Dict[str, Any]) -> bool:
+    """Return True only when the source file is known to carry no alpha.
+
+    Reader selection follows what the consumer needs. The one exception is a
+    consumer asking for the alpha channel: a four-channel read of a
+    three-channel file is what produced the reported placeholder material, so
+    an alpha request over a file measured as having no alpha is refused. An
+    unknown channel count stays permissive.
+    """
+    has_alpha = texture_spec.get("source_has_alpha")
+    if has_alpha is not None:
+        return not has_alpha
+    channels = texture_spec.get("source_channels")
+    if isinstance(channels, int) and channels > 0:
+        return channels < 4
+    return False
 
 
 def _coerce_texture_spec_for_input(
@@ -100,6 +121,18 @@ def _create_texture_connection(
     desired_type = (output_type or 'color3').lower()
     channel = (texture_spec.get('channel') or '').lower()
     texture_kind = texture_spec.get('type') or 'texture'
+
+    if channel == 'a' and texture_source_lacks_alpha(texture_spec):
+        # A four-channel read of a three-channel file. Leave the input at its
+        # authored default (opacity defaults to fully opaque) instead of
+        # sampling a channel the file does not carry.
+        if diagnostics:
+            diagnostics.add_warning(
+                f"Texture '{texture_path}' has no alpha channel; input "
+                f"'{input_name}' keeps its default instead of reading alpha."
+            )
+        return None
+
     node_base = _image_shader_name(stage, nodegraph_path, input_name)
 
     cache_key = _texture_cache_key(texture_spec)
@@ -141,6 +174,7 @@ def _create_texture_connection(
         override_type = texture_spec.get("image_type_override")
         if override_type:
             image_type = override_type
+        image_type = _IMAGE_OUTPUT_SUBSTITUTIONS.get(image_type, image_type)
         nodedef_name, output_sdf_type = _image_nodedef_for_output(manifest, image_type)
         node_id = _texture_node_id_from_nodedef(nodedef_name)
         current_type = image_type
@@ -162,6 +196,15 @@ def _create_texture_connection(
     file_colorspace = _materialx_file_colorspace(texture_spec, input_name, diagnostics)
     if file_colorspace:
         file_input.GetAttr().SetColorSpace(file_colorspace)
+
+    if texture_kind == 'normal_texture' and current_type == 'vector3':
+        # ND_image_vector3 declares a (0, 0, 0) default. If the texture ever
+        # fails to resolve, the decoder turns that into (-1, -1, -1) and any
+        # downstream normalize produces garbage. Author a flat tangent normal
+        # instead, which is what Apple's own normal readers do.
+        texture_shader.CreateInput(
+            "default", Sdf.ValueTypeNames.Float3
+        ).Set((0.5, 0.5, 1.0))
 
     # Non-default sampler modes from Blender's Image Texture node. The shipped
     # RCP 3 ND_image_* nodedefs declare these uniform string inputs
@@ -398,16 +441,19 @@ def _materialx_file_colorspace(
 
     if role == "data":
         channel = (texture_spec.get("channel") or "").strip().lower()
-        if channel == "a":
-            # Alpha is always scalar data even when the same file's RGB is
-            # tagged sRGB. A separate raw vector4 reader preserves it without
-            # applying a transfer function to the color channels.
-            return "raw"
-        if normalized not in {None, "raw"}:
+        # Alpha is scalar data even when the same file's RGB is tagged sRGB,
+        # so an sRGB source feeding opacity from its alpha is not a tagging
+        # mistake and must not fail the export.
+        if channel != "a" and normalized not in {None, "raw"}:
             raise ValueError(
                 f"Data texture '{input_name}' must use Blender Non-Color/raw, not '{source}'"
             )
-        return "raw"
+        # Author no color space at all. An absent MaterialX color space is the
+        # no-transform contract, which is what "raw" meant; the lowercase
+        # "raw" token appears in no shipping RealityKit package, and RCP 3.0
+        # replaces a material whose reader carries it with the striped
+        # placeholder.
+        return ""
     if role == "color":
         if normalized == "raw":
             # Blender applies no transfer function to a Non-Color image, so a
@@ -601,9 +647,17 @@ def _create_scale_output(
     return mult_shader.CreateOutput("out", _map_mtlx_type_to_sdf(output_type))
 
 
+#: ``ND_image_vector4`` is in the manifest but Reality Composer Pro 3.0
+#: (80.0.1.500.1) does not instantiate it: the material is replaced by the
+#: striped placeholder. A four-channel read is authored as ``ND_image_color4``,
+#: which is what every working RealityKit package uses.
+_IMAGE_OUTPUT_SUBSTITUTIONS = {'vector4': 'color4'}
+
+
 def _image_nodedef_for_output(manifest: Dict[str, Any], output_type: str) -> Tuple[str, Any]:
     """Pick MaterialX image nodedef and output type from requested output."""
     output_type = (output_type or '').lower()
+    output_type = _IMAGE_OUTPUT_SUBSTITUTIONS.get(output_type, output_type)
     color4_type = getattr(Sdf.ValueTypeNames, "Color4f", Sdf.ValueTypeNames.Float4)
     mapping = {
         'float': ("ND_image_float", Sdf.ValueTypeNames.Float),
@@ -611,7 +665,6 @@ def _image_nodedef_for_output(manifest: Dict[str, Any], output_type: str) -> Tup
         'color4': ("ND_image_color4", color4_type),
         'vector2': ("ND_image_vector2", Sdf.ValueTypeNames.Float2),
         'vector3': ("ND_image_vector3", Sdf.ValueTypeNames.Float3),
-        'vector4': ("ND_image_vector4", Sdf.ValueTypeNames.Float4),
     }
     nodedef_name = select_nodedef_name_for_node(
         manifest,
@@ -634,7 +687,14 @@ def _image_output_hint(
     texture_kind: Optional[str],
     colorspace_role: Optional[str] = None,
 ) -> str:
-    """Choose a safe image output type for the requested connection."""
+    """Choose a safe image output type for the requested connection.
+
+    The reader follows what the consumer needs, never the file's channel
+    count. Reality Composer Pro 3.0 cannot instantiate ``ND_image_vector4``,
+    so a four-channel read is authored only for a genuine alpha consumer
+    (``ND_image_color4``), and packed scalars are pulled out of a
+    three-channel reader with a swizzle.
+    """
     output_type = (output_type or '').lower()
     channel = (channel or '').lower()
     # Normal maps must be treated as raw vectors (avoid color-space assumptions).
@@ -642,15 +702,17 @@ def _image_output_hint(
         return 'vector3'
     is_data = (colorspace_role or '').strip().lower() == 'data'
     if output_type in ('color4', 'vector4') or (output_type == 'float' and channel == 'a'):
-        return 'vector4' if is_data else 'color4'
+        return 'color4'
     if is_data:
         if output_type == 'vector2':
             return 'vector2'
         if output_type in ('vector3',):
             return 'vector3'
-        # A four-channel vector reader preserves packed scalar channels while
-        # avoiding color conversion. Per-use swizzles select the requested one.
-        return 'vector4'
+        # A packed scalar channel is read through the same three-channel
+        # reader every working RealityKit package uses; the per-use swizzle
+        # selects r, g, or b. The reader applies no transfer function
+        # because no color space is authored on a data file.
+        return 'color3'
     if output_type in ('vector3', 'vector2'):
         return 'color3'
     if output_type == 'float' and channel:
@@ -981,6 +1043,12 @@ def _swizzle_nodedef_for_input(
         elif input_sdf_type == Sdf.ValueTypeNames.Float4:
             input_type = "vector4"
 
+    if input_type == "vector4":
+        # Unreachable while no reader authors a float4 output; keep it
+        # unreachable rather than letting the manifest hand back
+        # ND_swizzle_vector4_float, which RCP 3.0 cannot instantiate.
+        return None
+
     if input_type and output_type == "float":
         explicit = f"ND_swizzle_{input_type}_float"
         if explicit in manifest.get("nodes", {}):
@@ -1005,8 +1073,6 @@ def _swizzle_nodedef_for_input(
         return "ND_swizzle_vector2_float"
     if output_type in ('vector3',):
         return "ND_swizzle_vector3_float"
-    if output_type in ('vector4',):
-        return "ND_swizzle_vector4_float"
 
     if input_sdf_type == Sdf.ValueTypeNames.Color3f:
         return "ND_swizzle_color3_float"
@@ -1017,6 +1083,6 @@ def _swizzle_nodedef_for_input(
         return "ND_swizzle_vector2_float"
     if input_sdf_type == Sdf.ValueTypeNames.Float3:
         return "ND_swizzle_vector3_float"
-    if input_sdf_type == Sdf.ValueTypeNames.Float4:
-        return "ND_swizzle_vector4_float"
+    # No ND_swizzle_vector4_float fallback: Reality Composer Pro 3.0 cannot
+    # instantiate it, and no reader authored here produces a float4 output.
     return None

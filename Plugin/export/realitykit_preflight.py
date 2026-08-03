@@ -129,6 +129,25 @@ _COLOR_TEXTURE_COLOR_SPACES = frozenset(
 )
 _DATA_TEXTURE_COLOR_SPACES = frozenset({"raw", "data", "none"})
 
+#: MaterialX nodedefs the manifest carries and that no policy flag rejects,
+#: but that Reality Composer Pro 3.0 (80.0.1.500.1) cannot instantiate: a
+#: material containing one is replaced wholesale by a striped placeholder.
+#: Every four-channel read is authored as color4 instead.
+RCP_UNSUPPORTED_NODEDEFS = frozenset(
+    {
+        "ND_image_vector4",
+        "ND_swizzle_vector4_float",
+        "ND_extract_vector4",
+        "ND_separate4_vector4",
+    }
+)
+
+#: Color-space tokens the exporter must never author on a MaterialX image
+#: reader. RealityKit has no mapping for the lowercase ``raw`` token, and no
+#: shipping RealityKit package uses it. A data texture authors no color space
+#: at all, which is MaterialX's no-transform contract.
+_UNSUPPORTED_FILE_COLOR_SPACES = frozenset({"raw"})
+
 
 @dataclass(frozen=True)
 class PreflightIssue:
@@ -1190,7 +1209,22 @@ def _check_materialx_nodedefs(
         if not shader:
             continue
         shader_id = str(shader.GetIdAttr().Get() or "")
-        if not shader_id.startswith("ND_") or shader_id in known:
+        if not shader_id.startswith("ND_"):
+            continue
+        if shader_id in RCP_UNSUPPORTED_NODEDEFS:
+            report.add(
+                "error",
+                "MATERIALX_NODEDEF_UNSUPPORTED_BY_RCP",
+                (
+                    "Shader authors a four-channel vector reader or extractor "
+                    "Reality Composer Pro replaces with a placeholder "
+                    "material; read the file as color3/color4 instead."
+                ),
+                prim.GetPath(),
+                nodedef=shader_id,
+            )
+            continue
+        if shader_id in known:
             continue
         report.add(
             "error",
@@ -1485,6 +1519,45 @@ def _check_textures(
             roles = _downstream_texture_roles(str(prim_path), consumers)
             color_space = _texture_color_space(shader_input, connectable)
             normalized_space = _normalize_color_space(color_space)
+            shader_id = str(UsdShade.Shader(prim).GetIdAttr().Get() or "")
+            is_materialx_reader = shader_id.startswith("ND_image")
+            if shader_id == "ND_image_color4":
+                # A four-channel read is only correct over a file that
+                # carries a fourth channel. Staging may transcode between
+                # authoring and here, so the count is measured on the file
+                # this stage actually points at.
+                channels = _source_channel_count(value, authored_path, asset_path)
+                if channels in (1, 3):
+                    report.add(
+                        "warning",
+                        "TEXTURE_ALPHA_SOURCE_MISSING",
+                        (
+                            "A four-channel reader points at a texture with "
+                            "no alpha channel; the alpha it samples is "
+                            "undefined."
+                        ),
+                        prim_path,
+                        texture=authored_path,
+                        actual=channels,
+                        expected=4,
+                    )
+            own_space = _normalize_color_space(
+                _attribute_color_space(shader_input)
+            )
+            if is_materialx_reader and own_space in _UNSUPPORTED_FILE_COLOR_SPACES:
+                report.add(
+                    "error",
+                    "TEXTURE_COLOR_SPACE_UNSUPPORTED_TOKEN",
+                    (
+                        "RealityKit has no mapping for this color-space token "
+                        "on a MaterialX image reader. A data texture authors "
+                        "no color space at all."
+                    ),
+                    prim_path,
+                    texture=authored_path,
+                    actual=color_space or None,
+                    expected="no authored color space",
+                )
             if roles == {"srgb", "linear"}:
                 report.add(
                     "error",
@@ -1508,7 +1581,16 @@ def _check_textures(
                         expected="sRGB or linear Rec.709",
                     )
             elif roles == {"linear"}:
-                if normalized_space not in _DATA_TEXTURE_COLOR_SPACES:
+                # A MaterialX image reader that authors no color space of its
+                # own already states the data contract: an absent MaterialX
+                # color space is the no-transform case. Judging the inherited
+                # material-level ColorSpaceAPI opinion instead would reject
+                # every correctly authored data texture.
+                data_contract_satisfied = (
+                    normalized_space in _DATA_TEXTURE_COLOR_SPACES
+                    or (is_materialx_reader and not own_space)
+                )
+                if not data_contract_satisfied:
                     report.add(
                         "error",
                         "TEXTURE_COLOR_SPACE_MISMATCH",
@@ -1623,6 +1705,45 @@ def _downstream_texture_roles(
                 roles.add("linear")
             queue.append(destination)
     return roles
+
+
+def _source_channel_count(value, authored_path: str, usd_path: str | None) -> int | None:
+    """Read a texture's channel count from its file header, best effort.
+
+    Returns None whenever the file cannot be located or its format carries no
+    cheap channel-count header, so an unknown count never raises a finding.
+    """
+    if any(token in authored_path for token in ("<UDIM>", "#", "$F", "[")):
+        return None
+    resolved = str(getattr(value, "resolvedPath", "") or "")
+    if resolved:
+        candidate = Path(resolved)
+    else:
+        if "://" in authored_path:
+            return None
+        candidate = Path(authored_path)
+        if not candidate.is_absolute():
+            if not usd_path:
+                return None
+            candidate = Path(usd_path).parent / candidate
+    try:
+        with candidate.open("rb") as handle:
+            header = handle.read(32)
+    except OSError:
+        return None
+    if header[:8] == b"\x89PNG\r\n\x1a\n" and len(header) >= 26:
+        # IHDR colour type: 0 gray, 2 RGB, 4 gray+alpha, 6 RGBA. Type 3
+        # (palette) can carry alpha in a tRNS chunk, so it stays unknown.
+        return {0: 1, 2: 3, 4: 2, 6: 4}.get(header[25])
+    return None
+
+
+def _attribute_color_space(shader_input) -> str:
+    """Return only the color space authored on the attribute itself."""
+    try:
+        return str(shader_input.GetAttr().GetColorSpace() or "")
+    except Exception:
+        return ""
 
 
 def _texture_color_space(shader_input, connectable) -> str:

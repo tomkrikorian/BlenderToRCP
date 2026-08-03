@@ -106,12 +106,20 @@ matter for Blender exports:
 |---|---|
 | `srgb_texture` | sRGB-encoded color texture |
 | `srgb_rec709_scene`, `lin_rec709`, `lin_rec709_scene` | Rec.709 variants |
-| `raw`, `data`, `none` | non-color data (roughness, normal maps, masks) |
+| `raw`, `data`, `none` | non-color data, in the USD preview network only |
 
 Blender labels sRGB textures with a name RealityKit does not know,
 `srgb_rec709_display`. The exporter renames it to `srgb_texture`
 automatically; the encoding is the same and you don't need to change
 anything in Blender.
+
+MaterialX shader graphs take no color space on a non-color texture. An absent
+color space is MaterialX's no-transform contract, and it is what Reality
+Composer Pro and shipping RealityKit packages use. A MaterialX image reader
+tagged `raw` makes Reality Composer Pro 3.0 replace the material with a
+striped placeholder, so the exporter never writes that token into a shader
+graph. The `raw` and `data` names still appear on the retained
+`UsdPreviewSurface` network, which Quick Look reads.
 
 ### Scene setup rules
 

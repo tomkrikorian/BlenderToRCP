@@ -338,9 +338,17 @@ def test_texture_file_metadata_is_role_correct_and_unknown_spaces_fail_closed():
         manifest,
         "Material",
     )
+    # A packed scalar is read through the same three-channel reader every
+    # working RealityKit package uses, and a data texture authors no color
+    # space at all: an absent MaterialX color space is the no-transform
+    # contract "raw" was meant to express, and RCP 3.0 replaces a material
+    # whose reader carries the lowercase token with a striped placeholder.
     data_image = UsdShade.Shader(stage.GetPrimAtPath("/Material/Image_1"))
-    assert data_image.GetIdAttr().Get() == "ND_image_vector4"
-    assert data_image.GetInput("file").GetAttr().GetColorSpace() == "raw"
+    assert data_image.GetIdAttr().Get() == "ND_image_color3"
+    assert data_image.GetInput("file").GetAttr().GetColorSpace() == ""
+    swizzle = UsdShade.Shader(stage.GetPrimAtPath("/Material/swizzle_roughness_g"))
+    assert swizzle.GetIdAttr().Get() == "ND_swizzle_color3_float"
+    assert str(swizzle.GetInput("channels").Get()) == "g"
 
     _create_texture_connection(
         stage,
@@ -353,13 +361,18 @@ def test_texture_file_metadata_is_role_correct_and_unknown_spaces_fail_closed():
             "channel": "a",
             "colorspace": "srgb",
             "colorspace_role": "data",
+            "source_has_alpha": True,
         },
         manifest,
         "Material",
     )
+    # Alpha is the one genuine four-channel read. It uses ND_image_color4 plus
+    # ND_separate4_color4, the pair shipping RealityKit packages author.
     alpha_image = UsdShade.Shader(stage.GetPrimAtPath("/Material/Image_2"))
-    assert alpha_image.GetIdAttr().Get() == "ND_image_vector4"
-    assert alpha_image.GetInput("file").GetAttr().GetColorSpace() == "raw"
+    assert alpha_image.GetIdAttr().Get() == "ND_image_color4"
+    assert alpha_image.GetInput("file").GetAttr().GetColorSpace() == ""
+    separate = UsdShade.Shader(stage.GetPrimAtPath("/Material/Image_2_separate4"))
+    assert separate.GetIdAttr().Get() == "ND_separate4_color4"
 
     with pytest.raises(ValueError, match="Unsupported Blender image color space"):
         _create_texture_connection(

@@ -400,6 +400,10 @@ def extract_blender_material_data(material) -> Dict[str, Any]:
                 space = resolved.get("space")
                 if space:
                     data[f"{texture_key}_space"] = space
+                for source_key in ("source_channels", "source_has_alpha"):
+                    source_value = resolved.get(source_key)
+                    if source_value is not None:
+                        data[f"{texture_key}_{source_key}"] = source_value
                 if input_name == 'Base Color':
                     data.pop('base_color', None)
                     _record_base_color_texture_semantics(data, resolved)
@@ -1045,6 +1049,9 @@ def _build_rk_node_graph(surface_node) -> Optional[Dict[str, Any]]:
                     alpha_mode = _extract_alpha_mode_from_socket(socket)
                     if alpha_mode:
                         texture_spec['alpha_mode'] = alpha_mode
+                    texture_spec.update(
+                        _extract_source_alpha_from_socket(socket, texture_path)
+                    )
                     inputs[input_name] = texture_spec
                     continue
 
@@ -1125,6 +1132,9 @@ def _extract_group_inputs(group_node, rk_node_id: Optional[str] = None) -> Dict[
                 alpha_mode = _extract_alpha_mode_from_socket(socket)
                 if alpha_mode:
                     texture_spec['alpha_mode'] = alpha_mode
+                texture_spec.update(
+                    _extract_source_alpha_from_socket(socket, texture_path)
+                )
                 inputs[input_name] = texture_spec
             else:
                 value = _socket_default_value(socket)
@@ -1312,6 +1322,18 @@ def _extract_colorspace_from_socket(socket) -> Optional[str]:
     except Exception:
         return None
     return _normalize_colorspace(name)
+
+
+def _extract_source_alpha_from_socket(socket, texture_path: Optional[str]) -> Dict[str, Any]:
+    """Get the source channel count for a linked image texture."""
+    try:
+        image_node = _extract_image_node_from_socket(socket)
+    except Exception:
+        return {}
+    image = getattr(image_node, "image", None) if image_node else None
+    if not image:
+        return {}
+    return _image_source_alpha(image, texture_path)
 
 
 def _extract_alpha_mode_from_socket(socket) -> Optional[str]:
@@ -2731,7 +2753,7 @@ def _texture_info_from_image_node(image_node) -> Optional[Dict[str, Any]]:
     except Exception:
         alpha_mode = None
 
-    return {
+    info = {
         "kind": "texture",
         "path": texture_path,
         "uv_map": uv_map or None,
@@ -2744,6 +2766,8 @@ def _texture_info_from_image_node(image_node) -> Optional[Dict[str, Any]]:
             or (getattr(image, "source", "") or "").upper() == "GENERATED"
         ),
     }
+    info.update(_image_source_alpha(image, texture_path))
+    return info
 
 
 def _expression_has_current_pixel_snapshot(expr: Any) -> bool:
@@ -3694,6 +3718,68 @@ def _coerce_constant_value(value: Any, expected: str):
         return [float(value)] * 3
     except (TypeError, ValueError):
         return [1.0, 1.0, 1.0]
+
+
+#: Blender reports ``Image.depth`` as total bits per pixel across the file's
+#: channels. ``Image.channels`` is the internal pixel-buffer width and is
+#: almost always 4, so it cannot answer whether the file carries alpha.
+#: Depths that two different layouts share (16 is 16-bit gray or 8-bit
+#: gray+alpha; 32 is 8-bit RGBA or one float channel) are left out and
+#: resolved from the file header instead.
+_IMAGE_DEPTH_CHANNELS = {
+    8: 1,
+    24: 3,
+    48: 3,
+    96: 3,
+    64: 4,
+    128: 4,
+}
+
+
+def _image_source_channels(image) -> Optional[int]:
+    """Return the source file's channel count, or None when unknown."""
+    if not image:
+        return None
+    try:
+        depth = int(getattr(image, "depth", 0) or 0)
+    except (TypeError, ValueError):
+        return None
+    return _IMAGE_DEPTH_CHANNELS.get(depth)
+
+
+def _image_source_alpha(image, texture_path: Optional[str]) -> Dict[str, Any]:
+    """Describe the source file's channel count and usable alpha.
+
+    Reader selection never depends on this; only a consumer asking for the
+    alpha channel does. When the count cannot be established the result is
+    empty and the alpha read stays permitted.
+    """
+    channels = _image_source_channels(image)
+    if channels is None and texture_path:
+        channels = _file_channel_count(texture_path)
+    if channels is None:
+        return {}
+    alpha_mode = str(getattr(image, "alpha_mode", "") or "").upper()
+    return {
+        "source_channels": channels,
+        # Blender's alpha_mode NONE means "ignore the file's alpha and treat
+        # the image as opaque", so it removes the channel from play.
+        "source_has_alpha": channels in (2, 4) and alpha_mode != "NONE",
+    }
+
+
+def _file_channel_count(path: str) -> Optional[int]:
+    """Read a channel count from an image file header, best effort."""
+    try:
+        with open(path, "rb") as handle:
+            header = handle.read(32)
+    except OSError:
+        return None
+    if header[:8] == b"\x89PNG\r\n\x1a\n" and len(header) >= 26:
+        # IHDR colour type: 0 gray, 2 RGB, 4 gray+alpha, 6 RGBA. Type 3
+        # (palette) can carry alpha in a tRNS chunk, so it stays unknown.
+        return {0: 1, 2: 3, 4: 2, 6: 4}.get(header[25])
+    return None
 
 
 def _resolve_image_path(image) -> Optional[str]:

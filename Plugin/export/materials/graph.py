@@ -426,6 +426,8 @@ class MaterialXGraphBuilder:
             scale=expr.get("scale"),
             texture_role=expr.get("colorspace_role") or texture_role,
             normal_decode=expr.get("normal_decode"),
+            source_channels=expr.get("source_channels"),
+            source_has_alpha=expr.get("source_has_alpha"),
         )
 
     def _map_pbr_inputs(
@@ -535,6 +537,10 @@ class MaterialXGraphBuilder:
                 alpha_mode=material_data.get('alpha_texture_alpha_mode'),
                 sampling=material_data.get('alpha_texture_sampling'),
                 texture_role='data',
+                source_channels=material_data.get('alpha_texture_source_channels'),
+                source_has_alpha=material_data.get(
+                    'alpha_texture_source_has_alpha'
+                ),
             )
         elif is_transparent and 'alpha' in material_data:
             inputs['opacity'] = material_data['alpha']
@@ -1047,6 +1053,10 @@ class MaterialXGraphBuilder:
                 alpha_mode=material_data.get('alpha_texture_alpha_mode'),
                 sampling=material_data.get('alpha_texture_sampling'),
                 texture_role='data',
+                source_channels=material_data.get('alpha_texture_source_channels'),
+                source_has_alpha=material_data.get(
+                    'alpha_texture_source_has_alpha'
+                ),
             )
         elif is_transparent and 'alpha' in material_data:
             inputs['opacity'] = material_data['alpha']
@@ -1078,6 +1088,8 @@ class MaterialXGraphBuilder:
         texture_role: Optional[str] = None,
         normal_decode: Optional[str] = None,
         sampling: Optional[Dict[str, str]] = None,
+        source_channels: Optional[int] = None,
+        source_has_alpha: Optional[bool] = None,
     ) -> Dict[str, Any]:
         """Create a texture reference for the USD post-process stage."""
         spec = {
@@ -1086,6 +1098,10 @@ class MaterialXGraphBuilder:
             'output_type': output_type,
             'channel': channel,
         }
+        if source_channels is not None:
+            spec['source_channels'] = source_channels
+        if source_has_alpha is not None:
+            spec['source_has_alpha'] = source_has_alpha
         if texcoord:
             spec['texcoord'] = texcoord
         if mapping:

@@ -290,22 +290,64 @@ def test_math_materials_author_real_materialx_nodes(sweep_export):
         assert f'info:id = "{nodedef}"' in text, f"{nodedef} was not authored"
 
 
-def test_every_authored_nodedef_is_manifest_backed(sweep_export):
-    """The sweep doubles as a broad corpus for the nodedef closing gate."""
-    import re
+def _sweep_manifest():
     import types
 
-    _payload, stage = sweep_export
     sys.path.insert(0, str(REPO_ROOT))
     sys.modules.setdefault("bpy", types.ModuleType("bpy"))
     from Plugin.manifest.materialx_nodes import load_manifest
 
-    known = frozenset(load_manifest()["nodes"].keys())
-    authored = set(re.findall(r'info:id = "(ND_[^"]+)"', stage.read_text()))
+    return load_manifest()
+
+
+def _authored_nodedefs(stage) -> set[str]:
+    import re
+
+    return set(re.findall(r'info:id = "(ND_[^"]+)"', stage.read_text()))
+
+
+def test_every_authored_nodedef_is_manifest_backed(sweep_export):
+    """The sweep doubles as a broad corpus for the nodedef closing gate."""
+    _payload, stage = sweep_export
+    nodes = _sweep_manifest()["nodes"]
+    authored = _authored_nodedefs(stage)
     assert authored, "no MaterialX shaders authored"
 
-    unknown = sorted(authored - known)
+    unknown = sorted(authored - frozenset(nodes))
     assert unknown == [], f"fabricated nodedefs shipped: {unknown}"
+
+    # A manifest entry is not enough. Reality Composer Pro's ShaderGraph
+    # editor ships definitions for a subset of what the USD parsing libraries
+    # know; the rest cannot be resolved and the material fails to bind.
+    unresolvable = sorted(
+        name
+        for name in authored
+        if nodes[name].get("policy", {}).get("editor_unresolvable")
+    )
+    assert unresolvable == [], (
+        f"nodedefs the RCP editor cannot resolve shipped: {unresolvable}"
+    )
+
+
+def test_no_reader_reality_composer_pro_replaces_with_a_placeholder_ships(sweep_export):
+    """RCP 3.0 (80.0.1.500.1) substitutes a striped placeholder material for
+    the whole ShaderGraph when it meets a four-channel vector reader or its
+    swizzle. The manifest flags none of them, so this is the corpus-level
+    gate. Every data texture in the sweep is read through color3 + swizzle.
+    """
+    _payload, stage = sweep_export
+    authored = _authored_nodedefs(stage)
+    forbidden = {
+        "ND_image_vector4",
+        "ND_swizzle_vector4_float",
+        "ND_extract_vector4",
+        "ND_separate4_vector4",
+    }
+    assert authored & forbidden == set(), sorted(authored & forbidden)
+
+    # And no reader carries the lowercase color-space token, which appears in
+    # no shipping RealityKit package.
+    assert 'colorSpace = "raw"' not in stage.read_text()
 
 
 # --- refusal control: unsupported Math operations keep the bake advice ------

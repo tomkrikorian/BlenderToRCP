@@ -543,18 +543,29 @@ def test_non_color_translation_is_reported_and_confined_to_color_inputs(tmp_path
         "lin_rec709" in warning for warning in diagnostics.data["warnings"]
     )
 
-    # Genuinely raw data keeps its raw contract, and an sRGB-tagged data
-    # texture still fails closed at authoring time.
+    # Genuinely raw data authors no color space — an absent MaterialX color
+    # space is the no-transform contract — and an sRGB-tagged data texture
+    # still fails closed at authoring time.
     assert (
         _materialx_file_colorspace(
             {"colorspace_role": "data", "colorspace": "Non-Color"}, "roughness"
         )
-        == "raw"
+        == ""
     )
     with pytest.raises(ValueError, match="must use Blender Non-Color/raw"):
         _materialx_file_colorspace(
             {"colorspace_role": "data", "colorspace": "sRGB"}, "roughness"
         )
+    # An sRGB base color whose alpha drives opacity is not a tagging mistake:
+    # the file's RGB really is sRGB. It must not fail the export, and it must
+    # not carry a color space of its own either.
+    assert (
+        _materialx_file_colorspace(
+            {"colorspace_role": "data", "colorspace": "sRGB", "channel": "a"},
+            "opacity",
+        )
+        == ""
+    )
 
 
 def test_blender_52_colorspace_api_opinion_is_resolved(tmp_path):
@@ -635,6 +646,13 @@ def test_linear_rec709_remains_invalid_for_scalar_data(tmp_path):
 def test_raw_and_blender_data_spaces_are_valid_for_scalar_data(
     tmp_path, file_color_space, api_color_space
 ):
+    """Both tokens still satisfy the *data* contract.
+
+    ``raw`` on a MaterialX reader is separately rejected as a token RealityKit
+    cannot map (see ``test_raw_color_space_token_on_a_materialx_reader_is_rejected``);
+    it must not also be reported as a color-space mismatch, because the value
+    it names is the right one.
+    """
     stage, _mesh = _stage_with_mesh()
     (tmp_path / "roughness.png").write_bytes(b"texture")
     _author_materialx_texture(
@@ -654,8 +672,11 @@ def test_raw_and_blender_data_spaces_are_valid_for_scalar_data(
         SimpleNamespace(export_format="USDC"),
     )
 
-    assert report.ok
     assert "TEXTURE_COLOR_SPACE_MISMATCH" not in _codes(report)
+    if file_color_space == "raw":
+        assert "TEXTURE_COLOR_SPACE_UNSUPPORTED_TOKEN" in _codes(report)
+    else:
+        assert report.ok
 
 
 def test_one_texture_node_feeding_color_and_data_remains_a_conflict(tmp_path):
@@ -1415,6 +1436,117 @@ def test_editor_unresolvable_nodedefs_are_rejected():
     report = validate_stage(stage)
 
     assert "UNKNOWN_MATERIALX_NODEDEF" in _codes(report)
+
+
+def test_reader_nodes_rcp_cannot_instantiate_are_rejected():
+    """These ids are in the manifest but RCP 3.0 (80.0.1.500.1) substitutes a
+    striped placeholder for the whole material when it meets them. The
+    manifest cannot catch this class of defect on its own — it flags none of
+    them — so preflight is the closing gate."""
+    for nodedef in (
+        "ND_image_vector4",
+        "ND_swizzle_vector4_float",
+        "ND_extract_vector4",
+        "ND_separate4_vector4",
+    ):
+        stage, mesh = _stage_with_mesh()
+        material = UsdShade.Material.Define(stage, "/Root/Material")
+        shader = UsdShade.Shader.Define(stage, "/Root/Material/Reader")
+        shader.CreateIdAttr(nodedef)
+        UsdShade.MaterialBindingAPI.Apply(mesh.GetPrim()).Bind(material)
+
+        report = validate_stage(stage)
+
+        assert "MATERIALX_NODEDEF_UNSUPPORTED_BY_RCP" in _codes(report), nodedef
+
+
+def test_raw_color_space_token_on_a_materialx_reader_is_rejected(tmp_path):
+    """No shipping RealityKit package authors the lowercase ``raw`` token."""
+    stage, _mesh = _stage_with_mesh()
+    (tmp_path / "roughness.png").write_bytes(b"texture")
+    _author_materialx_texture(
+        stage,
+        texture_name="RawRoughness",
+        texture_filename="roughness.png",
+        consumer_name="roughness",
+        consumer_type=Sdf.ValueTypeNames.Float,
+        output_type=Sdf.ValueTypeNames.Float,
+        file_color_space="raw",
+    )
+
+    report = validate_stage(
+        stage,
+        tmp_path / "scene.usdc",
+        SimpleNamespace(export_format="USDC"),
+    )
+
+    assert "TEXTURE_COLOR_SPACE_UNSUPPORTED_TOKEN" in _codes(report)
+
+
+def test_a_data_texture_with_no_authored_color_space_is_accepted(tmp_path):
+    """An absent MaterialX color space is the data contract, not a mismatch.
+
+    The material prim carries ``colorSpace:name = "lin_rec709_scene"``, so the
+    gate must not resolve the ancestor opinion into a data-texture verdict.
+    """
+    stage, _mesh = _stage_with_mesh()
+    (tmp_path / "roughness.png").write_bytes(b"texture")
+    _author_materialx_texture(
+        stage,
+        texture_name="UntaggedRoughness",
+        texture_filename="roughness.png",
+        consumer_name="roughness",
+        consumer_type=Sdf.ValueTypeNames.Float,
+        output_type=Sdf.ValueTypeNames.Float,
+    )
+
+    report = validate_stage(
+        stage,
+        tmp_path / "scene.usdc",
+        SimpleNamespace(export_format="USDC"),
+    )
+
+    assert "TEXTURE_COLOR_SPACE_MISMATCH" not in _codes(report)
+    assert report.ok
+
+
+def test_four_channel_reader_over_a_three_channel_png_warns(tmp_path):
+    """The measured defect: a 4-channel read of a 3-channel file."""
+    rgb_png = tmp_path / "orm.png"
+    rgb_png.write_bytes(
+        b"\x89PNG\r\n\x1a\n"
+        + (13).to_bytes(4, "big")
+        + b"IHDR"
+        + (8).to_bytes(4, "big")
+        + (8).to_bytes(4, "big")
+        + bytes([8, 2, 0, 0, 0])
+    )
+
+    stage, _mesh = _stage_with_mesh()
+    material = UsdShade.Material.Define(stage, "/Root/Material")
+    material_prim = material.GetPrim()
+    material_prim.AddAppliedSchema("MaterialXConfigAPI")
+    surface = UsdShade.Shader.Define(stage, "/Root/Material/Surface")
+    surface.CreateIdAttr("ND_realitykit_pbr_surfaceshader")
+    material.CreateSurfaceOutput("mtlx").ConnectToSource(
+        surface.ConnectableAPI(), "surface"
+    )
+    texture = UsdShade.Shader.Define(stage, "/Root/Material/Image")
+    texture.CreateIdAttr("ND_image_color4")
+    texture.CreateInput("file", Sdf.ValueTypeNames.Asset).Set(
+        Sdf.AssetPath("orm.png")
+    )
+    surface.CreateInput("opacity", Sdf.ValueTypeNames.Float).ConnectToSource(
+        texture.CreateOutput("out", Sdf.ValueTypeNames.Color4f)
+    )
+
+    report = validate_stage(
+        stage,
+        tmp_path / "scene.usdc",
+        SimpleNamespace(export_format="USDC"),
+    )
+
+    assert "TEXTURE_ALPHA_SOURCE_MISSING" in _codes(report)
 
 
 def test_usd_schema_ids_are_not_judged_as_nodedefs():
