@@ -298,6 +298,7 @@ def _check_composed_stage(
     _check_material_bindings(prims, report)
     _check_material_texture_transforms(prims, report)
     _check_materialx_nodedefs(prims, report)
+    _check_geompropvalue_primvar_types(prims, report)
     _check_skeletons(stage, prims, report)
     _check_textures(prims, report, asset_path, settings)
     _check_accessibility(stage, prims, report, settings)
@@ -1236,6 +1237,112 @@ def _check_materialx_nodedefs(
             prim.GetPath(),
             nodedef=shader_id,
         )
+
+
+#: Channel count of each MaterialX type a ``geompropvalue`` nodedef reads.
+_GEOMPROPVALUE_CHANNEL_COUNTS = {
+    "float": 1,
+    "integer": 1,
+    "boolean": 1,
+    "vector2": 2,
+    "color3": 3,
+    "vector3": 3,
+    "color4": 4,
+    "vector4": 4,
+}
+
+#: Channel count of each USD primvar array type a geometric-property read can
+#: land on. Roles are deliberately collapsed: ``texCoord2f`` and ``float2``
+#: hold the same two floats, so a vector2 read of a texCoord2f primvar is not
+#: a mismatch. Channel *count* is what RealityKit cannot reconcile.
+_PRIMVAR_CHANNEL_COUNTS = {
+    "bool[]": 1, "int[]": 1, "half[]": 1, "float[]": 1, "double[]": 1,
+    "half2[]": 2, "float2[]": 2, "double2[]": 2,
+    "texCoord2h[]": 2, "texCoord2f[]": 2, "texCoord2d[]": 2,
+    "half3[]": 3, "float3[]": 3, "double3[]": 3,
+    "color3h[]": 3, "color3f[]": 3, "color3d[]": 3,
+    "normal3h[]": 3, "normal3f[]": 3, "normal3d[]": 3,
+    "point3h[]": 3, "point3f[]": 3, "point3d[]": 3,
+    "vector3h[]": 3, "vector3f[]": 3, "vector3d[]": 3,
+    "texCoord3h[]": 3, "texCoord3f[]": 3, "texCoord3d[]": 3,
+    "half4[]": 4, "float4[]": 4, "double4[]": 4,
+    "color4h[]": 4, "color4f[]": 4, "color4d[]": 4,
+}
+
+
+def _check_geompropvalue_primvar_types(
+    prims: Iterable[Any], report: RealityKitPreflightReport
+) -> None:
+    """A geometric-property read must declare the primvar's own channel count.
+
+    Measured in Reality Composer Pro 3.0 (80.0.1.500.1): a cube whose base
+    colour came from a Blender Color Attribute rendered as the striped
+    placeholder - the material could not be instantiated at all. The mesh
+    carried ``primvars:Paint  color4f[]``, and the shader read it with
+    ND_geompropvalue_color3. Same class as the ND_image_vector4-over-a-
+    three-channel-PNG failure: the declared type does not describe the data
+    that exists, and RCP substitutes a placeholder rather than erroring.
+
+    Only bound materials are judged, and only when the named primvar is
+    actually found on the bound geometry - a read of a primvar that reaches
+    no geometry is a different (already source-refused) defect, and a
+    ``geomprop`` naming something this stage does not author is not something
+    this check can measure.
+    """
+    for prim in prims:
+        if not (prim.IsA(UsdGeom.Mesh) or prim.IsA(UsdGeom.Subset)):
+            continue
+        try:
+            material, _binding = (
+                UsdShade.MaterialBindingAPI(prim).ComputeBoundMaterial()
+            )
+        except Exception:
+            continue
+        if not material:
+            continue
+        primvars_api = UsdGeom.PrimvarsAPI(prim)
+        for shader_prim in _upstream_material_prims(material.GetPrim()):
+            shader = UsdShade.Shader(shader_prim)
+            if not shader:
+                continue
+            shader_id = str(shader.GetIdAttr().Get() or "")
+            if not shader_id.startswith("ND_geompropvalue_"):
+                continue
+            declared = shader_id[len("ND_geompropvalue_"):]
+            declared_channels = _GEOMPROPVALUE_CHANNEL_COUNTS.get(declared)
+            if declared_channels is None:
+                continue
+            geomprop_input = shader.GetInput("geomprop")
+            geomprop = geomprop_input.Get() if geomprop_input else None
+            if not geomprop:
+                continue
+            try:
+                primvar = primvars_api.FindPrimvarWithInheritance(str(geomprop))
+            except Exception:
+                continue
+            if not primvar:
+                continue
+            primvar_type = str(primvar.GetTypeName())
+            primvar_channels = _PRIMVAR_CHANNEL_COUNTS.get(primvar_type)
+            if primvar_channels is None or primvar_channels == declared_channels:
+                continue
+            report.add(
+                "error",
+                "GEOMPROPVALUE_PRIMVAR_TYPE_MISMATCH",
+                (
+                    f"Shader reads primvars:{geomprop} ({primvar_type}) with "
+                    f"{shader_id}, whose declared type carries "
+                    f"{declared_channels} channel(s) instead of "
+                    f"{primvar_channels}. Reality Composer Pro replaces such "
+                    "a material with a placeholder; read the primvar at its "
+                    "own type and adapt with a swizzle."
+                ),
+                shader_prim.GetPath(),
+                nodedef=shader_id,
+                primvar=str(geomprop),
+                primvar_type=primvar_type,
+                geometry=str(prim.GetPath()),
+            )
 
 
 def _upstream_material_prims(material_prim) -> list[Any]:

@@ -51,10 +51,12 @@ SUPPORTED_TYPES = {
     'MAP_RANGE',
     'INVERT',
     # Blender 5.2's Color Attribute node. Exported as a
-    # ND_geompropvalue_color3 read of the ``primvars:<attribute name>``
-    # primvar Blender's USD exporter writes for mesh color attributes;
-    # per-node gates below refuse an unnamed attribute, an Alpha-output use,
-    # and a name that reaches no mesh using the material.
+    # ND_geompropvalue_color4 read of the ``primvars:<attribute name>``
+    # primvar Blender's USD exporter writes for mesh color attributes - it is
+    # color4f for every attribute type and domain, so the read is
+    # four-channel and narrower consumers swizzle off it. Per-node gates
+    # below refuse an unnamed attribute and a name that reaches no mesh using
+    # the material.
     'VERTEX_COLOR',
 }
 
@@ -493,21 +495,20 @@ def _vertex_color_issues(node) -> List[str]:
     """Mirror the extractor's Color Attribute refusals for `validate`.
 
     Import shared with extraction so the two gates cannot drift: an export
-    that refuses (unnamed attribute, Alpha output, or an attribute no mesh
-    using the material carries) must be predicted here.
+    that refuses (unnamed attribute, or an attribute no mesh using the
+    material carries) must be predicted here.
+
+    The Alpha output is deliberately absent: the primvar Blender writes for a
+    mesh color attribute is color4f, so the exporter reads alpha as a plain
+    swizzle of the same four-channel read. Predicting a refusal here that the
+    exporter no longer makes is exactly the drift this function exists to
+    prevent.
     """
     import re as _re
 
     from ..export.materials.extract.core import _color_attribute_reaches_export
 
     issues: List[str] = []
-    outputs = getattr(node, "outputs", None)
-    alpha_output = outputs.get("Alpha") if outputs is not None else None
-    if alpha_output is not None and getattr(alpha_output, "is_linked", False):
-        issues.append(
-            "Color Attribute Alpha output has no exact MaterialX read; use "
-            "the Color output or bake the material."
-        )
     layer_name = (getattr(node, "layer_name", "") or "").strip()
     if not layer_name:
         issues.append(

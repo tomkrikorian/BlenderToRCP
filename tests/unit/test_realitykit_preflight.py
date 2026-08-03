@@ -1564,3 +1564,106 @@ def test_usd_schema_ids_are_not_judged_as_nodedefs():
     report = validate_stage(stage)
 
     assert "UNKNOWN_MATERIALX_NODEDEF" not in _codes(report)
+
+
+def _author_geompropvalue_material(
+    stage, mesh, *, geomprop, nodedef, output_type
+):
+    """Bind a material whose base colour is a geometric-property read."""
+    material = UsdShade.Material.Define(stage, "/Root/GeomPropMaterial")
+    surface = UsdShade.Shader.Define(stage, "/Root/GeomPropMaterial/Surface")
+    surface.CreateIdAttr("ND_realitykit_pbr_surfaceshader")
+    material.CreateSurfaceOutput("mtlx").ConnectToSource(
+        surface.ConnectableAPI(), "surface"
+    )
+    read = UsdShade.Shader.Define(stage, "/Root/GeomPropMaterial/Read")
+    read.CreateIdAttr(nodedef)
+    read.CreateInput("geomprop", Sdf.ValueTypeNames.String).Set(geomprop)
+    read_output = read.CreateOutput("out", output_type)
+    surface.CreateInput("baseColor", output_type).ConnectToSource(read_output)
+    UsdShade.MaterialBindingAPI.Apply(mesh.GetPrim()).Bind(material)
+    return material
+
+
+def test_color3_read_of_a_color4f_primvar_is_an_error():
+    """The measured RCP placeholder cause: a color3 read of color4f data.
+
+    Blender writes every mesh color attribute as a color4f primvar, and a
+    material reading it with ND_geompropvalue_color3 is replaced wholesale by
+    Reality Composer Pro's striped placeholder.
+    """
+    stage, mesh = _stage_with_mesh()
+    paint = UsdGeom.PrimvarsAPI(mesh).CreatePrimvar(
+        "Paint", Sdf.ValueTypeNames.Color4fArray, UsdGeom.Tokens.faceVarying
+    )
+    paint.Set([Gf.Vec4f(0.2, 0.5, 0.8, 1.0)] * 3)
+    _author_geompropvalue_material(
+        stage,
+        mesh,
+        geomprop="Paint",
+        nodedef="ND_geompropvalue_color3",
+        output_type=Sdf.ValueTypeNames.Color3f,
+    )
+
+    report = validate_stage(stage)
+
+    assert "GEOMPROPVALUE_PRIMVAR_TYPE_MISMATCH" in _codes(report)
+
+
+def test_color4_read_of_a_color4f_primvar_is_clean():
+    stage, mesh = _stage_with_mesh()
+    paint = UsdGeom.PrimvarsAPI(mesh).CreatePrimvar(
+        "Paint", Sdf.ValueTypeNames.Color4fArray, UsdGeom.Tokens.faceVarying
+    )
+    paint.Set([Gf.Vec4f(0.2, 0.5, 0.8, 1.0)] * 3)
+    _author_geompropvalue_material(
+        stage,
+        mesh,
+        geomprop="Paint",
+        nodedef="ND_geompropvalue_color4",
+        output_type=Sdf.ValueTypeNames.Color4f,
+    )
+
+    report = validate_stage(stage)
+
+    assert "GEOMPROPVALUE_PRIMVAR_TYPE_MISMATCH" not in _codes(report)
+
+
+def test_vector2_read_of_a_texcoord2f_primvar_is_clean():
+    """texCoord2f and float2 hold the same two floats; only the role differs.
+
+    A UV-set read is the other geometric-property read the exporter authors,
+    and it must not be swept up by a check about channel counts.
+    """
+    stage, mesh = _stage_with_mesh()
+    uv = UsdGeom.PrimvarsAPI(mesh).CreatePrimvar(
+        "UVMap2", Sdf.ValueTypeNames.TexCoord2fArray, UsdGeom.Tokens.faceVarying
+    )
+    uv.Set([Gf.Vec2f(0, 0), Gf.Vec2f(1, 0), Gf.Vec2f(0, 1)])
+    _author_geompropvalue_material(
+        stage,
+        mesh,
+        geomprop="UVMap2",
+        nodedef="ND_geompropvalue_vector2",
+        output_type=Sdf.ValueTypeNames.Float2,
+    )
+
+    report = validate_stage(stage)
+
+    assert "GEOMPROPVALUE_PRIMVAR_TYPE_MISMATCH" not in _codes(report)
+
+
+def test_a_geomprop_no_bound_geometry_carries_is_not_judged_here():
+    """A dangling read is a different defect; this check measures types only."""
+    stage, mesh = _stage_with_mesh()
+    _author_geompropvalue_material(
+        stage,
+        mesh,
+        geomprop="NoSuchPrimvar",
+        nodedef="ND_geompropvalue_color3",
+        output_type=Sdf.ValueTypeNames.Color3f,
+    )
+
+    report = validate_stage(stage)
+
+    assert "GEOMPROPVALUE_PRIMVAR_TYPE_MISMATCH" not in _codes(report)

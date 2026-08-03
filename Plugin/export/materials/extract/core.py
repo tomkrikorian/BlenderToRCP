@@ -2328,19 +2328,13 @@ def _resolve_socket_value(
     if node_type == 'VERTEX_COLOR':
         # Blender 5.2's Color Attribute node (bl_idname ShaderNodeVertexColor,
         # type VERTEX_COLOR). Its USD exporter writes each mesh color
-        # attribute as ``primvars:<attribute name>`` (verified against a real
-        # Blender 5.2 export), which ND_geompropvalue_color3 reads back.
+        # attribute as ``primvars:<attribute name>``, and that primvar is
+        # color4f[] for every attribute type and domain (see
+        # _COLOR_ATTRIBUTE_PRIMVAR_TYPES for the measured table). The read
+        # declares the primvar's own type; a narrower consumer is reached by
+        # an explicit extraction node, never by narrowing the read.
         layer_name = (getattr(from_node, "layer_name", "") or "").strip()
         output_name = (getattr(from_socket, "name", "") or "").lower()
-        if output_name == 'alpha':
-            return {
-                "kind": "unresolved",
-                "provenance": list(provenance),
-                "reason": (
-                    "Color Attribute Alpha output has no exact MaterialX "
-                    "read; use the Color output or bake the material"
-                ),
-            }
         if not layer_name:
             return {
                 "kind": "unresolved",
@@ -2361,7 +2355,8 @@ def _resolve_socket_value(
                     "starting with a digit); rename the attribute"
                 ),
             }
-        if not _color_attribute_reaches_export(from_node, layer_name):
+        primvar_type = _color_attribute_primvar_type(from_node, layer_name)
+        if primvar_type is None:
             return {
                 "kind": "unresolved",
                 "provenance": list(provenance),
@@ -2372,19 +2367,54 @@ def _resolve_socket_value(
                     "the attribute or fix the node's name"
                 ),
             }
-        expr = _make_node_expr(
-            _nodedef_for("geompropvalue", "color3"),
+        read = _make_node_expr(
+            _nodedef_for("geompropvalue", primvar_type),
             {"geomprop": _constant_expr(layer_name)},
         )
+
+        if output_name == 'alpha':
+            if primvar_type != "color4":
+                # Only reachable if the measured table ever gains a
+                # three-channel case; alpha is not in the data then, so say so
+                # rather than reading a channel that does not exist.
+                return {
+                    "kind": "unresolved",
+                    "provenance": list(provenance),
+                    "reason": (
+                        f"Color attribute '{layer_name}' exports as a "
+                        f"{primvar_type} primvar, which carries no alpha "
+                        "channel; use the Color output or bake the material"
+                    ),
+                }
+            alpha = _swizzle_expr(read, "color4", "float", "a")
+            if expected_type and expected_type not in {"float", "half", "integer"}:
+                # A scalar into a colour/vector socket: Blender broadcasts it.
+                return _make_node_expr(
+                    _nodedef_for("convert", expected_type, input_type="float"),
+                    {"in": alpha},
+                )
+            return alpha
+
         if channel in {"r", "g", "b"}:
-            return _swizzle_color3_to_float_expr(expr, channel)
+            if primvar_type == "color3":
+                return _swizzle_color3_to_float_expr(read, channel)
+            return _swizzle_expr(read, primvar_type, "float", channel)
+
+        if expected_type == primvar_type:
+            return read
+
+        rgb = (
+            read
+            if primvar_type == "color3"
+            else _swizzle_expr(read, primvar_type, "color3", "rgb")
+        )
         if expected_type in {"float", "half", "integer"}:
             # Blender's implicit colour-to-float conversion is luminance.
             return _swizzle_color3_to_float_expr(
-                _make_node_expr(_nodedef_for("luminance", "color3"), {"in": expr}),
+                _make_node_expr(_nodedef_for("luminance", "color3"), {"in": rgb}),
                 "r",
             )
-        return expr
+        return rgb
 
     if node_type == 'TEX_NOISE':
         vector_expr = _procedural_vector_expr(
@@ -3069,23 +3099,81 @@ def _swizzle_color3_to_float_expr(expr: Dict[str, Any], channels: str) -> Dict[s
     )
 
 
-def _color_attribute_reaches_export(node, layer_name: str) -> bool:
-    """Whether a mesh using this node's material carries ``layer_name``.
+#: MaterialX type of the primvar Blender's USD exporter writes for each
+#: Blender mesh color attribute type. Measured on Blender 5.2.0 LTS by
+#: exporting one cube per case and reading the primvar back with pxr:
+#:
+#:   FLOAT_COLOR / CORNER -> color4f[]  interpolation=faceVarying
+#:   FLOAT_COLOR / POINT  -> color4f[]  interpolation=vertex
+#:   BYTE_COLOR  / CORNER -> color4f[]  interpolation=faceVarying
+#:   BYTE_COLOR  / POINT  -> color4f[]  interpolation=vertex
+#:
+#: The domain only picks the interpolation; the value type is four-channel in
+#: every case, for both the float and the byte storage. A geompropvalue read
+#: must declare that same type - Reality Composer Pro 3.0 (80.0.1.500.1)
+#: replaces a material whose read declares color3 over a color4f primvar with
+#: its striped placeholder rather than erroring visibly.
+_COLOR_ATTRIBUTE_PRIMVAR_TYPES = {
+    "FLOAT_COLOR": "color4",
+    "BYTE_COLOR": "color4",
+}
+
+#: What to read a color attribute with when its Blender type cannot be
+#: inspected (a node group tree, or a pure-Python unit double outside a live
+#: session). Matches what Blender actually writes; narrowing to color3 on a
+#: guess is the defect this table exists to prevent.
+_COLOR_ATTRIBUTE_DEFAULT_PRIMVAR_TYPE = "color4"
+
+
+def _swizzle_expr(
+    expr: Dict[str, Any], from_type: str, to_type: str, channels: str
+) -> Dict[str, Any]:
+    """Author a manifest-verified swizzle between two MaterialX types.
+
+    Selection goes through the manifest by exact signature, so the authored
+    id exists in the shipped MaterialX libraries and is never one the editor
+    cannot resolve. Fails closed rather than fabricating a name.
+    """
+    nodedef = select_nodedef_name_for_node(
+        _get_manifest(),
+        "swizzle",
+        signature=f"in[in:{from_type},channels:string]|out[out:{to_type}]",
+        input_type=from_type,
+        output_type=to_type,
+    )
+    if not nodedef:
+        raise ValueError(
+            f"No MaterialX swizzle nodedef reads {from_type} as {to_type}. "
+            "Bake the material, or simplify the node graph."
+        )
+    return _make_node_expr(
+        nodedef, {"in": expr, "channels": _constant_expr(channels)}
+    )
+
+
+def _color_attribute_primvar_type(node, layer_name: str) -> Optional[str]:
+    """MaterialX type of the primvar Blender writes for ``layer_name``.
 
     Blender 5.2's USD exporter writes each mesh color attribute as
     ``primvars:<attribute name>`` (verified against a real export). A
     geompropvalue read must name an attribute that exists on a mesh using the
-    material, or the authored read dangles at runtime. Fails closed when no
-    owning material/mesh can be found (e.g. the node lives in a node group
-    tree). Outside a live Blender session (pure-Python unit doubles) the
-    graph is trusted; the real export path always runs inside Blender.
+    material, or the authored read dangles at runtime - and it must declare
+    the type that primvar actually carries, or Reality Composer Pro cannot
+    instantiate the material at all.
+
+    Returns ``None`` when no mesh using this node's material carries the
+    attribute, which is the fail-closed signal callers refuse on. Fails
+    closed when no owning material/mesh can be found (e.g. the node lives in
+    a node group tree). Outside a live Blender session (pure-Python unit
+    doubles) the graph is trusted and reads with the measured default; the
+    real export path always runs inside Blender.
     """
     try:
         import bpy
         meshes = bpy.data.meshes
         materials = bpy.data.materials
     except Exception:
-        return True
+        return _COLOR_ATTRIBUTE_DEFAULT_PRIMVAR_TYPE
     node_tree = getattr(node, "id_data", None)
     owners = [
         material
@@ -3093,7 +3181,7 @@ def _color_attribute_reaches_export(node, layer_name: str) -> bool:
         if getattr(material, "node_tree", None) == node_tree
     ]
     if not owners:
-        return False
+        return None
     for mesh in meshes:
         mesh_materials = list(getattr(mesh, "materials", []) or [])
         if not any(
@@ -3103,9 +3191,20 @@ def _color_attribute_reaches_export(node, layer_name: str) -> bool:
         ):
             continue
         attributes = getattr(mesh, "color_attributes", None)
-        if attributes is not None and attributes.get(layer_name) is not None:
-            return True
-    return False
+        attribute = (
+            attributes.get(layer_name) if attributes is not None else None
+        )
+        if attribute is not None:
+            data_type = (getattr(attribute, "data_type", "") or "").upper()
+            return _COLOR_ATTRIBUTE_PRIMVAR_TYPES.get(
+                data_type, _COLOR_ATTRIBUTE_DEFAULT_PRIMVAR_TYPE
+            )
+    return None
+
+
+def _color_attribute_reaches_export(node, layer_name: str) -> bool:
+    """Whether a mesh using this node's material carries ``layer_name``."""
+    return _color_attribute_primvar_type(node, layer_name) is not None
 
 
 def _float_math_input_expr(expr):
