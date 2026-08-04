@@ -1065,14 +1065,54 @@ def _execute_root_last_publication(
 
 def _remove_stale_sidecars_after_commit(final_path: Path, entries, diagnostics=None) -> None:
     """Best-effort cleanup after the new root and final manifest are durable."""
+    emptied: list[Path] = []
     for entry in entries:
         try:
             path = _safe_sidecar_destination(final_path.parent, Path(entry))
             if path.is_file() and not path.is_symlink():
                 path.unlink()
+                emptied.append(path.parent)
         except Exception as exc:
             if diagnostics:
                 diagnostics.add_warning(f"Failed to remove stale sidecar '{entry}': {exc}")
+    _remove_emptied_sidecar_generations(final_path, emptied, diagnostics)
+
+
+def _remove_emptied_sidecar_generations(
+    final_path: Path, directories, diagnostics=None
+) -> None:
+    """Drop generation directories the stale-sidecar sweep just emptied.
+
+    Every export publishes its sidecars under a fresh
+    ``textures/<output>/<generation>/`` so a crash leaves either the old root
+    with its old generation or the new root with its new one, never a mixture.
+    The superseded generation was documented as "leaked for later cleanup", and
+    nothing did the cleanup: the files inside were removed, but the empty
+    directory stayed. Re-exporting to the same path therefore grew one empty
+    directory per export, forever, inside what is often an ``.rkassets`` bundle.
+
+    Only directories strictly below an owned sidecar root are considered, only
+    while genuinely empty, and never the root itself - so a concurrent export's
+    live generation and any user file are both untouched.
+    """
+    output_parent = final_path.parent
+    roots = {output_parent / name for name in _OWNED_SIDECAR_DIRECTORIES}
+    for directory in sorted(set(directories), key=lambda path: len(path.parts), reverse=True):
+        current = directory
+        while current not in roots and current != output_parent:
+            if current.is_symlink() or not current.is_dir():
+                break
+            try:
+                if any(current.iterdir()):
+                    break
+                current.rmdir()
+            except OSError as exc:
+                if diagnostics:
+                    diagnostics.add_warning(
+                        f"Failed to remove emptied sidecar directory '{current}': {exc}"
+                    )
+                break
+            current = current.parent
 
 
 def _cleanup_publication_transaction_dir(transaction_dir: Path, diagnostics=None) -> None:

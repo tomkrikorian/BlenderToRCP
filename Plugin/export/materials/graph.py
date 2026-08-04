@@ -479,7 +479,15 @@ class MaterialXGraphBuilder:
             inputs['roughness'] = self._create_texture_input(
                 material_data['roughness_texture'],
                 'float',
-                channel=material_data.get('roughness_texture_channel', 'g'),
+                # 'r', matching metallic and AO above. Nothing ever sets
+                # roughness_texture_channel except an explicit Separate Color /
+                # Separate XYZ node, so this default decided every plain
+                # Image -> Roughness link - and 'g' disagreed with the retained
+                # preview network in the same file, which Blender's own exporter
+                # wires to outputs:r, and with RealityKit's importer, which names
+                # the node swizzle_roughness_r. On a chromatic map the three
+                # renderers were reading three different numbers.
+                channel=material_data.get('roughness_texture_channel', 'r'),
                 texcoord=material_data.get('roughness_texture_texcoord'),
                 mapping=material_data.get('roughness_texture_mapping'),
                 colorspace=material_data.get('roughness_texture_colorspace'),
