@@ -1,7 +1,7 @@
 """Integration - procedural textures must export spatially varying, warned.
 
 Measured defect (real export, this repo, pre-fix): a Noise Texture driving
-Roughness exported ok with no warning, but the authored unifiednoise3d carried
+Roughness exported ok with no warning, but the authored noise node carried
 ``float3 inputs:position = (0, 0, 0)`` - the unlinked Vector socket's default
 folded to a constant, sampling the pattern at a single point and rendering it
 flat. Voronoi additionally dropped its Scale entirely; Gradient's ramplr
@@ -125,7 +125,7 @@ def test_noise_position_is_connected_not_constant(procedural_export):
     _payload, stage = procedural_export
     blocks = _shader_blocks(stage.read_text())
 
-    for nodedef in ("ND_unifiednoise3d_float", "ND_worleynoise3d_float"):
+    for nodedef in ("ND_fractal3d_float", "ND_worleynoise3d_float"):
         assert nodedef in blocks, f"{nodedef} was not authored"
         for body in blocks[nodedef]:
             assert "inputs:position.connect" in body, (

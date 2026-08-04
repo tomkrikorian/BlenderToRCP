@@ -107,8 +107,18 @@ def _assert_is_object_position(expr):
 def test_noise_unwired_vector_authors_position_not_a_constant():
     expr = _resolve_from(_noise_node())
     assert expr["kind"] == "node"
-    assert expr["node_id"] == "ND_unifiednoise3d_float"
-    _assert_is_object_position(expr["inputs"]["position"])
+    # fractal3d, not unifiednoise3d: the latter exists only in RealityKit's
+    # MaterialX 1.39 store while this profile declares 1.38, where a missing
+    # nodedef silently costs the material its whole shader graph. Measured with
+    # realitytool compile: the old shape produced 0 shadergraphs and 1 PBR
+    # fallback; this one produces 1 and 0.
+    assert expr["node_id"] == "ND_fractal3d_float"
+    # fractal3d has no frequency input, so Scale folds into the sample position
+    # exactly as it does for Voronoi below.
+    position = expr["inputs"]["position"]
+    assert position["node_id"] == "ND_multiply_vector3"
+    _assert_is_object_position(position["inputs"]["in1"])
+    assert position["inputs"]["in2"]["node_id"] == "ND_combine3_vector3"
 
 
 def test_voronoi_unwired_vector_authors_scaled_position():

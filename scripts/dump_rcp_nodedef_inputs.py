@@ -126,15 +126,20 @@ def probe(work: Path, declared: dict[str, list[str]]) -> dict[str, dict[str, lis
         )
         shipped = json.loads(finished.stdout)
         found = collections.OrderedDict()
+        missing = []
         for nodedef in sorted(declared):
             real = shipped.get(nodedef)
             if not isinstance(real, list):
-                continue  # unresolved here; UNKNOWN_MATERIALX_NODEDEF covers that
+                missing.append(nodedef)
+                continue
             absent = [name for name in declared[nodedef] if name not in real]
             if absent:
                 found[nodedef] = absent
-        gaps[version] = found
-        print(f"  MaterialX {version}: {len(found)} nodedefs declare inputs RealityKit lacks")
+        gaps[version] = {"inputs": found, "unresolved": missing}
+        print(
+            f"  MaterialX {version}: {len(found)} nodedefs declare inputs "
+            f"RealityKit lacks, {len(missing)} do not resolve at all"
+        )
     return gaps
 
 
@@ -161,11 +166,14 @@ def main() -> int:
 
     document = collections.OrderedDict()
     document["_doc"] = (
-        "Inputs this repo's MaterialX manifest declares that RealityKit's own "
-        "nodedef store does not, per declared MaterialX version. Authoring one "
-        "of these makes RealityKit's shader compiler discard the whole "
-        "material's graph and substitute default PBR, with no diagnostic from "
-        "realitytool or usdchecker. Regenerate with "
+        "Where this repo's MaterialX manifest disagrees with RealityKit's own "
+        "nodedef store, per declared MaterialX version. `inputs` lists inputs we "
+        "declare that the shipped nodedef does not; `unresolved` lists nodedefs "
+        "that do not exist at that version at all. Authoring either makes "
+        "RealityKit's shader compiler discard the whole material's graph and "
+        "substitute default PBR, with no diagnostic from realitytool or "
+        "usdchecker. The manifest is version-agnostic and cannot express this "
+        "split, which is why the table exists. Regenerate with "
         "scripts/dump_rcp_nodedef_inputs.py on a machine with Reality Composer Pro."
     )
     document["_source"] = (
@@ -173,7 +181,15 @@ def main() -> int:
     )
     document["_rcp_build"] = rcp_build()
     document["by_version"] = collections.OrderedDict(
-        (version, collections.OrderedDict(sorted(entries.items())))
+        (
+            version,
+            collections.OrderedDict(
+                (
+                    ("inputs", collections.OrderedDict(sorted(entries["inputs"].items()))),
+                    ("unresolved", sorted(entries["unresolved"])),
+                )
+            ),
+        )
         for version, entries in sorted(gaps.items())
     )
     rendered = json.dumps(document, indent=2) + "\n"

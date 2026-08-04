@@ -1184,8 +1184,11 @@ def _nodedef_input_gaps() -> dict[str, dict[str, frozenset[str]]]:
             raw = json.loads(path.read_text(encoding="utf-8"))
             _NODEDEF_INPUT_GAPS = {
                 version: {
-                    nodedef: frozenset(inputs)
-                    for nodedef, inputs in entries.items()
+                    "inputs": {
+                        nodedef: frozenset(inputs)
+                        for nodedef, inputs in (entries.get("inputs") or {}).items()
+                    },
+                    "unresolved": frozenset(entries.get("unresolved") or ()),
                 }
                 for version, entries in (raw.get("by_version") or {}).items()
             }
@@ -1242,7 +1245,26 @@ def _check_materialx_node_inputs(
         if not shader_id.startswith("ND_"):
             continue
         version = _declared_mtlx_version(prim)
-        absent = (gaps.get(version) or {}).get(shader_id)
+        entries = gaps.get(version) or {}
+
+        if shader_id in (entries.get("unresolved") or ()):
+            report.add(
+                "error",
+                "MATERIALX_NODEDEF_ABSENT_AT_DECLARED_VERSION",
+                (
+                    "Shader authors a nodedef that does not exist at the "
+                    "MaterialX version this material claims. RealityKit keeps a "
+                    "separate nodedef store per version; a node missing from the "
+                    "bound one costs the whole material its shader graph, "
+                    "silently, and the object renders untextured."
+                ),
+                prim.GetPath(),
+                nodedef=shader_id,
+                mtlx_version=version,
+            )
+            continue
+
+        absent = (entries.get("inputs") or {}).get(shader_id)
         if not absent:
             continue
         authored = sorted(

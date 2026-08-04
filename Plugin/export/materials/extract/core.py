@@ -1554,10 +1554,21 @@ def _resolve_socket_value(
             space = getattr(from_node, "space", None)
             if space:
                 space = str(space).upper()
+                # Blender 5.2's enum is TANGENT / OBJECT / WORLD /
+                # BLENDER_OBJECT / BLENDER_WORLD. The mapping must be total:
+                # every downstream guard reads an *absent* space as tangent, so
+                # a value that matched nothing here was silently decoded in the
+                # wrong basis rather than refused. Order matters - BLENDER_OBJECT
+                # contains "OBJECT". The final else keeps a future enum value
+                # arriving as a non-tangent token instead of vanishing.
                 if "TANGENT" in space:
                     resolved["space"] = "tangent"
                 elif "OBJECT" in space:
                     resolved["space"] = "object"
+                elif "WORLD" in space:
+                    resolved["space"] = "world"
+                else:
+                    resolved["space"] = space.lower()
         return resolved
 
     if node_type == 'BUMP':
@@ -2465,29 +2476,44 @@ def _resolve_socket_value(
             cache,
             default=0.5,
         )
-        distort_expr = _expr_from_socket(
-            from_node.inputs.get('Distortion') if hasattr(from_node, "inputs") else None,
+        lacunarity_expr = _expr_from_socket(
+            from_node.inputs.get('Lacunarity') if hasattr(from_node, "inputs") else None,
             visited,
             channel,
             provenance,
             cache,
-            default=0.0,
+            default=2.0,
         )
-        node_id = _nodedef_for("unifiednoise3d", "float")
-        inputs = {
-            "position": vector_expr,
-            "freq": _make_node_expr(
+        # ND_fractal3d, not ND_unifiednoise3d: the latter exists only in
+        # RealityKit's MaterialX 1.39 nodedef store and we declare 1.38, where a
+        # missing nodedef costs the material its entire shader graph in silence.
+        # fractal3d resolves at both versions, and its fBm - octaves,
+        # lacunarity, diminishing amplitude - is the closer match to Blender's
+        # Noise Texture anyway.
+        #
+        # It has no frequency input, so Scale is folded into the sample position
+        # exactly as the Voronoi branch below already does. Distortion has no
+        # equivalent and is dropped; the caller already warns that procedural
+        # noise will not match Blender pixel-for-pixel.
+        if not _expr_is_constant(scale_expr, 1.0):
+            scale_vector = _make_node_expr(
                 _nodedef_for("combine3", "vector3"),
                 {"in1": scale_expr, "in2": scale_expr, "in3": scale_expr},
-            ),
-            "offset": _constant_expr((0.0, 0.0, 0.0)),
-            "jitter": distort_expr,
-            "octaves": detail_expr,
-            "lacunarity": _constant_expr(2.0),
-            "diminish": rough_expr,
-            "type": _constant_expr(0),
-        }
-        return _make_node_expr(node_id, inputs)
+            )
+            vector_expr = _make_node_expr(
+                _nodedef_for("multiply", "vector3"),
+                {"in1": vector_expr, "in2": scale_vector},
+            )
+        return _make_node_expr(
+            _nodedef_for("fractal3d", "float"),
+            {
+                "position": vector_expr,
+                "octaves": detail_expr,
+                "lacunarity": lacunarity_expr,
+                "diminish": rough_expr,
+                "amplitude": _constant_expr(1.0),
+            },
+        )
 
     if node_type == 'TEX_VORONOI':
         vector_expr = _procedural_vector_expr(

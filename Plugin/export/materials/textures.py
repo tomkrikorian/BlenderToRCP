@@ -5,7 +5,7 @@ Texture authoring helpers for MaterialX USD graphs.
 import math
 from typing import Any, Dict, Optional, Tuple
 
-from ..usd_utils import Sdf, UsdShade
+from ..usd_utils import Gf, Sdf, UsdShade
 from ...manifest.materialx_nodes import (
     select_node_def_for_node,
     select_nodedef_name_for_node,
@@ -366,13 +366,24 @@ def _postprocess_texture_output(
         in_input.ConnectToSource(texture_output)
 
         if normalmap_supports_only_input:
-            return normalmap_shader.GetOutput("out") or normalmap_shader.CreateOutput(
+            decoded = normalmap_shader.GetOutput("out") or normalmap_shader.CreateOutput(
                 "out", Sdf.ValueTypeNames.Float3
             )
+            return _apply_tangent_space_normal_strength(
+                stage, normalmap_path, decoded, strength_value
+            )
 
+        if space not in {"", "tangent"}:
+            raise ValueError(
+                f"Normal Map space {space!r} cannot be represented. "
+                "ND_normalmap's space enum is tangent/object only, it returns a "
+                "world-space normal on both branches, and its scale input is "
+                "ignored unless space is tangent - so there is no node that can "
+                "carry this. Bake a tangent-space normal map instead."
+            )
         if strength_value is not None and abs(strength_value - 1.0) > 1e-6:
             normalmap_shader.CreateInput("scale", Sdf.ValueTypeNames.Float).Set(strength_value)
-        if space in {"tangent", "object"}:
+        if space == "tangent":
             normalmap_shader.CreateInput("space", Sdf.ValueTypeNames.String).Set(space)
         return normalmap_shader.GetOutput("out") or normalmap_shader.CreateOutput(
             "out", Sdf.ValueTypeNames.Float3
@@ -739,9 +750,69 @@ def _normal_map_space(texture_spec: Dict[str, Any]) -> str:
 
 
 def _can_use_realitykit_normal_map_decode(strength_value: Optional[float], space: str) -> bool:
-    strength_is_default = strength_value is None or abs(strength_value - 1.0) <= 1e-6
-    space_is_default = space in {"", "tangent"}
-    return strength_is_default and space_is_default
+    """Whether the plain decode node can carry this Normal Map node.
+
+    Only the *space* decides. Strength used to force the ``ND_normalmap``
+    fallback, which was the wrong trade: that node returns a world/anchor-space
+    normal on both of its branches, while ``ND_realitykit_pbr_surfaceshader``'s
+    ``normal`` input is tangent-space. Turning a routine Strength dial silently
+    swapped a correct decode for a wrong-basis one. Strength is now expressed in
+    tangent space instead - see ``_apply_tangent_space_normal_strength``.
+    """
+    del strength_value
+    return space in {"", "tangent"}
+
+
+def _apply_tangent_space_normal_strength(
+    stage, normalmap_path: str, decoded_output, strength_value: Optional[float]
+):
+    """Express Blender's Normal Map Strength in tangent space.
+
+    Blender 5.2 has two strength paths, and which one runs depends on the mesh
+    (``intern/cycles/kernel/osl/shaders/node_normal_map.osl``, readable in the
+    shipped ``node_normal_map.oso``)::
+
+        if (!linear_interpolate_strength) {          # flat-shaded
+            mcolor[0] *= Strength; mcolor[1] *= Strength;
+            mcolor[2] = mix(1.0, mcolor[2], clamp(Strength, 0.0, 1.0));
+        }
+        ...
+        if (linear_interpolate_strength && Strength != 1.0)   # smooth-shaded
+            Normal = normalize(N + (Normal - N) * max(Strength, 0.0));
+
+    ``linear_interpolate_strength`` is set inside ``if (is_smooth)``, so the
+    second form is what almost all real geometry uses. In tangent space the
+    shading normal N is (0, 0, 1), which makes it a plain mix toward the
+    geometric normal followed by a renormalize. That is what we author.
+
+    Flat-shaded meshes therefore differ slightly from Blender - but only in
+    magnitude along a correct axis, where the previous behaviour was a normal in
+    the wrong *space* entirely.
+    """
+    if strength_value is None or abs(strength_value - 1.0) <= 1e-6:
+        return decoded_output
+
+    # validate.py refuses a *linked* Strength, so this is a compile-time
+    # constant and max(s, 0) folds here rather than needing a live math node.
+    factor = max(float(strength_value), 0.0)
+
+    mix_shader = UsdShade.Shader(stage.DefinePrim(f"{normalmap_path}_strength", "Shader"))
+    mix_shader.CreateIdAttr("ND_mix_vector3")
+    mix_shader.CreateInput("fg", Sdf.ValueTypeNames.Float3).ConnectToSource(decoded_output)
+    mix_shader.CreateInput("bg", Sdf.ValueTypeNames.Float3).Set(Gf.Vec3f(0.0, 0.0, 1.0))
+    mix_shader.CreateInput("mix", Sdf.ValueTypeNames.Float).Set(factor)
+    mixed = mix_shader.GetOutput("out") or mix_shader.CreateOutput(
+        "out", Sdf.ValueTypeNames.Float3
+    )
+
+    normalize_shader = UsdShade.Shader(
+        stage.DefinePrim(f"{normalmap_path}_normalize", "Shader")
+    )
+    normalize_shader.CreateIdAttr("ND_normalize_vector3")
+    normalize_shader.CreateInput("in", Sdf.ValueTypeNames.Float3).ConnectToSource(mixed)
+    return normalize_shader.GetOutput("out") or normalize_shader.CreateOutput(
+        "out", Sdf.ValueTypeNames.Float3
+    )
 
 
 def _resolve_texture_output(

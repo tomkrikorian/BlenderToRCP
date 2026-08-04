@@ -64,11 +64,14 @@ def test_gap_table_is_present_and_names_the_rcp_build_it_was_measured_on():
     by_version = table["by_version"]
     assert set(by_version) == {"1.38", "1.39"}
     # The two that cost scene 15 its materials.
-    assert "blend" in by_version["1.38"]["ND_triplanarprojection_color3"]
-    assert "operationorder" in by_version["1.38"]["ND_place2d_vector2"]
+    assert "blend" in by_version["1.38"]["inputs"]["ND_triplanarprojection_color3"]
+    assert "operationorder" in by_version["1.38"]["inputs"]["ND_place2d_vector2"]
     # And the version split is real: 1.39 has them, so they must not be listed.
-    assert "ND_triplanarprojection_color3" not in by_version["1.39"]
-    assert "ND_place2d_vector2" not in by_version["1.39"]
+    assert "ND_triplanarprojection_color3" not in by_version["1.39"]["inputs"]
+    assert "ND_place2d_vector2" not in by_version["1.39"]["inputs"]
+    # ND_normalmap is the mirror case: fine at 1.38, gone at 1.39.
+    assert "ND_normalmap" in by_version["1.39"]["unresolved"]
+    assert "ND_normalmap" not in by_version["1.38"]["unresolved"]
 
 
 def test_triplanar_blend_is_refused_at_the_version_we_declare():
@@ -149,5 +152,23 @@ def test_no_atan2_variant_is_listed_as_having_a_phantom_input():
     of the gap table at every version - otherwise the manifest regressed."""
     table = json.loads(GAP_TABLE.read_text(encoding="utf-8"))
     for version, entries in table["by_version"].items():
-        offenders = [name for name in entries if name.startswith("ND_atan2_")]
+        offenders = [
+            name for name in entries["inputs"] if name.startswith("ND_atan2_")
+        ]
         assert offenders == [], (version, offenders)
+
+
+def test_a_nodedef_missing_at_the_declared_version_is_refused():
+    """ND_normalmap resolves at 1.38 and not at 1.39. A material declaring 1.39
+    and authoring it loses its whole shader graph, and neither realitytool nor
+    usdchecker says a word - the same class as the input gate above, one level
+    up."""
+    stage, prim = _material_with_shader(
+        "ND_normalmap", {"scale": (Sdf.ValueTypeNames.Float, 0.6)}, mtlx_version="1.39"
+    )
+    assert "MATERIALX_NODEDEF_ABSENT_AT_DECLARED_VERSION" in _codes(_run(prim))
+
+    stage, prim = _material_with_shader(
+        "ND_normalmap", {"scale": (Sdf.ValueTypeNames.Float, 0.6)}, mtlx_version="1.38"
+    )
+    assert _codes(_run(prim)) == set()
