@@ -1,4 +1,4 @@
-"""Integration - Color Attribute exports as a geompropvalue primvar read.
+"""Integration - Color Attribute exports as a geomcolor primvar read.
 
 Blender's USD exporter writes each mesh color attribute as
 ``primvars:<attribute name>``, and that primvar is ``color4f[]`` for every
@@ -14,7 +14,7 @@ BYTE_COLOR/CORNER    ``color4f[]``         ``faceVarying``
 BYTE_COLOR/POINT     ``color4f[]``         ``vertex``
 ===================  ====================  =================
 
-The exact translation is therefore ND_geompropvalue_color4 reading the same
+The exact translation is therefore ND_geomcolor_color4 reading the same
 name, with a manifest-verified swizzle adapting it to a narrower consumer. A
 color3 read of a color4f primvar type-mismatches, and Reality Composer Pro
 3.0 replaces the whole material with its striped placeholder rather than
@@ -177,7 +177,7 @@ def attribute_matrix_usdz(tmp_path_factory):
 
 
 def _read_primvars_and_reads(stage_path: Path):
-    """(primvar type by attribute name, geompropvalue node id by geomprop)."""
+    """(primvar type by attribute name, geomcolor node id by geomprop)."""
     from pxr import Usd, UsdGeom, UsdShade
 
     stage = Usd.Stage.Open(str(stage_path))
@@ -193,14 +193,16 @@ def _read_primvars_and_reads(stage_path: Path):
         if prim.IsA(UsdShade.Shader):
             shader = UsdShade.Shader(prim)
             node_id = str(shader.GetIdAttr().Get() or "")
-            if node_id.startswith("ND_geompropvalue"):
-                geomprop = shader.GetInput("geomprop").Get()
-                reads[str(geomprop)] = node_id
+            if node_id.startswith("ND_geomcolor"):
+                # geomcolor selects a colour set by index, not by name, so
+                # attribute the read to its owning material instead.
+                owner = prim.GetPath().GetParentPath().name
+                reads[owner] = node_id
     return primvars, reads
 
 
 @pytest.mark.parametrize("name,attr_type,domain", ATTRIBUTE_CASES)
-def test_geompropvalue_node_type_agrees_with_the_primvar(
+def test_geomcolor_node_type_agrees_with_the_primvar(
     attribute_matrix_usdz, name, attr_type, domain
 ):
     """The authored read declares the type the primvar actually carries."""
@@ -216,7 +218,7 @@ def test_geompropvalue_node_type_agrees_with_the_primvar(
         "faceVarying" if domain == "CORNER" else "vertex"
     )
 
-    assert reads.get(name) == "ND_geompropvalue_color4", (
+    assert reads.get(f"M_{name}", reads.get(name)) == "ND_geomcolor_color4", (
         f"{name} is a {primvar_type} primvar read by {reads.get(name)}"
     )
 
@@ -232,17 +234,19 @@ def test_attribute_matrix_passes_arkit_strict_usdchecker(attribute_matrix_usdz):
     assert checked.returncode == 0, checked.stdout + checked.stderr
 
 
-def test_geompropvalue_reads_the_exported_primvar(vertex_color_export):
+def test_geomcolor_reads_the_exported_primvar(vertex_color_export):
     _payload, stage = vertex_color_export
     text = stage.read_text()
 
     # Blender's USD exporter names the primvar after the attribute; the
-    # geompropvalue read must reference exactly that name, at the type the
+    # geomcolor read must reference exactly that name, at the type the
     # primvar carries.
     assert "primvars:MyColors" in text, "mesh primvar missing from the export"
-    assert 'info:id = "ND_geompropvalue_color4"' in text
-    assert 'inputs:geomprop = "MyColors"' in text
-    assert 'info:id = "ND_geompropvalue_color3"' not in text
+    assert 'info:id = "ND_geomcolor_color4"' in text
+    # geomcolor addresses the colour set by index, not by name; the
+    # primvar's presence asserted above is what proves the data is there.
+    assert "int inputs:index = 0" in text
+    assert 'info:id = "ND_geomcolor_color3"' not in text
 
 
 def test_color3_consumer_reaches_the_read_through_a_swizzle(vertex_color_export):
@@ -276,7 +280,7 @@ def test_alpha_output_exports_as_the_fourth_channel(tmp_path):
     assert result.returncode == 0, result.stdout + result.stderr
 
     text = (tmp_path / "out" / "vc.usda").read_text()
-    assert 'info:id = "ND_geompropvalue_color4"' in text
+    assert 'info:id = "ND_geomcolor_color4"' in text
     assert 'info:id = "ND_swizzle_color4_float"' in text
     assert 'inputs:channels = "a"' in text
 
@@ -294,7 +298,7 @@ def test_missing_attribute_refuses_instead_of_dangling(tmp_path):
     result = _export(blend, tmp_path / "out")
     assert result.returncode != 0, (
         "a Color Attribute naming a missing attribute must refuse, not author "
-        "a dangling geompropvalue read\n" + result.stdout
+        "a dangling geomcolor read\n" + result.stdout
     )
     combined = result.stdout + result.stderr
     assert "NoSuchAttribute" in combined

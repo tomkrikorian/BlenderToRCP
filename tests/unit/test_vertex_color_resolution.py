@@ -1,4 +1,4 @@
-"""Color Attribute (VERTEX_COLOR) -> ND_geompropvalue_color4 translation.
+"""Color Attribute (VERTEX_COLOR) -> ND_geomcolor_color4 translation.
 
 Blender 5.2's Color Attribute node (bl_idname ShaderNodeVertexColor, node
 type VERTEX_COLOR) reads a mesh color attribute; Blender's USD exporter
@@ -16,7 +16,7 @@ BYTE_COLOR/POINT     ``color4f[]``         ``vertex``
 ===================  ====================  =================
 
 The domain only picks the interpolation; the value type is four-channel in
-every case. The exact translation is therefore a *color4* geompropvalue read
+every case. The exact translation is therefore a *color4* geomcolor read
 of the same name, adapted to whatever the consumer needs with a
 manifest-verified swizzle. A color3 read of a color4f primvar is a type
 mismatch, and Reality Composer Pro 3.0 replaces the whole material with its
@@ -60,18 +60,18 @@ def _authored_node_ids(expr):
     return ids
 
 
-def _geompropvalue_read(expr):
+def _geomcolor_read(expr):
     """The geompropvalue node at the root of an expression tree."""
     for node_id in _authored_node_ids(expr):
-        assert "geompropvalue" in node_id or "swizzle" in node_id or (
+        assert "geomcolor" in node_id or "swizzle" in node_id or (
             "luminance" in node_id
         ), node_id
     node = expr
     while isinstance(node, dict) and node.get("kind") == "node":
-        if node["node_id"].startswith("ND_geompropvalue"):
+        if node["node_id"].startswith("ND_geomcolor"):
             return node
         node = (node.get("inputs") or {}).get("in")
-    raise AssertionError(f"no geompropvalue read in {expr}")
+    raise AssertionError(f"no geomcolor read in {expr}")
 
 
 def _assert_manifest_backed(expr):
@@ -174,7 +174,7 @@ def test_float_color_corner_reads_the_type_blender_writes(monkeypatch):
 
     Measured export of a cube carrying a FLOAT_COLOR/CORNER attribute:
     ``primvars:Paint  color4f[]  interpolation=faceVarying  count=24``. A
-    ND_geompropvalue_color3 read of that primvar is the type mismatch RCP 3.0
+    ND_geomcolor_color3 read of that primvar is the type mismatch RCP 3.0
     replaces with its striped placeholder.
     """
     node = _blender_scene(
@@ -185,9 +185,9 @@ def test_float_color_corner_reads_the_type_blender_writes(monkeypatch):
     assert core._color_attribute_primvar_type(node, "Paint") == "color4"
 
     expr = _resolve(node)
-    read = _geompropvalue_read(expr)
-    assert read["node_id"] == "ND_geompropvalue_color4"
-    assert read["inputs"]["geomprop"] == {"kind": "constant", "value": "Paint"}
+    read = _geomcolor_read(expr)
+    assert read["node_id"] == "ND_geomcolor_color4"
+    assert read["inputs"]["index"] == {"kind": "constant", "value": 0}
     _assert_manifest_backed(expr)
 
 
@@ -214,8 +214,8 @@ def test_every_attribute_type_and_domain_reads_color4(
         attributes=[_FakeColorAttribute("MyColors", data_type, domain)],
     )
     assert core._color_attribute_primvar_type(node, "MyColors") == "color4"
-    assert _geompropvalue_read(_resolve(node))["node_id"] == (
-        "ND_geompropvalue_color4"
+    assert _geomcolor_read(_resolve(node))["node_id"] == (
+        "ND_geomcolor_color4"
     )
 
 
@@ -233,13 +233,13 @@ def test_unknown_attribute_type_still_reads_color4(monkeypatch):
     assert core._color_attribute_primvar_type(node, "MyColors") == "color4"
 
 
-def test_color_attribute_authors_geompropvalue_read():
+def test_color_attribute_authors_geomcolor_read():
     expr = _resolve(_vertex_color_node("MyColors"))
-    read = _geompropvalue_read(expr)
+    read = _geomcolor_read(expr)
     assert read["kind"] == "node"
-    assert read["node_id"] == "ND_geompropvalue_color4"
+    assert read["node_id"] == "ND_geomcolor_color4"
     assert read["node_id"] in _MANIFEST_NODES
-    assert read["inputs"]["geomprop"] == {"kind": "constant", "value": "MyColors"}
+    assert read["inputs"]["index"] == {"kind": "constant", "value": 0}
 
 
 def test_color3_consumer_extracts_rgb_from_the_color4_read():
@@ -252,7 +252,7 @@ def test_color3_consumer_extracts_rgb_from_the_color4_read():
     expr = _resolve(_vertex_color_node("MyColors"), expected_type="color3")
     assert expr["node_id"] == "ND_swizzle_color4_color3"
     assert expr["inputs"]["channels"] == {"kind": "constant", "value": "rgb"}
-    assert expr["inputs"]["in"]["node_id"] == "ND_geompropvalue_color4"
+    assert expr["inputs"]["in"]["node_id"] == "ND_geomcolor_color4"
     _assert_manifest_backed(expr)
 
     signature = _MANIFEST["nodes"]["ND_swizzle_color4_color3"]["signature"]
@@ -266,7 +266,7 @@ def test_float_consumer_gets_blender_luminance_conversion():
     assert luminance["node_id"] == "ND_luminance_color3"
     rgb = luminance["inputs"]["in"]
     assert rgb["node_id"] == "ND_swizzle_color4_color3"
-    assert rgb["inputs"]["in"]["node_id"] == "ND_geompropvalue_color4"
+    assert rgb["inputs"]["in"]["node_id"] == "ND_geomcolor_color4"
     _assert_manifest_backed(expr)
 
 
@@ -276,7 +276,7 @@ def test_channel_consumer_gets_a_swizzle():
     )
     assert expr["node_id"] == "ND_swizzle_color4_float"
     assert expr["inputs"]["channels"] == {"kind": "constant", "value": "g"}
-    assert expr["inputs"]["in"]["node_id"] == "ND_geompropvalue_color4"
+    assert expr["inputs"]["in"]["node_id"] == "ND_geomcolor_color4"
     _assert_manifest_backed(expr)
 
 
@@ -308,7 +308,7 @@ def test_invalid_primvar_identifier_is_refused():
 def test_alpha_output_reads_the_fourth_channel():
     """The Alpha output is exact now that the read is four-channel.
 
-    It was refused while the read was ND_geompropvalue_color3, which has no
+    It was refused while the read was ND_geomcolor_color3, which has no
     fourth channel to name. The primvar Blender writes is color4f, so alpha
     is a plain swizzle of the same read - nothing is approximated.
     """
@@ -317,7 +317,7 @@ def test_alpha_output_reads_the_fourth_channel():
     )
     assert expr["node_id"] == "ND_swizzle_color4_float"
     assert expr["inputs"]["channels"] == {"kind": "constant", "value": "a"}
-    assert expr["inputs"]["in"]["node_id"] == "ND_geompropvalue_color4"
+    assert expr["inputs"]["in"]["node_id"] == "ND_geomcolor_color4"
     _assert_manifest_backed(expr)
 
 

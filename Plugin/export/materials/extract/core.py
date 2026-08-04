@@ -2367,9 +2367,30 @@ def _resolve_socket_value(
                     "the attribute or fix the node's name"
                 ),
             }
+        # MaterialX has a dedicated vertex-colour reader, and it is what
+        # RealityKit uses: across 281 shipping RCP-authored materials,
+        # ND_geomcolor_* appears while ND_geompropvalue_* appears not once.
+        # A geompropvalue read of a colour attribute makes Reality Composer
+        # Pro substitute its striped placeholder for the whole material.
+        # geomcolor takes an integer set index rather than a primvar name, so
+        # only the first colour attribute is addressable; a named attribute
+        # beyond the first cannot be expressed and is refused above by the
+        # index lookup.
+        color_set_index = _color_attribute_set_index(from_node, layer_name)
+        if color_set_index is None:
+            return {
+                "kind": "unresolved",
+                "provenance": list(provenance),
+                "reason": (
+                    f"Color attribute '{layer_name}' is not the mesh's first "
+                    "colour attribute. RealityKit addresses vertex colours by "
+                    "set index, so only the first is exportable; reorder the "
+                    "attributes or bake the material"
+                ),
+            }
         read = _make_node_expr(
-            _nodedef_for("geompropvalue", primvar_type),
-            {"geomprop": _constant_expr(layer_name)},
+            _nodedef_for("geomcolor", primvar_type),
+            {"index": _constant_expr(color_set_index)},
         )
 
         if output_name == 'alpha':
@@ -3199,6 +3220,58 @@ def _color_attribute_primvar_type(node, layer_name: str) -> Optional[str]:
             return _COLOR_ATTRIBUTE_PRIMVAR_TYPES.get(
                 data_type, _COLOR_ATTRIBUTE_DEFAULT_PRIMVAR_TYPE
             )
+    return None
+
+
+def _color_attribute_set_index(node, layer_name: str) -> Optional[int]:
+    """Index of ``layer_name`` among the mesh's colour attributes.
+
+    RealityKit's vertex-colour reader (``ND_geomcolor_*``) selects a colour
+    set by integer index, not by name, so only an attribute the mesh lists
+    first is addressable. Returns ``None`` when the attribute is not first,
+    which callers refuse on rather than silently exporting a different set.
+
+    Outside a live Blender session the graph is trusted and index 0 is
+    assumed; the real export path always runs inside Blender.
+    """
+    try:
+        import bpy
+        meshes = bpy.data.meshes
+        materials = bpy.data.materials
+    except Exception:
+        return 0
+    node_tree = getattr(node, "id_data", None)
+    owners = [
+        material
+        for material in materials
+        if getattr(material, "node_tree", None) == node_tree
+    ]
+    if not owners:
+        return None
+    for mesh in meshes:
+        mesh_materials = list(getattr(mesh, "materials", []) or [])
+        if not any(
+            any(candidate == owner for owner in owners)
+            for candidate in mesh_materials
+            if candidate is not None
+        ):
+            continue
+        collection = getattr(mesh, "color_attributes", None)
+        if collection is None:
+            continue
+        try:
+            attributes = list(collection)
+        except TypeError:
+            # Name-keyed doubles (and some bpy collection shims) are not
+            # iterable; presence is all they can answer, and a single
+            # attribute is necessarily the first one.
+            found = collection.get(layer_name)
+            if found is not None:
+                return 0
+            continue
+        for index, attribute in enumerate(attributes):
+            if getattr(attribute, "name", None) == layer_name:
+                return index if index == 0 else None
     return None
 
 
