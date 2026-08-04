@@ -1,0 +1,81 @@
+{
+  "_doc": "Inputs this repo's MaterialX manifest declares that RealityKit's own nodedef store does not, per declared MaterialX version. Authoring one of these makes RealityKit's shader compiler discard the whole material's graph and substitute default PBR, with no diagnostic from realitytool or usdchecker. Regenerate with scripts/dump_rcp_nodedef_inputs.py on a machine with Reality Composer Pro.",
+  "_source": "ShaderGraph.framework SGNodeDefStore (the resolver RCP itself uses)",
+  "_rcp_build": "80.0.1.500.1",
+  "by_version": {
+    "1.38": {
+      "ND_UsdPreviewSurface_surfaceshader": [
+        "opacityMode"
+      ],
+      "ND_heighttonormal_vector3": [
+        "texcoord"
+      ],
+      "ND_normalmap_vector2": [
+        "bitangent"
+      ],
+      "ND_place2d_vector2": [
+        "operationorder"
+      ],
+      "ND_standard_surface_to_UsdPreviewSurface": [
+        "subsurface",
+        "subsurface_color"
+      ],
+      "ND_surfacematerial": [
+        "backsurfaceshader"
+      ],
+      "ND_triplanarprojection_color3": [
+        "upaxis",
+        "blend"
+      ],
+      "ND_triplanarprojection_color4": [
+        "upaxis",
+        "blend"
+      ],
+      "ND_triplanarprojection_float": [
+        "upaxis",
+        "blend"
+      ],
+      "ND_triplanarprojection_vector2": [
+        "upaxis",
+        "blend"
+      ],
+      "ND_triplanarprojection_vector3": [
+        "upaxis",
+        "blend"
+      ],
+      "ND_triplanarprojection_vector4": [
+        "upaxis",
+        "blend"
+      ],
+      "ND_worleynoise2d_float": [
+        "style"
+      ],
+      "ND_worleynoise2d_vector2": [
+        "style"
+      ],
+      "ND_worleynoise2d_vector3": [
+        "style"
+      ],
+      "ND_worleynoise3d_float": [
+        "style"
+      ],
+      "ND_worleynoise3d_vector2": [
+        "style"
+      ],
+      "ND_worleynoise3d_vector3": [
+        "style"
+      ]
+    },
+    "1.39": {
+      "ND_UsdUVTexture": [
+        "file",
+        "st",
+        "wrapS",
+        "wrapT",
+        "fallback",
+        "scale",
+        "bias"
+      ]
+    }
+  }
+}

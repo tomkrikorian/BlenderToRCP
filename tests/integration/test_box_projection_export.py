@@ -2,9 +2,9 @@
 
 Pre-fix, every non-FLAT projection fell through the FLAT path: a Box-projected
 texture silently exported as a plain UV-sampled image. Box now authors
-ND_triplanarprojection_color3 with the same (staged) file on filex/filey/filez
-and the node's Projection Blend on ``blend``, plus an intentional-inexactness
-warning; Sphere/Tube refuse the export with bake advice.
+ND_triplanarprojection_color3 with the same (staged) file on filex/filey/filez,
+plus an intentional-inexactness warning; Sphere/Tube refuse the export with bake
+advice. Projection Blend is not carried - see the assertion below for why.
 """
 
 from __future__ import annotations
@@ -123,7 +123,13 @@ def test_box_projection_authors_triplanar(box_export):
     assert staged.startswith("textures/"), staged
     assert (stage.parent / staged).is_file(), f"staged texture missing: {staged}"
 
-    assert re.search(r'inputs:blend = 0\.3\b', text), "Projection Blend was dropped"
+    # Projection Blend is deliberately not carried. `blend` is a MaterialX 1.39
+    # input and we declare 1.38, where RealityKit's compiler responds to an
+    # undeclared input by discarding the material's whole shader graph without
+    # saying so - measured with `realitytool compile`. A fixed blend width beats
+    # an untextured object.
+    assert "inputs:blend" not in text
+    assert "inputs:upaxis" not in text
 
 
 def test_box_projection_file_carries_a_color_space(box_export):

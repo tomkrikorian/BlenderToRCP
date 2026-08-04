@@ -584,14 +584,17 @@ def _create_place2d_node(
     pivot = mapping.get('pivot') or (0.0, 0.0)
     rotate = mapping.get('rotate') or 0.0
     rotate_degrees = math.degrees(rotate)
-    operationorder = mapping.get('operationorder')
 
     place_shader.CreateInput("offset", Sdf.ValueTypeNames.Float2).Set(offset)
     place_shader.CreateInput("scale", Sdf.ValueTypeNames.Float2).Set(scale)
     place_shader.CreateInput("pivot", Sdf.ValueTypeNames.Float2).Set(pivot)
     place_shader.CreateInput("rotate", Sdf.ValueTypeNames.Float).Set(rotate_degrees)
-    if operationorder is not None:
-        place_shader.CreateInput("operationorder", Sdf.ValueTypeNames.Int).Set(int(operationorder))
+    # `operationorder` only exists on MaterialX 1.39's place2d. We declare 1.38,
+    # where authoring it costs the whole material: RealityKit's compiler drops a
+    # material's entire shader graph when it meets an input its nodedef does not
+    # declare, and reports nothing. Blender's Mapping node is fixed SRT, which is
+    # exactly what 1.38's place2d does, so there is nothing to express here.
+    # See `_shipped_nodedef_inputs` in realitykit_preflight for the general gate.
 
     return place_shader.CreateOutput("out", Sdf.ValueTypeNames.Float2)
 

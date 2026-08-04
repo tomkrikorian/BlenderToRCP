@@ -551,10 +551,44 @@ def _parse_runtime_nodedefs(runtime_root: Path) -> Dict[str, List[Dict[str, Any]
     return decls
 
 
+def _renamed_shipped_inputs(
+    entry: Dict[str, Any],
+    decl: Dict[str, Any],
+) -> List[tuple] | None:
+    """Detect a pure positional rename of an entry's inputs, or return None.
+
+    The References bundle is vanilla upstream MaterialX; the library
+    ShaderGraph actually loads is Apple's, and the two disagree on at least
+    one interface. ``atan2`` is the measured case: upstream 1.38 says
+    ``in1``/``in2`` while every library RealityKit binds says ``iny``/``inx``.
+
+    That difference is not cosmetic. Measured with ``realitytool compile``, an
+    input the bound nodedef does not declare makes the compiler discard the
+    material's whole shader graph and substitute default PBR, silently. So
+    where the shipped declaration has the same inputs in the same order with
+    the same types under different names, the shipped names win - they are the
+    ones RealityKit will look for.
+
+    Returns the ``(old, new)`` pairs, or None when this is not a clean rename.
+    """
+    manifest_inputs = entry.get("inputs", [])
+    shipped_inputs = decl["info"].get("inputs", [])
+    if len(manifest_inputs) != len(shipped_inputs):
+        return None
+    renames = []
+    for mine, theirs in zip(manifest_inputs, shipped_inputs):
+        if _normalize_type(mine["type"]) != _normalize_type(theirs["type"]):
+            return None
+        if mine["name"] != theirs["name"]:
+            renames.append((mine["name"], theirs["name"]))
+    return renames or None
+
+
 def _merge_shipped_inputs(
     entry: Dict[str, Any],
     decl: Dict[str, Any],
     conflicts: List[tuple],
+    renamed: Dict[str, List[tuple]] | None = None,
 ) -> List[str]:
     """Add inputs the shipped declaration gained; never remove or retype.
 
@@ -562,6 +596,10 @@ def _merge_shipped_inputs(
     manifest input/output present with the same type. A type disagreement on
     a shared name is recorded as a conflict and the References version is
     left untouched.
+
+    One exception: when the shipped declaration is not a superset only because
+    it *renamed* inputs, the shipped names are adopted. See
+    ``_renamed_shipped_inputs`` for why silently keeping ours is unsafe.
     """
     manifest_inputs = {item["name"]: item for item in entry.get("inputs", [])}
     manifest_outputs = {item["name"]: item for item in entry.get("outputs", [])}
@@ -586,7 +624,22 @@ def _merge_shipped_inputs(
         return []
 
     if any(name not in shipped_inputs for name in manifest_inputs):
-        return []  # not a superset; additions would be ambiguous
+        # Not a superset. A pure positional rename is the one recoverable
+        # shape, and adopting the shipped names is mandatory rather than
+        # optional - authoring a name the bound nodedef lacks silently costs
+        # the whole material. Anything else stays ambiguous and is skipped.
+        renames = _renamed_shipped_inputs(entry, decl)
+        if renames is None:
+            return []
+        rename_map = dict(renames)
+        for item in entry["inputs"]:
+            if item["name"] in rename_map:
+                item["name"] = rename_map[item["name"]]
+        entry["signature"] = _signature_from_io(entry["inputs"], entry["outputs"])
+        entry["source_file"] = decl["relpath"]
+        if renamed is not None:
+            renamed[entry["nodedef_name"]] = renames
+        return []
     if any(name not in shipped_outputs for name in manifest_outputs):
         return []
 
@@ -610,11 +663,12 @@ def _apply_runtime_overlay(manifest: Dict[str, Any], runtime_root: Path) -> None
 
     # (a) Update existing entries whose shipped signature gained inputs.
     updated: Dict[str, List[str]] = {}
+    renamed: Dict[str, List[tuple]] = {}
     for nodedef_name, entry in manifest["nodes"].items():
         for decl in decls.get(nodedef_name, []):
             if _runtime_file_excluded(decl["relpath"]) or decl["deprecated"]:
                 continue
-            added = _merge_shipped_inputs(entry, decl, conflicts)
+            added = _merge_shipped_inputs(entry, decl, conflicts, renamed)
             if added:
                 updated.setdefault(nodedef_name, [])
                 updated[nodedef_name].extend(
@@ -627,6 +681,12 @@ def _apply_runtime_overlay(manifest: Dict[str, Any], runtime_root: Path) -> None
         print(
             f"Warning: type conflict for {nodedef_name} in {relpath}: {details}; "
             f"keeping the References signature"
+        )
+    for nodedef_name, pairs in sorted(renamed.items()):
+        spelled = ", ".join(f"{old} -> {new}" for old, new in pairs)
+        print(
+            f"Adopted shipped input names for {nodedef_name}: {spelled} "
+            f"(the References bundle disagrees with the library RealityKit binds)"
         )
 
     # (b) Add runtime-resolvable nodedefs the References bundle omits.
@@ -656,6 +716,9 @@ def _apply_runtime_overlay(manifest: Dict[str, Any], runtime_root: Path) -> None
         "shadergraph_version": RUNTIME_OVERLAY_SHADERGRAPH_VERSION,
         "entries_added": len(added_names),
         "updated_nodedefs": {name: updated[name] for name in sorted(updated)},
+        "renamed_inputs": {
+            name: [list(pair) for pair in pairs] for name, pairs in sorted(renamed.items())
+        },
         "provenance": (
             "Interface facts (names, types, defaults) measured from the installed "
             "ShaderGraph.framework MaterialX libraries; no .mtlx content is vendored."

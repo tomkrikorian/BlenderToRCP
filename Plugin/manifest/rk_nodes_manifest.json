@@ -25437,13 +25437,13 @@
       "nodegroup": "math",
       "inputs": [
         {
-          "name": "in1",
+          "name": "iny",
           "type": "float",
           "value": "0.0",
           "uniform": false
         },
         {
-          "name": "in2",
+          "name": "inx",
           "type": "float",
           "value": "1.0",
           "uniform": false
@@ -25455,7 +25455,7 @@
           "type": "float"
         }
       ],
-      "signature": "in[in1:float,in2:float]|out[out:float]",
+      "signature": "in[iny:float,inx:float]|out[out:float]",
       "policy": {
         "omitted_in_defs": false,
         "requires_ktx": false,
@@ -25464,7 +25464,7 @@
         "editor_unresolvable": false,
         "runtime_overlay": false
       },
-      "source_file": "References/MaterialX-definitions/stdlib_defs.mtlx"
+      "source_file": "MaterialX-1.38/MaterialX_NodeDefs/stdlib_defs.mtlx"
     },
     "ND_sin_vector2": {
       "nodedef_name": "ND_sin_vector2",
@@ -25623,13 +25623,13 @@
       "nodegroup": "math",
       "inputs": [
         {
-          "name": "in1",
+          "name": "iny",
           "type": "vector2",
           "value": "1.0, 1.0",
           "uniform": false
         },
         {
-          "name": "in2",
+          "name": "inx",
           "type": "vector2",
           "value": "0.0, 0.0",
           "uniform": false
@@ -25641,7 +25641,7 @@
           "type": "vector2"
         }
       ],
-      "signature": "in[in1:vector2,in2:vector2]|out[out:vector2]",
+      "signature": "in[iny:vector2,inx:vector2]|out[out:vector2]",
       "policy": {
         "omitted_in_defs": false,
         "requires_ktx": false,
@@ -25650,7 +25650,7 @@
         "editor_unresolvable": false,
         "runtime_overlay": false
       },
-      "source_file": "References/MaterialX-definitions/stdlib_defs.mtlx"
+      "source_file": "MaterialX-1.38/MaterialX_NodeDefs/stdlib_defs.mtlx"
     },
     "ND_sin_vector3": {
       "nodedef_name": "ND_sin_vector3",
@@ -25809,13 +25809,13 @@
       "nodegroup": "math",
       "inputs": [
         {
-          "name": "in1",
+          "name": "iny",
           "type": "vector3",
           "value": "1.0, 1.0, 1.0",
           "uniform": false
         },
         {
-          "name": "in2",
+          "name": "inx",
           "type": "vector3",
           "value": "0.0, 0.0, 0.0",
           "uniform": false
@@ -25827,7 +25827,7 @@
           "type": "vector3"
         }
       ],
-      "signature": "in[in1:vector3,in2:vector3]|out[out:vector3]",
+      "signature": "in[iny:vector3,inx:vector3]|out[out:vector3]",
       "policy": {
         "omitted_in_defs": false,
         "requires_ktx": false,
@@ -25836,7 +25836,7 @@
         "editor_unresolvable": false,
         "runtime_overlay": false
       },
-      "source_file": "References/MaterialX-definitions/stdlib_defs.mtlx"
+      "source_file": "MaterialX-1.38/MaterialX_NodeDefs/stdlib_defs.mtlx"
     },
     "ND_sin_vector4": {
       "nodedef_name": "ND_sin_vector4",
@@ -25995,13 +25995,13 @@
       "nodegroup": "math",
       "inputs": [
         {
-          "name": "in1",
+          "name": "iny",
           "type": "vector4",
           "value": "1.0, 1.0, 1.0, 1.0",
           "uniform": false
         },
         {
-          "name": "in2",
+          "name": "inx",
           "type": "vector4",
           "value": "0.0, 0.0, 0.0, 0.0",
           "uniform": false
@@ -26013,7 +26013,7 @@
           "type": "vector4"
         }
       ],
-      "signature": "in[in1:vector4,in2:vector4]|out[out:vector4]",
+      "signature": "in[iny:vector4,inx:vector4]|out[out:vector4]",
       "policy": {
         "omitted_in_defs": false,
         "requires_ktx": false,
@@ -26022,7 +26022,7 @@
         "editor_unresolvable": false,
         "runtime_overlay": false
       },
-      "source_file": "References/MaterialX-definitions/stdlib_defs.mtlx"
+      "source_file": "MaterialX-1.38/MaterialX_NodeDefs/stdlib_defs.mtlx"
     },
     "ND_sqrt_float": {
       "nodedef_name": "ND_sqrt_float",
@@ -62158,16 +62158,16 @@
         "in[iny:half4,inx:half4]|out[out:half4]": [
           "ND_atan2_half4"
         ],
-        "in[in1:float,in2:float]|out[out:float]": [
+        "in[iny:float,inx:float]|out[out:float]": [
           "ND_atan2_float"
         ],
-        "in[in1:vector2,in2:vector2]|out[out:vector2]": [
+        "in[iny:vector2,inx:vector2]|out[out:vector2]": [
           "ND_atan2_vector2"
         ],
-        "in[in1:vector3,in2:vector3]|out[out:vector3]": [
+        "in[iny:vector3,inx:vector3]|out[out:vector3]": [
           "ND_atan2_vector3"
         ],
-        "in[in1:vector4,in2:vector4]|out[out:vector4]": [
+        "in[iny:vector4,inx:vector4]|out[out:vector4]": [
           "ND_atan2_vector4"
         ]
       },
@@ -69459,6 +69459,48 @@
         ],
         "ND_worleynoise3d_vector3": [
           "style"
+        ]
+      },
+      "renamed_inputs": {
+        "ND_atan2_float": [
+          [
+            "in1",
+            "iny"
+          ],
+          [
+            "in2",
+            "inx"
+          ]
+        ],
+        "ND_atan2_vector2": [
+          [
+            "in1",
+            "iny"
+          ],
+          [
+            "in2",
+            "inx"
+          ]
+        ],
+        "ND_atan2_vector3": [
+          [
+            "in1",
+            "iny"
+          ],
+          [
+            "in2",
+            "inx"
+          ]
+        ],
+        "ND_atan2_vector4": [
+          [
+            "in1",
+            "iny"
+          ],
+          [
+            "in2",
+            "inx"
+          ]
         ]
       },
       "provenance": "Interface facts (names, types, defaults) measured from the installed ShaderGraph.framework MaterialX libraries; no .mtlx content is vendored."

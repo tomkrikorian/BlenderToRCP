@@ -110,8 +110,11 @@ def test_box_projection_authors_triplanar_with_same_file_on_all_axes():
         assert spec["type"] == "file_asset"
         assert spec["path"] == "/assets/tex.png"
         assert spec["colorspace"] == "srgb"
-    assert expr["inputs"]["blend"] == {"kind": "constant", "value": 0.4}
-    # upaxis stays unauthored: the nodedef default (Z) matches Blender.
+    # Neither `blend` nor `upaxis` exists on the triplanar nodedef RealityKit
+    # binds at MaterialX 1.38, which is the version we declare. Authoring one
+    # makes RealityKit discard the whole material's shader graph in silence, so
+    # Blender's Projection Blend is dropped rather than expressed.
+    assert "blend" not in expr["inputs"]
     assert "upaxis" not in expr["inputs"]
 
 

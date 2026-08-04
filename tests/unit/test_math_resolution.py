@@ -98,7 +98,9 @@ _TWO_INPUT_EXPECTED = {
     "MINIMUM": "ND_min_float",
     "MAXIMUM": "ND_max_float",
     "FLOORED_MODULO": "ND_modulo_float",
-    "ARCTAN2": "ND_atan2_float",
+    # ARCTAN2 is not here: it is the one two-socket op whose nodedef names its
+    # inputs iny/inx rather than in1/in2. See
+    # test_atan2_input_names_match_the_nodedef_realitykit_binds.
 }
 
 _SINGLE_INPUT_EXPECTED = {
@@ -148,22 +150,34 @@ def test_roughness_times_constant_is_a_real_multiply():
     assert expr["node_id"] == "ND_multiply_float"
 
 
-def test_atan2_input_names_match_the_manifest_declaration():
-    """The 1.39 spec renamed atan2 inputs to iny/inx; the shipped manifest
-    still declares in1/in2. Authoring must follow the manifest, and Blender's
-    (y, x) argument order must land on (in1, in2) positionally."""
+def test_atan2_input_names_match_the_nodedef_realitykit_binds():
+    """atan2 takes iny/inx, not in1/in2, in both MaterialX versions RealityKit
+    ships. Getting this wrong is not cosmetic: measured with `realitytool
+    compile`, an input the bound nodedef does not declare makes the compiler
+    discard the material's entire shader graph and substitute default PBR,
+    silently. `in1`/`in2` produced a byte-identical result to invented names.
+
+    This is deliberately asserted against literals rather than against the
+    manifest. The manifest is generated from MaterialX definition files and
+    once carried the wrong spelling, so a test that reads it back can only ever
+    confirm that we agree with ourselves.
+    """
     node = _math_node("ARCTAN2", [_linked_value_socket(0.35), _Socket(0.25)])
     expr = _resolve(node)
     assert expr["node_id"] == "ND_atan2_float"
 
+    # Blender's first socket is the y term, second the x term.
+    assert expr["inputs"] == {
+        "iny": {"kind": "constant", "value": 0.35},
+        "inx": {"kind": "constant", "value": 0.25},
+    }
+
+    # The manifest must have been corrected to match, or authoring hard-errors.
     declared = {
         entry["name"]
         for entry in load_manifest()["nodes"]["ND_atan2_float"].get("inputs", [])
     }
-    assert set(expr["inputs"]) <= declared
-    # Blender's first socket is the y term, second the x term.
-    assert expr["inputs"]["in1"] == {"kind": "constant", "value": 0.35}
-    assert expr["inputs"]["in2"] == {"kind": "constant", "value": 0.25}
+    assert declared == {"iny", "inx"}
 
 
 def test_color_constant_input_folds_to_blender_luminance():
@@ -221,8 +235,8 @@ def test_arctangent_composes_atan2_with_unit_x():
     node = _math_node("ARCTANGENT", [_linked_value_socket(0.35), _Socket(0.5)])
     expr = _resolve(node)
     assert expr["node_id"] == "ND_atan2_float"
-    assert expr["inputs"]["in1"] == {"kind": "constant", "value": 0.35}
-    assert expr["inputs"]["in2"] == {"kind": "constant", "value": 1.0}
+    assert expr["inputs"]["iny"] == {"kind": "constant", "value": 0.35}
+    assert expr["inputs"]["inx"] == {"kind": "constant", "value": 1.0}
 
 
 def test_logarithm_with_base_e_is_a_single_ln():

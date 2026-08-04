@@ -298,6 +298,7 @@ def _check_composed_stage(
     _check_material_bindings(prims, report)
     _check_material_texture_transforms(prims, report)
     _check_materialx_nodedefs(prims, report)
+    _check_materialx_node_inputs(prims, report)
     _check_geompropvalue_primvar_types(prims, report)
     _check_skeletons(stage, prims, report)
     _check_textures(prims, report, asset_path, settings)
@@ -1146,6 +1147,124 @@ def _check_material_texture_transforms(
                     contracts.items(), key=lambda item: repr(item[0])
                 )
             ],
+        )
+
+
+#: MaterialX version assumed when a Material carries no ``config:mtlx:version``.
+#: RealityKit's own loader says so: libtm-material carries the string
+#: "unrecognized MaterialX version \"%s\"; treating as 1.38".
+_DEFAULT_MTLX_VERSION = "1.38"
+
+_NODEDEF_INPUT_GAPS: dict[str, dict[str, frozenset[str]]] | None = None
+
+
+def _nodedef_input_gaps() -> dict[str, dict[str, frozenset[str]]]:
+    """Inputs our manifest declares that RealityKit's nodedef store does not.
+
+    RealityKit keeps one nodedef store per MaterialX version, and the two
+    disagree about which inputs exist: ``blend`` and ``upaxis`` are on 1.39's
+    triplanar but not 1.38's, ``operationorder`` is on 1.39's place2d but not
+    1.38's. Our manifest is generated from definition files and does not carry
+    that split, so it can promise an input the bound nodedef has never heard of.
+
+    Keyed by declared version, then nodedef name. Generated from the resolver
+    RCP itself uses - see ``Plugin/manifest/rcp_nodedef_input_gaps.json``.
+    """
+    global _NODEDEF_INPUT_GAPS
+    if _NODEDEF_INPUT_GAPS is None:
+        try:
+            import json
+            from pathlib import Path
+
+            path = (
+                Path(__file__).resolve().parent.parent
+                / "manifest"
+                / "rcp_nodedef_input_gaps.json"
+            )
+            raw = json.loads(path.read_text(encoding="utf-8"))
+            _NODEDEF_INPUT_GAPS = {
+                version: {
+                    nodedef: frozenset(inputs)
+                    for nodedef, inputs in entries.items()
+                }
+                for version, entries in (raw.get("by_version") or {}).items()
+            }
+        except Exception:
+            _NODEDEF_INPUT_GAPS = {}
+    return _NODEDEF_INPUT_GAPS
+
+
+def _declared_mtlx_version(prim: Any) -> str:
+    """The MaterialX version the enclosing Material declares."""
+    node = prim
+    while node and node.GetPath() != node.GetPath().GetParentPath():
+        material = UsdShade.Material(node)
+        if material:
+            attr = node.GetAttribute("config:mtlx:version")
+            value = attr.Get() if attr else None
+            if value:
+                return str(value)
+            break
+        node = node.GetParent()
+    return _DEFAULT_MTLX_VERSION
+
+
+def _check_materialx_node_inputs(
+    prims: Iterable[Any], report: RealityKitPreflightReport
+) -> None:
+    """No authored input may be absent from the nodedef RealityKit will bind.
+
+    Measured with ``realitytool compile``: a single input the bound nodedef does
+    not declare makes the compiler drop that material's *entire* shader graph -
+    every texture binding included - and substitute a default-parameter PBR
+    material. It exits 0 and prints nothing, ``usdchecker --arkit --strict``
+    passes, and the loss is only visible as an untextured object in RCP.
+
+    Scene 15 shipped two of these at once (``blend`` on a triplanar, and
+    ``operationorder`` on a place2d) and lost two of its four materials.
+    """
+    gaps = _nodedef_input_gaps()
+    if not gaps:
+        report.add(
+            "warning",
+            "MATERIALX_NODEDEF_INPUT_TABLE_UNAVAILABLE",
+            "The RealityKit nodedef input table could not be loaded, so "
+            "authored shader inputs were not verified.",
+            None,
+        )
+        return
+
+    for prim in prims:
+        shader = UsdShade.Shader(prim)
+        if not shader:
+            continue
+        shader_id = str(shader.GetIdAttr().Get() or "")
+        if not shader_id.startswith("ND_"):
+            continue
+        version = _declared_mtlx_version(prim)
+        absent = (gaps.get(version) or {}).get(shader_id)
+        if not absent:
+            continue
+        authored = sorted(
+            name for name in (
+                shader_input.GetBaseName() for shader_input in shader.GetInputs()
+            ) if name in absent
+        )
+        if not authored:
+            continue
+        report.add(
+            "error",
+            "MATERIALX_INPUT_ABSENT_FROM_NODEDEF",
+            (
+                "Shader authors an input RealityKit's nodedef does not declare "
+                "at the MaterialX version this material claims. RealityKit "
+                "discards the whole material's shader graph when that happens, "
+                "without reporting it, and the object renders untextured."
+            ),
+            prim.GetPath(),
+            nodedef=shader_id,
+            mtlx_version=version,
+            unsupported_inputs=authored,
         )
 
 

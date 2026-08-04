@@ -2698,10 +2698,14 @@ def _box_projection_expr(
     """Author a BOX-projected Image Texture as a MaterialX triplanar.
 
     ND_triplanarprojection_* samples the same file along X/Y/Z in object
-    space (its position/normal inputs default to Pobject/Nobject) and blends
-    the projections with ``blend``, which maps directly from Blender's
-    Projection Blend. The overlayed nodedef also declares ``upaxis``; its
-    default (Z) matches Blender's object axes, so it is left unauthored.
+    space (its position/normal inputs default to Pobject/Nobject).
+
+    Blender's Projection Blend is deliberately dropped. ``blend`` and ``upaxis``
+    exist only on MaterialX 1.39's triplanar nodedef, and we declare 1.38 - where
+    authoring either one costs the whole material, because RealityKit's compiler
+    silently discards a material's entire shader graph on meeting an input its
+    nodedef does not declare. A fixed blend width is a far smaller loss than a
+    material that renders as untextured fallback PBR.
 
     Refused precisely rather than approximated:
     - a Mapping transform feeding the Vector - place2d transforms 2D texture
@@ -2748,15 +2752,10 @@ def _box_projection_expr(
         "colorspace": texture_info.get("colorspace"),
         "current_pixel_snapshot": texture_info.get("current_pixel_snapshot"),
     }
-    try:
-        blend = float(getattr(image_node, "projection_blend", 0.0) or 0.0)
-    except (TypeError, ValueError):
-        blend = 0.0
     inputs: Dict[str, Any] = {
         "filex": dict(file_spec),
         "filey": dict(file_spec),
         "filez": dict(file_spec),
-        "blend": _constant_expr(blend),
     }
     sampling = texture_info.get("sampling") or {}
     filtertype = sampling.get("filtertype")
@@ -3080,9 +3079,10 @@ _MATH_SINGLE_INPUT_OPS = {
 #: follows in1) and is refused by the validator - see
 #: Plugin/nodes/validate.py SUPPORTED_MATH_OPERATIONS.
 #:
-#: ARCTAN2: the shipped manifest declares the 1.38-style in1/in2 inputs (the
-#: 1.39 iny/inx rename has not landed there); in1 is the y term, in2 the x
-#: term, matching Blender's atan2(value0, value1) positionally.
+#: ARCTAN2 is deliberately absent here: every other op in this table really
+#: does take in1/in2, but atan2 takes ``iny``/``inx`` in both MaterialX
+#: versions RealityKit ships. Authoring in1/in2 there is not a rename
+#: nitpick - it silently destroys the material, see ``_atan2_expr``.
 _MATH_TWO_INPUT_OPS = {
     'ADD': 'add',
     'SUBTRACT': 'subtract',
@@ -3092,8 +3092,30 @@ _MATH_TWO_INPUT_OPS = {
     'MINIMUM': 'min',
     'MAXIMUM': 'max',
     'FLOORED_MODULO': 'modulo',
+}
+
+#: Two-socket ops whose nodedef names its inputs something other than in1/in2,
+#: so they cannot ride the table above. Kept as a table of its own rather than
+#: a special case inside the resolver so the capability-parity test still sees
+#: every operation we support.
+_MATH_NAMED_INPUT_OPS = {
     'ARCTAN2': 'atan2',
 }
+
+
+def _atan2_expr(y_term, x_term):
+    """Author ``atan2`` with the input names RealityKit's nodedef declares.
+
+    ``iny``/``inx``, not ``in1``/``in2``. Both MaterialX libraries RealityKit
+    loads agree on this; the manifest carried the older spelling, and an input
+    the bound nodedef does not declare makes the compiler discard the whole
+    material's shader graph and substitute default PBR, reporting nothing.
+    Measured with ``realitytool compile``: the wrong spelling is byte-for-byte
+    indistinguishable from an invented input name.
+    """
+    return _make_node_expr(
+        _nodedef_for("atan2", "float"), {"iny": y_term, "inx": x_term}
+    )
 
 #: Ops authored as exact compositions of manifest nodedefs (no approximation):
 #: MULTIPLY_ADD = add(multiply(a, b), c); ARCTANGENT = atan2(x, 1);
@@ -3378,6 +3400,13 @@ def _math_node_expr(node, operation, visited, channel, provenance, cache):
             _nodedef_for(_MATH_TWO_INPUT_OPS[operation], "float"),
             {"in1": in1, "in2": in2},
         )
+    elif operation in _MATH_NAMED_INPUT_OPS:
+        # Blender's atan2(value0, value1) is (y, x), matching iny/inx.
+        y_term = socket_expr(0)
+        x_term = socket_expr(1)
+        if y_term is None or x_term is None:
+            return None
+        expr = _atan2_expr(y_term, x_term)
     elif operation == 'MULTIPLY_ADD':
         a = socket_expr(0)
         b = socket_expr(1)
@@ -3394,10 +3423,7 @@ def _math_node_expr(node, operation, visited, channel, provenance, cache):
         value = socket_expr(0)
         if value is None:
             return None
-        expr = _make_node_expr(
-            _nodedef_for("atan2", "float"),
-            {"in1": value, "in2": _constant_expr(1.0)},
-        )
+        expr = _atan2_expr(value, _constant_expr(1.0))
     elif operation == 'LOGARITHM':
         # Blender computes log(value, base) = ln(value) / ln(base).
         value = socket_expr(0)

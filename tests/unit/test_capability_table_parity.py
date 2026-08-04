@@ -70,6 +70,7 @@ def test_math_operation_tables_stay_in_sync_with_the_validator():
     resolver_ops = (
         set(core._MATH_SINGLE_INPUT_OPS)
         | set(core._MATH_TWO_INPUT_OPS)
+        | set(core._MATH_NAMED_INPUT_OPS)
         | set(core._MATH_COMPOSED_OPS)
     )
     assert resolver_ops == set(validate.SUPPORTED_MATH_OPERATIONS)
