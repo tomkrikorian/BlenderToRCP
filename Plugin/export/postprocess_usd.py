@@ -118,6 +118,13 @@ def process_usd_stage(usd_path: str, settings, context, diagnostics=None) -> Non
         )
         _run_step(
             diagnostics,
+            "publish_vertex_colors_as_display_color",
+            _publish_vertex_colors_as_display_color,
+            stage,
+            diagnostics,
+        )
+        _run_step(
+            diagnostics,
             "realitykit_preflight",
             _require_realitykit_preflight,
             stage,
@@ -358,6 +365,81 @@ def _normalize_preview_normal_map_transform(stage, diagnostics=None) -> None:
         diagnostics.add_info(
             "Clamped the retained preview network's normal-map scale/bias to "
             "the UsdPreviewSurface contract (alpha 1/0): " + ", ".join(sorted(fixed))
+        )
+
+
+
+#: Colour primvars Blender writes for a mesh Color Attribute, in the order it
+#: writes them. displayColor/displayOpacity are USD's conventional vertex
+#: colour channels and are what a MaterialX geomcolor read resolves as colour
+#: set 0; Blender authors them empty and puts the data under the attribute's
+#: own name instead, so a geomcolor read finds nothing and renders black.
+_DISPLAY_COLOR = "primvars:displayColor"
+_DISPLAY_OPACITY = "primvars:displayOpacity"
+_COLOR_PRIMVAR_TYPES = ("color3f[]", "color4f[]")
+
+
+def _publish_vertex_colors_as_display_color(stage, diagnostics=None) -> None:
+    """Copy a mesh's first colour attribute into displayColor/displayOpacity.
+
+    Only meshes whose bound material actually reads vertex colours are
+    touched, and an already-populated displayColor is never overwritten.
+    """
+    from pxr import Sdf, UsdGeom, UsdShade, Vt
+
+    def reads_vertex_color(material_prim) -> bool:
+        if not material_prim or not material_prim.IsValid():
+            return False
+        for child in material_prim.GetChildren():
+            shader = UsdShade.Shader(child)
+            if shader and "geomcolor" in str(shader.GetIdAttr().Get() or ""):
+                return True
+        return False
+
+    published = []
+    for prim in stage.Traverse():
+        mesh = UsdGeom.Mesh(prim)
+        if not mesh:
+            continue
+        binding = UsdShade.MaterialBindingAPI(prim)
+        material = binding.ComputeBoundMaterial()[0]
+        if not reads_vertex_color(material.GetPrim() if material else None):
+            continue
+
+        api = UsdGeom.PrimvarsAPI(prim)
+        existing = api.GetPrimvar("displayColor")
+        if existing and existing.Get():
+            continue
+
+        source = None
+        for primvar in api.GetPrimvars():
+            if primvar.GetName() in (_DISPLAY_COLOR, _DISPLAY_OPACITY):
+                continue
+            if str(primvar.GetTypeName()) not in _COLOR_PRIMVAR_TYPES:
+                continue
+            if primvar.Get():
+                source = primvar
+                break
+        if source is None:
+            continue
+
+        values = source.Get()
+        interpolation = source.GetInterpolation()
+        colors = Vt.Vec3fArray([(v[0], v[1], v[2]) for v in values])
+        api.CreatePrimvar(
+            "displayColor", Sdf.ValueTypeNames.Color3fArray, interpolation
+        ).Set(colors)
+        if len(values) and len(values[0]) > 3:
+            alphas = Vt.FloatArray([float(v[3]) for v in values])
+            api.CreatePrimvar(
+                "displayOpacity", Sdf.ValueTypeNames.FloatArray, interpolation
+            ).Set(alphas)
+        published.append(f"{prim.GetPath()} <- {source.GetName()}")
+
+    if published and diagnostics:
+        diagnostics.add_info(
+            "Published vertex colours as displayColor so RealityKit's "
+            "vertex-colour reader resolves them: " + ", ".join(sorted(published))
         )
 
 

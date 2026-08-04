@@ -109,3 +109,56 @@ def test_unrelated_scale_bias_is_left_alone():
 
     assert tuple(shader.GetInput("scale").Get()) == (1.0, 1.0, 1.0, 1.0)
     assert tuple(shader.GetInput("bias").Get()) == (0.0, 0.0, 0.0, 0.0)
+
+
+def _mesh_with_color_attribute(stage, path, name, values, *, bind_geomcolor=True):
+    from pxr import Gf, UsdGeom, UsdShade, Vt
+    mesh = UsdGeom.Mesh.Define(stage, path)
+    api = UsdGeom.PrimvarsAPI(mesh.GetPrim())
+    api.CreatePrimvar(
+        name, Sdf.ValueTypeNames.Color4fArray, UsdGeom.Tokens.faceVarying
+    ).Set(Vt.Vec4fArray([Gf.Vec4f(*v) for v in values]))
+    material = UsdShade.Material.Define(stage, f"{path}_mat")
+    if bind_geomcolor:
+        reader = UsdShade.Shader.Define(stage, f"{path}_mat/VertexColor")
+        reader.CreateIdAttr("ND_geomcolor_color4")
+    UsdShade.MaterialBindingAPI.Apply(mesh.GetPrim()).Bind(material)
+    return mesh
+
+
+def test_vertex_colors_are_published_as_display_color():
+    """RealityKit's vertex-colour reader resolves colour set 0, which USD
+    spells displayColor. Blender writes the data under the attribute's own
+    name and leaves displayColor empty, so the read returns black."""
+    from pxr import UsdGeom
+    from Plugin.export.postprocess_usd import _publish_vertex_colors_as_display_color
+
+    stage = Usd.Stage.CreateInMemory()
+    stage.SetDefaultPrim(stage.DefinePrim("/Root", "Xform"))
+    values = [(0.1, 0.2, 0.3, 1.0), (0.4, 0.5, 0.6, 0.5)]
+    mesh = _mesh_with_color_attribute(stage, "/Root/Painted", "Paint", values)
+
+    _publish_vertex_colors_as_display_color(stage, None)
+
+    api = UsdGeom.PrimvarsAPI(mesh.GetPrim())
+    colors = api.GetPrimvar("displayColor").Get()
+    assert [tuple(round(c, 3) for c in v) for v in colors] == [
+        (0.1, 0.2, 0.3), (0.4, 0.5, 0.6),
+    ]
+    assert list(api.GetPrimvar("displayOpacity").Get()) == [1.0, 0.5]
+    assert api.GetPrimvar("displayColor").GetInterpolation() == "faceVarying"
+
+
+def test_meshes_that_do_not_read_vertex_colors_are_untouched():
+    from pxr import UsdGeom
+    from Plugin.export.postprocess_usd import _publish_vertex_colors_as_display_color
+
+    stage = Usd.Stage.CreateInMemory()
+    stage.SetDefaultPrim(stage.DefinePrim("/Root", "Xform"))
+    mesh = _mesh_with_color_attribute(
+        stage, "/Root/Plain", "Paint", [(1.0, 0.0, 0.0, 1.0)], bind_geomcolor=False
+    )
+
+    _publish_vertex_colors_as_display_color(stage, None)
+
+    assert not UsdGeom.PrimvarsAPI(mesh.GetPrim()).GetPrimvar("displayColor").Get()
