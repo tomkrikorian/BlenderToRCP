@@ -913,6 +913,32 @@ def _resolve_texture_output(
     return texture_output, current_type
 
 
+class _LazyChannelOutputs(dict):
+    """Channel -> float output, authored on first access."""
+
+    def __init__(self, factory):
+        super().__init__()
+        self._factory = factory
+
+    def __bool__(self):
+        # Starts empty by design; callers test truthiness to mean "outputs are
+        # available", and an empty dict would read as "none".
+        return True
+
+    def __missing__(self, channel):
+        if channel not in "rgba":
+            raise KeyError(channel)
+        value = self._factory(channel)
+        self[channel] = value
+        return value
+
+    def get(self, channel, default=None):
+        try:
+            return self[channel]
+        except KeyError:
+            return default
+
+
 def _create_separate4_outputs(
     manifest: Dict[str, Any],
     stage,
@@ -921,39 +947,50 @@ def _create_separate4_outputs(
     source_output,
     diagnostics=None,
 ):
-    """Create or reuse a separate4 node and return its outputs."""
+    """Return one float output per channel of a color4 source.
+
+    Not ``ND_separate4_color4``: RealityKit resolves that nodedef and ships no
+    Metal implementation for it, so a material using it builds a graph with no
+    compiled shader - "Couldn't find compiled shader graph buffer". Same class
+    as ``ND_swizzle_*``. ``convert`` and ``dotproduct`` are both implemented, so
+    each channel is a dot product with a unit mask over one shared convert.
+    """
     if not source_output:
         return None
-    nodedef_name = select_nodedef_name_for_node(
-        manifest,
-        "separate4",
-        input_type="color4",
-    )
-    if not nodedef_name:
-        if diagnostics:
-            diagnostics.add_warning("No separate4 nodedef found for color4 inputs.")
-            diagnostics.add_error("No separate4 nodedef found for color4 inputs.")
-        return None
 
-    node_name = _sanitize_name(f"{base_name}_separate4")
-    node_path = f"{nodegraph_path}/{node_name}"
-    existing = stage.GetPrimAtPath(node_path)
+    convert_path = f"{nodegraph_path}/{_sanitize_name(f'{base_name}_vector4')}"
+    existing = stage.GetPrimAtPath(convert_path)
     if existing and existing.IsValid():
-        shader = UsdShade.Shader(existing)
+        convert = UsdShade.Shader(existing)
     else:
-        prim = stage.DefinePrim(node_path, "Shader")
-        shader = UsdShade.Shader(prim)
-        shader.CreateIdAttr(nodedef_name)
-        in_input = shader.CreateInput("in", source_output.GetTypeName())
-        in_input.ConnectToSource(source_output)
+        convert = UsdShade.Shader(stage.DefinePrim(convert_path, "Shader"))
+        convert.CreateIdAttr("ND_convert_color4_vector4")
+        convert.CreateInput("in", source_output.GetTypeName()).ConnectToSource(
+            source_output
+        )
+    vector = convert.GetOutput("out") or convert.CreateOutput(
+        "out", Sdf.ValueTypeNames.Float4
+    )
 
-    outputs = {
-        "r": shader.GetOutput("outr") or shader.CreateOutput("outr", Sdf.ValueTypeNames.Float),
-        "g": shader.GetOutput("outg") or shader.CreateOutput("outg", Sdf.ValueTypeNames.Float),
-        "b": shader.GetOutput("outb") or shader.CreateOutput("outb", Sdf.ValueTypeNames.Float),
-        "a": shader.GetOutput("outa") or shader.CreateOutput("outa", Sdf.ValueTypeNames.Float),
-    }
-    return outputs
+    def component(channel: str):
+        index = "rgba".index(channel)
+        path = f"{nodegraph_path}/{_sanitize_name(f'{base_name}_{channel}')}"
+        found = stage.GetPrimAtPath(path)
+        if found and found.IsValid():
+            shader = UsdShade.Shader(found)
+        else:
+            shader = UsdShade.Shader(stage.DefinePrim(path, "Shader"))
+            shader.CreateIdAttr("ND_dotproduct_vector4")
+            shader.CreateInput("in1", Sdf.ValueTypeNames.Float4).ConnectToSource(vector)
+            mask = tuple(1.0 if i == index else 0.0 for i in range(4))
+            shader.CreateInput("in2", Sdf.ValueTypeNames.Float4).Set(Gf.Vec4f(*mask))
+        return shader.GetOutput("out") or shader.CreateOutput(
+            "out", Sdf.ValueTypeNames.Float
+        )
+
+    # Lazy: an opacity read consumes one channel, and authoring the other three
+    # would leave dead prims in every material that reads an alpha.
+    return _LazyChannelOutputs(component)
 
 
 def _create_combine3_output(

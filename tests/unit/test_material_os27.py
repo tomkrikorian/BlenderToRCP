@@ -367,12 +367,14 @@ def test_texture_file_metadata_is_role_correct_and_unknown_spaces_fail_closed():
         "Material",
     )
     # Alpha is the one genuine four-channel read. It uses ND_image_color4 plus
-    # ND_separate4_color4, the pair shipping RealityKit packages author.
+    # a convert/dotproduct component read - ND_separate4_color4 resolves in
+    # RealityKit but has no Metal implementation.
     alpha_image = UsdShade.Shader(stage.GetPrimAtPath("/Material/Image_2"))
     assert alpha_image.GetIdAttr().Get() == "ND_image_color4"
     assert alpha_image.GetInput("file").GetAttr().GetColorSpace() == ""
-    separate = UsdShade.Shader(stage.GetPrimAtPath("/Material/Image_2_separate4"))
-    assert separate.GetIdAttr().Get() == "ND_separate4_color4"
+    separate = UsdShade.Shader(stage.GetPrimAtPath("/Material/Image_2_a"))
+    assert separate.GetIdAttr().Get() == "ND_dotproduct_vector4"
+    assert tuple(separate.GetInput("in2").Get()) == (0.0, 0.0, 0.0, 1.0)
 
     with pytest.raises(ValueError, match="Unsupported Blender image color space"):
         _create_texture_connection(

@@ -11,7 +11,7 @@ package. The chains pinned here are the ones that do:
 
 * packed scalars  -> ``ND_image_color3`` + ``ND_swizzle_color3_float``
 * normal maps     -> ``ND_image_vector3`` + ``ND_normal_map_decode``
-* genuine alpha   -> ``ND_image_color4`` + ``ND_separate4_color4``
+* genuine alpha   -> ``ND_image_color4`` + convert/dotproduct component read
 
 and data-role readers author no color space at all.
 """
@@ -275,7 +275,7 @@ def test_alpha_from_a_three_channel_source_is_refused_not_read_as_color4():
     ), diagnostics.warnings
 
 
-def test_alpha_from_a_four_channel_source_uses_color4_and_separate4():
+def test_alpha_from_a_four_channel_source_uses_color4_and_a_component_read():
     stage = Usd.Stage.CreateInMemory()
     _create_texture_connection(
         stage,
@@ -296,8 +296,13 @@ def test_alpha_from_a_four_channel_source_uses_color4_and_separate4():
     )
     shaders = _shaders_by_id(stage)
     assert list(shaders["ND_image_color4"])
-    separate = shaders["ND_separate4_color4"][0]
-    assert _source_id(separate, "in") == "ND_image_color4"
+    assert not shaders.get("ND_separate4_color4")
+    components = shaders["ND_dotproduct_vector4"]
+    assert len(components) == 1, "only the consumed channel should be authored"
+    component = components[0]
+    assert tuple(component.GetInput("in2").Get()) == (0.0, 0.0, 0.0, 1.0)
+    assert _source_id(component, "in1") == "ND_convert_color4_vector4"
+    assert _source_id(shaders["ND_convert_color4_vector4"][0], "in") == "ND_image_color4"
     assert set(shaders) & set(UNSUPPORTED_READER_IDS) == set()
 
 

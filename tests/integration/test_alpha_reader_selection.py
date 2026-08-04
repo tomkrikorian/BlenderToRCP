@@ -9,7 +9,8 @@ used to author a four-channel read of a file with only three.
 Two materials, one export:
 
 * ``AlphaSprite`` — RGBA base color whose Alpha drives Principled Alpha.
-  Authors ``ND_image_color4`` + ``ND_separate4_color4`` into ``inputs:opacity``.
+  Authors ``ND_image_color4`` + a convert/dotproduct component read into
+  ``inputs:opacity``.
 * ``NoAlphaSprite`` — RGB base color wired the same way. The read is refused,
   a warning names the file and the input, and opacity keeps its default.
 """
@@ -125,13 +126,17 @@ def _material_block(text: str, name: str) -> str:
     return text[start:following[0]] if following else text[start:]
 
 
-def test_alpha_over_an_rgba_source_uses_color4_and_separate4(alpha_export):
+def test_alpha_over_an_rgba_source_uses_color4_and_a_component_read(alpha_export):
     _payload, stage = alpha_export
     block = _material_block(stage.read_text(), "AlphaSprite")
 
     assert 'info:id = "ND_image_color4"' in block
-    assert 'info:id = "ND_separate4_color4"' in block
-    assert re.search(r"inputs:opacity\.connect = <[^>]+separate4\.outputs:outa>", block)
+    # Not ND_separate4_color4: RealityKit resolves it and ships no Metal
+    # implementation, so the material builds a graph with no compiled shader.
+    assert 'info:id = "ND_convert_color4_vector4"' in block
+    assert 'info:id = "ND_dotproduct_vector4"' in block
+    assert "ND_separate4" not in block
+    assert re.search(r"inputs:opacity\.connect = <[^>]+_a\.outputs:out>", block)
 
 
 def test_alpha_over_an_rgb_source_is_refused_with_a_warning(alpha_export):
@@ -141,7 +146,7 @@ def test_alpha_over_an_rgb_source_is_refused_with_a_warning(alpha_export):
     assert 'info:id = "ND_image_color4"' not in block
     # The retained UsdPreviewSurface network still reads its own alpha; only
     # the MaterialX surface must fall back to the default.
-    assert "separate4" not in block
+    assert "ND_dotproduct_vector4" not in block
     assert re.search(r"inputs:opacity = 1\b", block)
 
     warnings = payload.get("warnings") or []
