@@ -122,6 +122,7 @@ def process_usd_stage(usd_path: str, settings, context, diagnostics=None) -> Non
             _publish_vertex_colors_as_display_color,
             stage,
             diagnostics,
+            context,
         )
         _run_step(
             diagnostics,
@@ -391,11 +392,51 @@ _DISPLAY_OPACITY = "primvars:displayOpacity"
 _COLOR_PRIMVAR_TYPES = ("color3f[]", "color4f[]")
 
 
-def _publish_vertex_colors_as_display_color(stage, diagnostics=None) -> None:
+def _blender_first_color_attribute(prim, context) -> "str | None":
+    """The name of the mesh's *first* Blender colour attribute, or None.
+
+    USD sorts primvars, Blender does not, so "pick the first colour primvar on
+    the prim" and "pick the mesh's first colour attribute" are different
+    orderings that only coincide by luck. A mesh with Paint (Blender-first, the
+    one the material reads) and Mask publishes Mask, because M sorts before P.
+
+    The exporter records the mesh datablock's name on the prim, so the real
+    order can be read back rather than guessed. Returns None whenever Blender
+    is not reachable - callers keep their positional fallback.
+    """
+    if context is None:
+        return None
+    attribute = prim.GetAttribute("userProperties:blender:data_name")
+    data_name = str(attribute.Get() or "") if attribute else ""
+    if not data_name:
+        return None
+    try:
+        import bpy
+
+        mesh = bpy.data.meshes.get(data_name)
+        if mesh is None:
+            return None
+        attributes = mesh.color_attributes
+        if len(attributes) == 0:
+            return None
+        return str(attributes[0].name)
+    except Exception:
+        # Test doubles, a renamed datablock, or no bpy at all. The positional
+        # fallback still publishes something reasonable.
+        return None
+
+
+def _publish_vertex_colors_as_display_color(stage, diagnostics=None, context=None) -> None:
     """Copy a mesh's first colour attribute into displayColor/displayOpacity.
 
     Only meshes whose bound material actually reads vertex colours are
     touched, and an already-populated displayColor is never overwritten.
+
+    "Bound" includes materials reached through a GeomSubset. Blender writes a
+    multi-material mesh as one Mesh whose direct binding is slot 0 plus a
+    GeomSubset per additional slot, so looking only at the direct binding meant
+    a vertex-colour material in any slot but the first published nothing at all
+    and the object rendered unlit.
     """
     from pxr import Sdf, UsdGeom, UsdShade, Vt
 
@@ -408,14 +449,23 @@ def _publish_vertex_colors_as_display_color(stage, diagnostics=None) -> None:
                 return True
         return False
 
+    def any_bound_material_reads_vertex_color(prim) -> bool:
+        bindings = [UsdShade.MaterialBindingAPI(prim)]
+        for child in prim.GetChildren():
+            if UsdGeom.Subset(child):
+                bindings.append(UsdShade.MaterialBindingAPI(child))
+        for binding in bindings:
+            material = binding.ComputeBoundMaterial()[0]
+            if reads_vertex_color(material.GetPrim() if material else None):
+                return True
+        return False
+
     published = []
     for prim in stage.Traverse():
         mesh = UsdGeom.Mesh(prim)
         if not mesh:
             continue
-        binding = UsdShade.MaterialBindingAPI(prim)
-        material = binding.ComputeBoundMaterial()[0]
-        if not reads_vertex_color(material.GetPrim() if material else None):
+        if not any_bound_material_reads_vertex_color(prim):
             continue
 
         api = UsdGeom.PrimvarsAPI(prim)
@@ -423,17 +473,37 @@ def _publish_vertex_colors_as_display_color(stage, diagnostics=None) -> None:
         if existing and existing.Get():
             continue
 
-        source = None
-        for primvar in api.GetPrimvars():
-            if primvar.GetName() in (_DISPLAY_COLOR, _DISPLAY_OPACITY):
-                continue
-            if str(primvar.GetTypeName()) not in _COLOR_PRIMVAR_TYPES:
-                continue
-            if primvar.Get():
-                source = primvar
-                break
-        if source is None:
+        candidates = [
+            primvar
+            for primvar in api.GetPrimvars()
+            if primvar.GetName() not in (_DISPLAY_COLOR, _DISPLAY_OPACITY)
+            and str(primvar.GetTypeName()) in _COLOR_PRIMVAR_TYPES
+            and primvar.Get()
+        ]
+        if not candidates:
             continue
+
+        preferred = _blender_first_color_attribute(prim, context)
+        source = None
+        if preferred:
+            source = next(
+                (
+                    primvar
+                    for primvar in candidates
+                    if primvar.GetBaseName() == preferred
+                ),
+                None,
+            )
+        if source is None:
+            source = candidates[0]
+            if len(candidates) > 1 and diagnostics:
+                diagnostics.add_warning(
+                    f"{prim.GetPath()} carries {len(candidates)} colour attributes "
+                    f"({', '.join(primvar.GetBaseName() for primvar in candidates)}) "
+                    f"and Blender's own order could not be read, so displayColor "
+                    f"was published from '{source.GetBaseName()}'. Rename the one "
+                    f"your material reads so it sorts first, or delete the others."
+                )
 
         values = source.Get()
         interpolation = source.GetInterpolation()
