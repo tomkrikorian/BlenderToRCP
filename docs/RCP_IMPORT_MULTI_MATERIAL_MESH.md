@@ -436,8 +436,13 @@ The controlled static two-material fixture passes gates 1 through 5:
 | 2. clean import, save, close, reopen | passes — no record or buffer growth |
 | 3. re-export refresh with the project open | passes — `--replace` refreshes in place, and Reality Composer Pro shows the changed material |
 | 4. both face materials assigned correctly | passes |
-| 5. `realitytool` compilation and `usdchecker --arkit --strict` | passes |
+| 5. `realitytool` and `usdchecker --arkit --strict` parse and package the asset | passes |
 | 6. Sequence Editor clip playback | not applicable to a static fixture |
+
+Gate 5 is a syntax check, not a rendering one. `realitytool` does not use the
+shader compiler Reality Composer Pro uses, and reports success for materials the
+app refuses. Gates 2 and 4 are what prove this package renders. See
+[APPLE_PLATFORM_CONTRACT.md](APPLE_PLATFORM_CONTRACT.md#one-stack-everywhere).
 
 Refreshing needs the explicit opt-in: pass `--replace` on the command line, or
 tick **Replace Existing .import** in the sidebar. Without it the exporter
