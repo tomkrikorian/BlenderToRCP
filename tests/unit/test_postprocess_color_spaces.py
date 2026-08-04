@@ -38,13 +38,22 @@ def _name_token(prim) -> str:
     return str(prim.GetAttribute("colorSpace:name").Get())
 
 
-def test_display_token_is_retagged_to_srgb_texture():
+def test_display_token_is_retagged_to_a_name_usd_can_resolve():
+    """`colorSpace:name` must hold a name UsdColorSpaceAPI accepts.
+
+    `srgb_texture` is MaterialX's spelling and is fine as attribute metadata,
+    but it is not in the registry `ComputeColorSpaceName` consults: measured on
+    a real export, the prim logs "Unknown color space srgb_texture
+    encountered." and resolves to the empty token, without inheriting the
+    ancestor's opinion, so the texture reaches RealityKit with no colour space.
+    """
     stage, prim = _stage_with_api_color_space("srgb_rec709_display")
     diagnostics = ExportDiagnostics()
 
     _retag_unmapped_color_space_names(stage, diagnostics)
 
-    assert _name_token(prim) == "srgb_texture"
+    assert _name_token(prim) == "srgb_rec709_scene"
+    assert Usd.ColorSpaceAPI.IsValidColorSpaceName(prim, _name_token(prim), None)
 
 
 def test_engine_known_tokens_are_left_alone():

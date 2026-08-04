@@ -289,14 +289,26 @@ def _normalize_preview_network_color_spaces(stage, diagnostics=None) -> None:
 
 
 #: ColorSpaceAPI tokens Blender 5.2 authors that RCP 3.0 (80.0.1.500.1) has no
-#: alias for, mapped to the engine-known token with the same encoding.
-#: Measured: CoreRE's alias table carries ``srgb_texture``/``sRGB``/``srgb_tx``
-#: and ``srgb_rec709_scene``, but the string ``srgb_rec709_display`` appears
-#: nowhere in the app bundle — its decode behaviour is undefined. Both names
-#: describe the same sRGB transfer on Rec.709 primaries, so the rewrite is a
-#: renaming, not a conversion.
+#: alias for, mapped to the engine-known token with the same encoding. Both
+#: names describe the same sRGB transfer on Rec.709 primaries, so the rewrite
+#: is a renaming, not a conversion.
+#:
+#: This must be a name ``UsdColorSpaceAPI`` accepts, which is a stricter test
+#: than being in CoreRE's alias table. ``colorSpace:name`` is resolved by
+#: ``ComputeColorSpaceName`` -> ``IsValidColorSpaceName`` -> ``GfColorSpace``,
+#: whose registry is nanocolor's, and ``srgb_texture`` is not in it. Measured
+#: against a real export with usd-core 26.08: the prim logs
+#: "Unknown color space srgb_texture encountered." and resolves to the *empty*
+#: token - it does not fall back to the ancestor's opinion - so the texture
+#: reaches RealityKit with no colour space at all. ``srgb_rec709_scene`` is
+#: present in both that registry and RealityKit's own.
+#:
+#: Attribute-level ``colorSpace`` metadata is deliberately left spelled
+#: ``srgb_texture``: that is MaterialX's vocabulary, it is what RCP's own
+#: MaterialX writer emits, and it is resolved through a different table that
+#: does carry the name.
 _COLOR_SPACE_NAME_REWRITES = {
-    "srgb_rec709_display": "srgb_texture",
+    "srgb_rec709_display": "srgb_rec709_scene",
 }
 
 
