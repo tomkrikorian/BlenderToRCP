@@ -128,7 +128,14 @@ def _preview_channel(scope: str, input_name: str) -> str:
 
 
 def _materialx_channel(scope: str, input_name: str) -> str:
-    """The `channels` string on the swizzle feeding the MaterialX surface."""
+    """Which channel the MaterialX network reads, from the dot-product mask.
+
+    A component read is `convert` + `dotproduct` with a unit mask rather than a
+    `swizzle` with a channels string: RealityKit resolves every ND_swizzle_*
+    nodedef and implements none of them, producing a material with no compiled
+    shader graph. Reading the mask back is also a stronger check than reading a
+    string - it is the arithmetic that actually runs.
+    """
     surface = re.search(
         rf'inputs:{input_name}\.connect = </[^>]*/(\w+)\.outputs:out>', scope
     )
@@ -137,9 +144,11 @@ def _materialx_channel(scope: str, input_name: str) -> str:
         rf'def Shader "{surface.group(1)}"\s*\{{(.*?)\n            \}}', scope, re.S
     )
     assert node, f"node {surface.group(1)} not found"
-    channels = re.search(r'string inputs:channels = "(\w+)"', node.group(1))
-    assert channels, f"node {surface.group(1)} authors no channels"
-    return channels.group(1)
+    mask = re.search(r'inputs:in2 = \(([^)]*)\)', node.group(1))
+    assert mask, f"node {surface.group(1)} authors no channel mask"
+    values = [float(v) for v in mask.group(1).split(",")]
+    assert values.count(1.0) == 1 and set(values) <= {0.0, 1.0}, values
+    return "rgba"[values.index(1.0)]
 
 
 @pytest.mark.parametrize(

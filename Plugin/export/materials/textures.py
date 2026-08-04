@@ -1036,6 +1036,13 @@ def _is_ktx_path(texture_path: str) -> bool:
     return texture_path.lower().endswith((".ktx", ".ktx2"))
 
 
+#: Channel order of each USD type a texture read can land on.
+_CHANNEL_ORDER_FOR_SDF_TYPE = {
+    "color3f": "rgb", "float3": "xyz", "half3": "rgb",
+    "color4f": "rgba", "float4": "xyzw", "half4": "rgba",
+}
+
+
 def _create_swizzle_output(
     manifest: Dict[str, Any],
     stage,
@@ -1057,40 +1064,60 @@ def _create_swizzle_output(
             )
         return None
 
+    # `swizzle` is deliberately not used. RealityKit resolves every
+    # ND_swizzle_* nodedef and implements none of them in its Metal library, so
+    # the graph builds and then has no compiled shader - Reality Composer Pro
+    # reports "Couldn't find compiled shader graph buffer" and the material is
+    # dropped. `convert` and `dotproduct` are both implemented and express a
+    # component read exactly: convert to the vector type, dot with a unit mask.
     input_sdf_type = texture_output.GetTypeName()
-    swizzle_nodedef = _swizzle_nodedef_for_input(
-        manifest,
-        output_type,
-        channel,
-        input_sdf_type,
-    )
-    if not swizzle_nodedef:
+    order = _CHANNEL_ORDER_FOR_SDF_TYPE.get(str(input_sdf_type))
+    if not order:
         if diagnostics:
-            diagnostics.add_warning(
-                f"No swizzle nodedef for type '{output_type}' on input '{input_name}'."
-            )
             diagnostics.add_error(
-                f"No swizzle nodedef for type '{output_type}' on input '{input_name}'."
+                f"Cannot read channel '{channel}' of '{input_sdf_type}' on "
+                f"input '{input_name}'."
+            )
+        return None
+    index = order.find(channel[:1].lower())
+    if index < 0:
+        # e.g. alpha asked of a three-channel read.
+        if diagnostics:
+            diagnostics.add_error(
+                f"'{input_sdf_type}' has no channel '{channel}' for input "
+                f"'{input_name}'."
             )
         return None
 
-    swizzle_name = _sanitize_name(f"swizzle_{input_name}_{channel}")
-    swizzle_prim = stage.DefinePrim(f"{nodegraph_path}/{swizzle_name}", "Shader")
-    swizzle_shader = UsdShade.Shader(swizzle_prim)
-    swizzle_shader.CreateIdAttr(swizzle_nodedef)
-
-    in_input = swizzle_shader.CreateInput("in", input_sdf_type)
-    in_input.ConnectToSource(texture_output)
-
-    channels_input = swizzle_shader.CreateInput("channels", Sdf.ValueTypeNames.String)
-    channels_input.Set(channel)
-
-    if diagnostics:
-        diagnostics.add_warning(
-            f"Inserted swizzle node '{swizzle_nodedef}' for {input_name}: channel '{channel}'."
+    width = len(order)
+    vector_type = {3: "vector3", 4: "vector4"}[width]
+    source = texture_output
+    if str(input_sdf_type).startswith("color"):
+        # Named after the source, not the consumer, so N channel reads of one
+        # reader share a single convert instead of authoring one each.
+        convert_name = _sanitize_name(
+            f"convert_{texture_output.GetPrim().GetName()}_{vector_type}"
+        )
+        convert_prim = stage.DefinePrim(f"{nodegraph_path}/{convert_name}", "Shader")
+        convert_shader = UsdShade.Shader(convert_prim)
+        convert_shader.CreateIdAttr(f"ND_convert_color{width}_{vector_type}")
+        convert_shader.CreateInput("in", input_sdf_type).ConnectToSource(texture_output)
+        source = convert_shader.CreateOutput(
+            "out", Sdf.ValueTypeNames.Float3 if width == 3 else Sdf.ValueTypeNames.Float4
         )
 
-    return swizzle_shader.CreateOutput("out", Sdf.ValueTypeNames.Float)
+    dot_name = _sanitize_name(f"channel_{input_name}_{channel}")
+    dot_prim = stage.DefinePrim(f"{nodegraph_path}/{dot_name}", "Shader")
+    dot_shader = UsdShade.Shader(dot_prim)
+    dot_shader.CreateIdAttr(f"ND_dotproduct_{vector_type}")
+    vector_sdf = Sdf.ValueTypeNames.Float3 if width == 3 else Sdf.ValueTypeNames.Float4
+    dot_shader.CreateInput("in1", vector_sdf).ConnectToSource(source)
+    mask = tuple(1.0 if i == index else 0.0 for i in range(width))
+    dot_shader.CreateInput("in2", vector_sdf).Set(
+        Gf.Vec3f(*mask) if width == 3 else Gf.Vec4f(*mask)
+    )
+
+    return dot_shader.CreateOutput("out", Sdf.ValueTypeNames.Float)
 
 
 def _swizzle_nodedef_for_input(

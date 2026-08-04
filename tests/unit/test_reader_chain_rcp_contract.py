@@ -114,22 +114,27 @@ def _packed_orm_stage():
     return stage
 
 
-def test_packed_orm_reads_one_color3_reader_with_two_swizzles():
+def test_packed_orm_reads_one_color3_reader_with_two_component_reads():
     stage = _packed_orm_stage()
     shaders = _shaders_by_id(stage)
 
     readers = shaders.get("ND_image_color3", [])
     assert len(readers) == 1, (
-        "one file, one reader: every working package hangs N swizzles off a "
-        f"single image node, got {sorted(shaders)}"
+        "one file, one reader: every working package hangs N component reads "
+        f"off a single image node, got {sorted(shaders)}"
     )
-    swizzles = shaders.get("ND_swizzle_color3_float", [])
-    assert len(swizzles) == 2
-    assert {
-        str(shader.GetInput("channels").Get()) for shader in swizzles
-    } == {"g", "b"}
-    for shader in swizzles:
-        assert _source_id(shader, "in") == "ND_image_color3"
+    # A component read is convert + dotproduct-with-a-unit-mask. `swizzle`
+    # resolves in RealityKit's nodedef store but has no Metal implementation,
+    # so it yields a material with no compiled shader graph.
+    assert not shaders.get("ND_swizzle_color3_float")
+    converts = shaders.get("ND_convert_color3_vector3", [])
+    assert len(converts) == 1, "one reader, one convert, N masks"
+    dots = shaders.get("ND_dotproduct_vector3", [])
+    assert len(dots) == 2
+    masks = {tuple(shader.GetInput("in2").Get()) for shader in dots}
+    assert masks == {(0.0, 1.0, 0.0), (0.0, 0.0, 1.0)}, masks
+    for shader in dots:
+        assert _source_id(shader, "in1") == "ND_convert_color3_vector3"
 
 
 def test_packed_orm_authors_no_vector4_reader_or_swizzle():

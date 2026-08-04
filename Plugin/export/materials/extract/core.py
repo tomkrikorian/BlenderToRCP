@@ -3154,18 +3154,61 @@ _MATH_COMPOSED_OPS = frozenset({'MULTIPLY_ADD', 'LOGARITHM', 'ARCTANGENT'})
 _RGB_TO_GRAY = (0.2126, 0.7152, 0.0722)
 
 
+#: Channel order of each MaterialX type a component read can land on.
+_CHANNEL_ORDER = {
+    "color3": "rgb", "vector3": "xyz",
+    "color4": "rgba", "vector4": "xyzw",
+}
+
+#: The vector type each colour type converts to, for the dot-product trick.
+_VECTOR_EQUIVALENT = {
+    "color3": "vector3", "color4": "vector4",
+    "vector3": "vector3", "vector4": "vector4",
+}
+
+
+def _component_expr(expr: Dict[str, Any], from_type: str, channel: str) -> Dict[str, Any]:
+    """Read one channel of a colour/vector expression as a float.
+
+    MaterialX's obvious answer is ``swizzle``, and RealityKit resolves those
+    nodedefs - but its 1.38 Metal library contains **no implementation** for
+    any of them, while ``convert`` and ``dotproduct`` are both present. A node
+    that resolves without an implementation builds a graph that then has no
+    compiled shader, which is exactly the "Couldn't find compiled shader graph
+    buffer" failure Reality Composer Pro reports.
+
+    So a component read is a convert to the vector type followed by a dot
+    product with a unit mask. Both nodes are measured present in
+    MaterialX-1.38-apple.metallib.
+    """
+    order = _CHANNEL_ORDER.get(from_type)
+    vector_type = _VECTOR_EQUIVALENT.get(from_type)
+    if not order or not vector_type:
+        raise ValueError(
+            f"Cannot read a component of {from_type!r}; bake the material."
+        )
+    index = order.find((channel or order[0])[:1].lower())
+    if index < 0:
+        raise ValueError(
+            f"{from_type!r} has no channel {channel!r}; bake the material."
+        )
+
+    value = expr
+    if from_type != vector_type:
+        value = _make_node_expr(
+            _nodedef_for("convert", vector_type, input_type=from_type),
+            {"in": value},
+        )
+    mask = tuple(1.0 if i == index else 0.0 for i in range(len(order)))
+    return _make_node_expr(
+        _nodedef_for("dotproduct", "float", input_type=vector_type),
+        {"in1": value, "in2": _constant_expr(mask)},
+    )
+
+
 def _swizzle_color3_to_float_expr(expr: Dict[str, Any], channels: str) -> Dict[str, Any]:
     """Read one channel of a color3 expression as a float."""
-    swizzle_node = select_nodedef_name_for_node(
-        _get_manifest(),
-        "swizzle",
-        signature="in[in:color3,channels:string]|out[out:float]",
-        output_type="float",
-    ) or "ND_swizzle_color3_float"
-    return _make_node_expr(
-        swizzle_node,
-        {"in": expr, "channels": _constant_expr(channels)},
-    )
+    return _component_expr(expr, "color3", channels)
 
 
 #: MaterialX type of the primvar Blender's USD exporter writes for each
@@ -3197,26 +3240,21 @@ _COLOR_ATTRIBUTE_DEFAULT_PRIMVAR_TYPE = "color4"
 def _swizzle_expr(
     expr: Dict[str, Any], from_type: str, to_type: str, channels: str
 ) -> Dict[str, Any]:
-    """Author a manifest-verified swizzle between two MaterialX types.
+    """Convert between two MaterialX types without using ``swizzle``.
 
-    Selection goes through the manifest by exact signature, so the authored
-    id exists in the shipped MaterialX libraries and is never one the editor
-    cannot resolve. Fails closed rather than fabricating a name.
+    RealityKit resolves every ``ND_swizzle_*`` nodedef and implements none of
+    them, so authoring one produces a graph with no compiled shader - the
+    "Couldn't find compiled shader graph buffer" failure. ``convert`` and
+    ``dotproduct`` are implemented and express the same thing.
     """
-    nodedef = select_nodedef_name_for_node(
-        _get_manifest(),
-        "swizzle",
-        signature=f"in[in:{from_type},channels:string]|out[out:{to_type}]",
-        input_type=from_type,
-        output_type=to_type,
-    )
-    if not nodedef:
-        raise ValueError(
-            f"No MaterialX swizzle nodedef reads {from_type} as {to_type}. "
-            "Bake the material, or simplify the node graph."
-        )
+    if from_type == to_type:
+        return expr
+    if to_type in {"float", "half"}:
+        return _component_expr(expr, from_type, channels)
+    # Widening or narrowing a whole colour: `convert` is implemented in
+    # RealityKit's Metal library, `swizzle` is not. See _component_expr.
     return _make_node_expr(
-        nodedef, {"in": expr, "channels": _constant_expr(channels)}
+        _nodedef_for("convert", to_type, input_type=from_type), {"in": expr}
     )
 
 

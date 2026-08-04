@@ -346,9 +346,9 @@ def test_texture_file_metadata_is_role_correct_and_unknown_spaces_fail_closed():
     data_image = UsdShade.Shader(stage.GetPrimAtPath("/Material/Image_1"))
     assert data_image.GetIdAttr().Get() == "ND_image_color3"
     assert data_image.GetInput("file").GetAttr().GetColorSpace() == ""
-    swizzle = UsdShade.Shader(stage.GetPrimAtPath("/Material/swizzle_roughness_g"))
-    assert swizzle.GetIdAttr().Get() == "ND_swizzle_color3_float"
-    assert str(swizzle.GetInput("channels").Get()) == "g"
+    dot = UsdShade.Shader(stage.GetPrimAtPath("/Material/channel_roughness_g"))
+    assert dot.GetIdAttr().Get() == "ND_dotproduct_vector3"
+    assert tuple(dot.GetInput("in2").Get()) == (0.0, 1.0, 0.0)
 
     _create_texture_connection(
         stage,

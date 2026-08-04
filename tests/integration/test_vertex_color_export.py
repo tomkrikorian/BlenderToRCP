@@ -15,7 +15,7 @@ BYTE_COLOR/POINT     ``color4f[]``         ``vertex``
 ===================  ====================  =================
 
 The exact translation is therefore ND_geomcolor_color4 reading the same
-name, with a manifest-verified swizzle adapting it to a narrower consumer. A
+name, with an implemented convert adapting it to a narrower consumer. A
 color3 read of a color4f primvar type-mismatches, and Reality Composer Pro
 3.0 replaces the whole material with its striped placeholder rather than
 erroring visibly. The read is only authored when the named attribute actually
@@ -249,14 +249,14 @@ def test_geomcolor_reads_the_exported_primvar(vertex_color_export):
     assert 'info:id = "ND_geomcolor_color3"' not in text
 
 
-def test_color3_consumer_reaches_the_read_through_a_swizzle(vertex_color_export):
+def test_color3_consumer_reaches_the_read_through_a_convert(vertex_color_export):
     """Base Color is color3; the four-channel read adapts explicitly."""
     _payload, stage = vertex_color_export
     text = stage.read_text()
 
-    assert 'info:id = "ND_swizzle_color4_color3"' in text
-    assert 'inputs:channels = "rgb"' in text
-    # The swizzle's input carries the read's own type, not a narrowed one.
+    assert 'info:id = "ND_convert_color4_color3"' in text
+    assert "ND_swizzle" not in text
+    # The convert's input carries the read's own type, not a narrowed one.
     assert "color4f inputs:in.connect" in text
 
 
@@ -281,8 +281,10 @@ def test_alpha_output_exports_as_the_fourth_channel(tmp_path):
 
     text = (tmp_path / "out" / "vc.usda").read_text()
     assert 'info:id = "ND_geomcolor_color4"' in text
-    assert 'info:id = "ND_swizzle_color4_float"' in text
-    assert 'inputs:channels = "a"' in text
+    assert 'info:id = "ND_dotproduct_vector4"' in text
+    # The alpha channel is selected by the dot-product mask, not a channels
+    # string: swizzle resolves in RealityKit but has no Metal implementation.
+    assert "float4 inputs:in2 = (0, 0, 0, 1)" in text
 
     payload = json.loads(result.stdout)
     refusals = [

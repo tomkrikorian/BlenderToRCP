@@ -18,7 +18,7 @@ BYTE_COLOR/POINT     ``color4f[]``         ``vertex``
 The domain only picks the interpolation; the value type is four-channel in
 every case. The exact translation is therefore a *color4* geomcolor read
 of the same name, adapted to whatever the consumer needs with a
-manifest-verified swizzle. A color3 read of a color4f primvar is a type
+convert/dotproduct chain. A color3 read of a color4f primvar is a type
 mismatch, and Reality Composer Pro 3.0 replaces the whole material with its
 striped placeholder rather than erroring visibly.
 
@@ -63,14 +63,16 @@ def _authored_node_ids(expr):
 def _geomcolor_read(expr):
     """The geompropvalue node at the root of an expression tree."""
     for node_id in _authored_node_ids(expr):
-        assert "geomcolor" in node_id or "swizzle" in node_id or (
-            "luminance" in node_id
+        assert any(
+            token in node_id
+            for token in ("geomcolor", "convert", "dotproduct", "luminance")
         ), node_id
     node = expr
     while isinstance(node, dict) and node.get("kind") == "node":
         if node["node_id"].startswith("ND_geomcolor"):
             return node
-        node = (node.get("inputs") or {}).get("in")
+        inputs = node.get("inputs") or {}
+        node = inputs.get("in") or inputs.get("in1")
     raise AssertionError(f"no geomcolor read in {expr}")
 
 
@@ -243,40 +245,44 @@ def test_color_attribute_authors_geomcolor_read():
 
 
 def test_color3_consumer_extracts_rgb_from_the_color4_read():
-    """A color3 base colour adapts with a manifest-verified swizzle.
+    """A color3 base colour adapts with an implemented convert node.
 
     The read matches the primvar; the consumer's narrower type is reached by
     an explicit extraction node, never by declaring the read narrower than
     the data.
     """
     expr = _resolve(_vertex_color_node("MyColors"), expected_type="color3")
-    assert expr["node_id"] == "ND_swizzle_color4_color3"
-    assert expr["inputs"]["channels"] == {"kind": "constant", "value": "rgb"}
+    assert expr["node_id"] == "ND_convert_color4_color3"
     assert expr["inputs"]["in"]["node_id"] == "ND_geomcolor_color4"
     _assert_manifest_backed(expr)
 
-    signature = _MANIFEST["nodes"]["ND_swizzle_color4_color3"]["signature"]
-    assert signature == "in[in:color4,channels:string]|out[out:color3]"
+    signature = _MANIFEST["nodes"]["ND_convert_color4_color3"]["signature"]
+    assert signature == "in[in:color4]|out[out:color3]"
 
 
 def test_float_consumer_gets_blender_luminance_conversion():
     expr = _resolve(_vertex_color_node("MyColors"), expected_type="float")
-    assert expr["node_id"] == "ND_swizzle_color3_float"
-    luminance = expr["inputs"]["in"]
+    assert expr["node_id"] == "ND_dotproduct_vector3"
+    luminance = expr["inputs"]["in1"]["inputs"]["in"]
     assert luminance["node_id"] == "ND_luminance_color3"
     rgb = luminance["inputs"]["in"]
-    assert rgb["node_id"] == "ND_swizzle_color4_color3"
+    assert rgb["node_id"] == "ND_convert_color4_color3"
     assert rgb["inputs"]["in"]["node_id"] == "ND_geomcolor_color4"
     _assert_manifest_backed(expr)
 
 
-def test_channel_consumer_gets_a_swizzle():
+def test_channel_consumer_gets_a_component_read():
     expr = _resolve(
         _vertex_color_node("MyColors"), expected_type="float", channel="g"
     )
-    assert expr["node_id"] == "ND_swizzle_color4_float"
-    assert expr["inputs"]["channels"] == {"kind": "constant", "value": "g"}
-    assert expr["inputs"]["in"]["node_id"] == "ND_geomcolor_color4"
+    # A component read is a dot product with a unit mask - `swizzle` resolves
+    # in RealityKit but has no Metal implementation, so it produces a material
+    # with no compiled shader.
+    assert expr["node_id"] == "ND_dotproduct_vector4"
+    assert expr["inputs"]["in2"] == {"kind": "constant", "value": (0.0, 1.0, 0.0, 0.0)}
+    convert = expr["inputs"]["in1"]
+    assert convert["node_id"] == "ND_convert_color4_vector4"
+    assert convert["inputs"]["in"]["node_id"] == "ND_geomcolor_color4"
     _assert_manifest_backed(expr)
 
 
@@ -310,14 +316,16 @@ def test_alpha_output_reads_the_fourth_channel():
 
     It was refused while the read was ND_geomcolor_color3, which has no
     fourth channel to name. The primvar Blender writes is color4f, so alpha
-    is a plain swizzle of the same read - nothing is approximated.
+    is a plain component read of the same read - nothing is approximated.
     """
     expr = _resolve(
         _vertex_color_node("MyColors"), output_name="Alpha", expected_type="float"
     )
-    assert expr["node_id"] == "ND_swizzle_color4_float"
-    assert expr["inputs"]["channels"] == {"kind": "constant", "value": "a"}
-    assert expr["inputs"]["in"]["node_id"] == "ND_geomcolor_color4"
+    assert expr["node_id"] == "ND_dotproduct_vector4"
+    assert expr["inputs"]["in2"] == {"kind": "constant", "value": (0.0, 0.0, 0.0, 1.0)}
+    convert = expr["inputs"]["in1"]
+    assert convert["node_id"] == "ND_convert_color4_vector4"
+    assert convert["inputs"]["in"]["node_id"] == "ND_geomcolor_color4"
     _assert_manifest_backed(expr)
 
 
@@ -327,7 +335,7 @@ def test_alpha_output_into_a_colour_input_broadcasts():
         _vertex_color_node("MyColors"), output_name="Alpha", expected_type="color3"
     )
     assert expr["node_id"] == "ND_convert_float_color3"
-    assert expr["inputs"]["in"]["node_id"] == "ND_swizzle_color4_float"
+    assert expr["inputs"]["in"]["node_id"] == "ND_dotproduct_vector4"
     _assert_manifest_backed(expr)
 
 
