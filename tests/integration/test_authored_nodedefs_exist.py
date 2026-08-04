@@ -125,11 +125,20 @@ def test_every_authored_nodedef_exists_in_the_manifest(exported_stage):
     )
 
 
-def test_the_colour_to_float_chain_is_the_luminance_swizzle(exported_stage):
+def test_the_colour_to_float_chain_uses_only_implemented_nodes(exported_stage):
+    """Luminance, then a component read RealityKit can actually build.
+
+    The chain used to end in ``ND_swizzle_color3_float``. That nodedef resolves
+    in RealityKit's nodedef store and has no Metal implementation, so the
+    material built a graph with no compiled shader and Reality Composer Pro
+    refused it with "Couldn't find compiled shader graph buffer".
+    """
     text = exported_stage.read_text()
 
     assert 'info:id = "ND_luminance_color3"' in text
-    assert 'info:id = "ND_swizzle_color3_float"' in text
-    assert 'inputs:channels = "r"' in text
+    assert 'info:id = "ND_convert_color3_vector3"' in text
+    assert 'info:id = "ND_dotproduct_vector3"' in text
+    assert "ND_swizzle" not in text
+    assert "inputs:in2 = (1, 0, 0)" in text
     # And the roughness input is genuinely driven, not defaulted.
     assert re.search(r"inputs:roughness\.connect = <[^>]+>", text)

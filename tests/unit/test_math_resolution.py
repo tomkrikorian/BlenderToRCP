@@ -199,13 +199,17 @@ def test_color_constant_input_folds_to_blender_luminance():
 
 def test_channelless_texture_input_gets_exact_luminance_chain():
     """A colour texture feeding a float Math input must author Blender's
-    implicit conversion (luminance) explicitly - the swizzle then reads the
-    replicated luminance value."""
+    implicit conversion (luminance) explicitly, then read one channel of the
+    replicated value with nodes RealityKit implements - a dot product with a
+    unit mask, not ND_swizzle_color3_float, which resolves and has no Metal
+    implementation."""
     texture = {"kind": "texture", "path": "/tmp/t.png", "output_type": "float"}
     expr = core._float_math_input_expr(texture)
-    # Outermost node is the float swizzle over the luminance.
-    assert expr["node_id"].startswith("ND_swizzle_color3")
-    inner = expr["inputs"]["in"]
+    assert expr["node_id"] == "ND_dotproduct_vector3"
+    assert expr["inputs"]["in2"] == {"kind": "constant", "value": (1.0, 0.0, 0.0)}
+    convert = expr["inputs"]["in1"]
+    assert convert["node_id"] == "ND_convert_color3_vector3"
+    inner = convert["inputs"]["in"]
     assert inner["node_id"] == "ND_luminance_color3"
     assert inner["inputs"]["in"]["output_type"] == "color3"
 

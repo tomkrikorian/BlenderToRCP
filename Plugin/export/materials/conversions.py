@@ -273,7 +273,13 @@ def _create_chain_output(
         in_type = _map_mtlx_type_to_sdf(from_type) or current.GetTypeName()
         shader.CreateInput(input_name_on_node, in_type).ConnectToSource(current)
         for extra_name, extra_value in extra.items():
-            shader.CreateInput(extra_name, Sdf.ValueTypeNames.String).Set(extra_value)
+            # A step may need a typed constant (a dot-product mask), not only a
+            # string. Tuples carry their own Sdf type.
+            if isinstance(extra_value, tuple):
+                extra_type, value = extra_value
+            else:
+                extra_type, value = Sdf.ValueTypeNames.String, extra_value
+            shader.CreateInput(extra_name, extra_type).Set(value)
         out_type = _map_mtlx_type_to_sdf(to_type) or current.GetTypeName()
         current = shader.CreateOutput("out", out_type)
     if diagnostics:
@@ -317,24 +323,28 @@ def _create_convert_output(
             # Blender's own implicit colour-to-float conversion is linear RGB
             # to gray, i.e. luminance. Luminance of an already-grayscale
             # colour is the identity, so this is also exact for the common
-            # RGB-to-BW upstream. The channel swizzle then just reads the
-            # replicated value.
+            # RGB-to-BW upstream. Reading one channel of the replicated value
+            # is a dot product with a unit mask, not a swizzle: RealityKit
+            # resolves every ND_swizzle_* nodedef and implements none of them,
+            # which costs the material its whole shader graph.
             return _create_chain_output(
                 manifest, stage, nodegraph_path, input_name, source_output,
                 steps=[
                     ("ND_luminance_color3", "in", from_type, "color3", {}),
-                    ("ND_swizzle_color3_float", "in", "color3", to_type,
-                     {"channels": "r"}),
+                    ("ND_convert_color3_vector3", "in", "color3", "vector3", {}),
+                    ("ND_dotproduct_vector3", "in1", "vector3", to_type,
+                     {"in2": (Sdf.ValueTypeNames.Float3, Gf.Vec3f(1.0, 0.0, 0.0))}),
                 ],
                 diagnostics=diagnostics,
             )
         if (from_type, to_type) == ("vector4", "color3"):
             # Drop the fourth channel; channel-preserving and unambiguous.
+            # Two implemented converts rather than one unimplemented swizzle.
             return _create_chain_output(
                 manifest, stage, nodegraph_path, input_name, source_output,
                 steps=[
-                    ("ND_swizzle_vector4_color3", "in", from_type, to_type,
-                     {"channels": "xyz"}),
+                    ("ND_convert_vector4_color4", "in", from_type, "color4", {}),
+                    ("ND_convert_color4_color3", "in", "color4", to_type, {}),
                 ],
                 diagnostics=diagnostics,
             )

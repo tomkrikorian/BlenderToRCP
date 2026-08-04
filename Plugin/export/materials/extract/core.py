@@ -1945,17 +1945,7 @@ def _resolve_socket_value(
                 _nodedef_for("oneminus", "color3"),
                 {"in": color_expr},
             )
-            swizzle_signature = "in[in:color3,channels:string]|out[out:float]"
-            swizzle_node = select_nodedef_name_for_node(
-                _get_manifest(),
-                "swizzle",
-                signature=swizzle_signature,
-                output_type="float",
-            ) or "ND_swizzle_color3_float"
-            return _make_node_expr(
-                swizzle_node,
-                {"in": invert_color, "channels": _constant_expr(channel or "r")},
-            )
+            return _component_expr(invert_color, "color3", channel or "r")
         fac_expr = _expr_from_socket(
             from_node.inputs.get('Fac') if hasattr(from_node, "inputs") else None,
             visited,
@@ -3398,16 +3388,7 @@ def _float_math_input_expr(expr):
         luminance = _make_node_expr(
             _nodedef_for("luminance", "color3"), {"in": texture}
         )
-        swizzle_node = select_nodedef_name_for_node(
-            _get_manifest(),
-            "swizzle",
-            signature="in[in:color3,channels:string]|out[out:float]",
-            output_type="float",
-        ) or "ND_swizzle_color3_float"
-        return _make_node_expr(
-            swizzle_node,
-            {"in": luminance, "channels": _constant_expr("r")},
-        )
+        return _component_expr(luminance, "color3", "r")
     return expr
 
 
