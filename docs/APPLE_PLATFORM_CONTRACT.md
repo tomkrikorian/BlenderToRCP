@@ -22,6 +22,14 @@ platforms they share one USD library and one MaterialX library:
 - MaterialX materials compile on the device when a USDZ loads. Compiling
   ahead of time (a `.reality` file) is an optimization, not a requirement.
 
+One tool stands outside that stack. Xcode's `realitytool` links neither
+`ShaderGraph.framework` nor the `libtm-*` libraries, so it is not the compiler
+Reality Composer Pro and RealityKit use. It accepts materials they reject, and
+reports a successful shader graph while doing so. Use it to check that a file
+parses and packages. Do not use it, or `usdchecker`, to judge whether a material
+renders — run `scripts/check_shader_implementations.py` and then look at the
+asset in Reality Composer Pro.
+
 The parts of Reality Composer Pro that are genuinely unique to the app are
 its editor: the project format, the `.import` asset format, and the editing
 UI. See [RCP_IMPORT_EXPERIMENT.md](RCP_IMPORT_EXPERIMENT.md) if you work
@@ -146,5 +154,17 @@ locally installed software and fail if a platform update changes them:
   contract still matches Reality Composer Pro's shipped schema.
 - `tests/unit/test_material_os27.py` — the node manifest still pins the
   expected Reality Composer Pro build.
+- `tests/unit/test_nodedef_input_gate.py` — the recorded per-version nodedef
+  and input gaps still match the installed nodedef store.
 
-After an OS, Reality Composer Pro, or Xcode update, run these first.
+After an OS, Reality Composer Pro, or Xcode update, run these first, then
+regenerate the gap table with `scripts/dump_rcp_nodedef_inputs.py`.
+
+The claim that `realitytool` disagrees with Reality Composer Pro is measured on
+this repository's own `Robot.usda`: `realitytool compile --platform xros` exits
+0 and emits `shadergraph_rig_skin_robot_mesh_mesh_export_pxrusdpreviewsurface5sg1`
+with zero PBR fallbacks, `usdchecker --arkit --strict` reports `Success!`, and
+Reality Composer Pro 3 refuses the same material with `Couldn't find compiled
+shader graph buffer`. The material authors `ND_swizzle_color3_float`, a nodedef
+that resolves in the nodedef store and has no implementation in
+`MaterialX-1.38-apple.metallib`.

@@ -45,7 +45,11 @@ The release-2.x validation baseline is:
 The pipeline has two distinct validation boundaries:
 
 1. Portable checks run Python tests and verify that the extension can be packaged deterministically. They do not prove RealityKit compatibility.
-2. Apple checks exercise the real Blender 5.2 and Xcode 27 toolchain. `usdchecker` covers structural acceptance, `realitytool` covers compilation, and a public-API RealityKit harness loads the fresh source assets and those exact compiled outputs on macOS 27. There is no supported headless Reality Composer Pro import command in this repository.
+2. Apple checks exercise the real Blender 5.2 and Xcode 27 toolchain. `usdchecker` covers structural acceptance, `realitytool` covers packaging and crate conversion, and a public-API RealityKit harness loads the fresh source assets and those exact compiled outputs on macOS 27. There is no supported headless Reality Composer Pro import command in this repository.
+
+A successful `realitytool compile` is not evidence that a material renders. Reality Composer Pro compiles shader graphs through `ShaderGraph.framework` and the `libtm-*` libraries; `realitytool` links neither, so the two disagree about the same file. Measured on this repository's own `Robot.usda`: `realitytool` exits 0 and emits a `shadergraph_*` entry with no fallback, `usdchecker --arkit --strict` reports `Success!`, and Reality Composer Pro 3 refuses the material with `Couldn't find compiled shader graph buffer`. Treat both tools as syntax checks.
+
+To find materials RealityKit cannot build a shader for, run `scripts/check_shader_implementations.py` against the asset or its `.rkassets` bundle. It reads Apple's shipped Metal libraries, so it catches nodes that resolve in the nodedef store while having no compiled implementation behind them.
 
 Interactive Reality Composer Pro 3 import/save/reopen, visual inspection, Quick Look/Spatial Preview, and physical Vision Pro testing are manual release gates. Compilation alone is insufficient: the automated Apple gate also requires real macOS 27 RealityKit loading. Neither automated check proves the remaining UI, visual, or device acceptance.
 
