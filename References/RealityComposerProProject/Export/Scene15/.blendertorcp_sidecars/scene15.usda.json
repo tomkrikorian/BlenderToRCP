@@ -1,0 +1,8 @@
+{
+  "output": "scene15.usda",
+  "schema_version": 1,
+  "sidecars": [
+    "textures/Scene15.usda/49c831ccdcdb0c2820b0c776a09ed8a1/Scene15-feature_grid-f808fa018030296bd2f8c06fcab839fad391e6efeab957bb05dd164bc1f571e4.png",
+    "textures/Scene15.usda/49c831ccdcdb0c2820b0c776a09ed8a1/Scene15-feature_mask-e00ce6acbf616d034dd9d818f9c79db5c576763cfe72e0c51be0036f0d12b20f.png"
+  ]
+}

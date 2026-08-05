@@ -92,6 +92,15 @@ jobs:
         run: |
           bash tests/test_check_apple27_toolchain.sh
           python scripts/tests/test_release_archive.py -q
+          # This runner has no Reality Composer Pro, so the generator's runtime
+          # overlay cannot run: the rebuild here reproduces the manifest from the
+          # vendored vanilla-upstream MaterialX copy alone. A green result proves
+          # the checked-in manifest matches that copy - NOT that it matches the
+          # library RealityKit binds, which has already disagreed with it (the
+          # atan2 iny/inx rename). Agreement with the platform is checked on a
+          # Mac by tests/unit/test_manifest_runtime_overlay.py and
+          # tests/unit/test_manifest_matches_editor_libraries.py, both of which
+          # skip here.
           python scripts/build_materialx_manifest.py
           git diff --exit-code -- Plugin/manifest/rk_nodes_manifest.json
 

@@ -35,3 +35,10 @@ tests/tmp/
 
 # Local manual-evaluation scenes; regenerate with TestScenes/build_scenarios.py
 TestScenes/
+
+# Reality Composer Pro 3 project: the package holds .import packages only.
+# Everything under its Export/ is RCP's own imported copy of an asset, which it
+# rewrites on every import; the assets themselves live in
+# References/RealityComposerProProject/Export/.
+References/RealityComposerProProject/RealityComposerProProject.realitycomposerpro/Export/
+References/RealityComposerProProject/RealityComposerProProject.realitycomposerpro/core.lib/
