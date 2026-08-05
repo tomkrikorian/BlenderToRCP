@@ -155,15 +155,6 @@ class ExportDiagnostics:
             'reason': reason,
         })
         self.add_error(f"Texture operation failed: {texture_path} ({reason})")
-    
-    def add_fallback_node(self, node_name: str, material_name: str):
-        """Record use of a fallback node"""
-        self.data['nodes']['fallback_used'].append({
-            'node': node_name,
-            'material': material_name,
-        })
-        self.add_error(f"Fallback node used: {node_name} (material {material_name})")
-    
     def add_ktx_required_node(self, node_name: str, material_name: str):
         """Record use of a KTX-required node"""
         self.data['nodes']['ktx_required'].append({
@@ -171,15 +162,6 @@ class ExportDiagnostics:
             'material': material_name,
         })
         self.add_error(f"KTX-required node used: {node_name} (material {material_name})")
-    
-    def add_omitted_node(self, node_name: str, material_name: str):
-        """Record use of an omitted node (e.g., GeometryModifier)"""
-        self.data['nodes']['omitted'].append({
-            'node': node_name,
-            'material': material_name,
-        })
-        self.add_error(f"Omitted node used: {node_name} (material {material_name})")
-    
     def add_error(self, error: str):
         """Add an error message"""
         self.data['errors'].append(error)
@@ -260,36 +242,6 @@ class ExportDiagnostics:
         filepath.parent.mkdir(parents=True, exist_ok=True)
         with open(filepath, 'w') as f:
             json.dump(self.data, f, indent=2)
-    
-    def get_summary(self) -> str:
-        """Get a human-readable summary"""
-        lines = [
-            "Export Diagnostics Summary",
-            "=" * 40,
-            f"Materials converted: {self.data['materials']['converted']}",
-            f"Materials failed: {self.data['materials']['failed']}",
-            f"Textures copied: {self.data['textures']['copied']}",
-            f"Textures converted: {self.data['textures']['converted']}",
-        ]
-        
-        if self.data['nodes']['fallback_used']:
-            lines.append(f"Fallback nodes used: {len(self.data['nodes']['fallback_used'])}")
-        
-        if self.data['nodes']['ktx_required']:
-            lines.append(f"KTX-required nodes: {len(self.data['nodes']['ktx_required'])}")
-        
-        if self.data['nodes']['omitted']:
-            lines.append(f"Omitted nodes: {len(self.data['nodes']['omitted'])}")
-        
-        if self.data['errors']:
-            lines.append(f"Errors: {len(self.data['errors'])}")
-        
-        if self.data['warnings']:
-            lines.append(f"Warnings: {len(self.data['warnings'])}")
-        
-        return "\n".join(lines)
-
-
 def _json_safe(value):
     """Convert common non-JSON values to serializable forms."""
     if isinstance(value, dict):

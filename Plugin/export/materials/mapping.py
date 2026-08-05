@@ -142,20 +142,6 @@ def authored_texture_mapping_contract(
         (0.0, 0.0),
         0,
     )
-
-
-def graph_texture_mapping_contracts(
-    graph: Mapping[str, Any],
-) -> Dict[MappingContract, Tuple[str, ...]]:
-    """Collect generated non-default and explicitly authored mapping uses."""
-
-    uses, _generated_count, _explicit_count = _graph_texture_mapping_uses(graph)
-    return {
-        contract: tuple(sorted(input_names))
-        for contract, input_names in uses.items()
-    }
-
-
 def _graph_texture_mapping_uses(graph: Mapping[str, Any]):
     """Collect generated texture mappings and explicit place2d graph nodes."""
 

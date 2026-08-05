@@ -902,39 +902,6 @@ def validate_material(
 
     result["ok"] = not result["errors"]
     return result
-
-
-def validate_materials(
-    materials,
-    only_connected: bool = True,
-    strict: bool = False,
-    surface_profile: str = "realitykit_portable",
-    normalize_unsupported_values: bool = False,
-) -> Dict[str, object]:
-    """Validate a collection of materials and aggregate issues."""
-    summary = {
-        "ok": True,
-        "errors": [],
-        "warnings": [],
-        "materials": [],
-    }
-
-    for material in materials:
-        result = validate_material(
-            material,
-            only_connected=only_connected,
-            strict=strict,
-            surface_profile=surface_profile,
-            normalize_unsupported_values=normalize_unsupported_values,
-        )
-        summary["materials"].append(result)
-        summary["errors"].extend(result["errors"])
-        summary["warnings"].extend(result["warnings"])
-
-    summary["ok"] = not summary["errors"]
-    return summary
-
-
 def select_offending_nodes(material, issues: Dict[str, object]) -> int:
     """Select offending nodes in a material's node tree; return the count."""
     if not material or not material.node_tree:
@@ -1145,5 +1112,3 @@ def _is_supported_mix(node) -> bool:
     if blend == 'MIX':
         return both_linked
     return blend in _RESOLVABLE_MIX_BLENDS and both_linked
-
-

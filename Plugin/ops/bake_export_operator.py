@@ -737,36 +737,6 @@ def _restore_selection(context, selection, active) -> None:
             context.view_layer.objects.active = active
         except Exception:
             pass
-
-
-def _set_selection(context, objects) -> None:
-    try:
-        for obj in context.view_layer.objects:
-            obj.select_set(False)
-    except Exception:
-        pass
-    for obj in objects:
-        try:
-            obj.select_set(True)
-        except Exception:
-            pass
-
-
-    active = None
-    for obj in objects:
-        try:
-            obj.select_set(True)
-            if active is None:
-                active = obj
-        except Exception:
-            continue
-    if active:
-        try:
-            context.view_layer.objects.active = active
-        except Exception:
-            pass
-
-
 def _serialize_settings(
     settings,
     *,

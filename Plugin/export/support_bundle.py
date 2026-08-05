@@ -712,7 +712,6 @@ def _collect_export_profile(settings) -> dict:
         from ..api.commands._settings_common import (
             REALITYKIT_FORWARD_AXIS,
             REALITYKIT_METERS_PER_UNIT,
-            REALITYKIT_OS27_ADVANCED_CONTENT_KEYS,
             REALITYKIT_OS27_PROFILE_NAME,
             REALITYKIT_SCENE_UNITS,
             REALITYKIT_UP_AXIS,
@@ -720,11 +719,6 @@ def _collect_export_profile(settings) -> dict:
         )
 
         deviations = realitykit_os27_profile_deviations(settings)
-        advanced_enabled = sorted(
-            key
-            for key in REALITYKIT_OS27_ADVANCED_CONTENT_KEYS
-            if bool(getattr(settings, key, False))
-        )
         return {
             "name": REALITYKIT_OS27_PROFILE_NAME,
             "spatial_contract": {
@@ -740,7 +734,10 @@ def _collect_export_profile(settings) -> dict:
                 "export_normals": True,
             },
             "strict_defaults_active": not deviations,
-            "advanced_content_enabled": advanced_enabled,
+            # Always empty: raw cameras, lights, dome lights, curves, points,
+            # volumes and hair are not settings in the 2.x contract. Kept as a
+            # key so the support-bundle schema stays stable for triage tooling.
+            "advanced_content_enabled": [],
             "deviations": deviations,
         }
     except Exception as exc:

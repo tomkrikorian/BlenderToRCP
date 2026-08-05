@@ -8,7 +8,6 @@ from Plugin.api.commands._settings_common import (
     MATERIALX_SURFACE_PROFILE_DEFAULT,
     REALITYKIT_FORWARD_AXIS,
     REALITYKIT_METERS_PER_UNIT,
-    REALITYKIT_OS27_ADVANCED_CONTENT_KEYS,
     REALITYKIT_OS27_DEFAULTS,
     REALITYKIT_OS27_PROFILE_NAME,
     REALITYKIT_SCENE_UNITS,
@@ -34,7 +33,6 @@ def test_realitykit_os27_defaults_are_y_up_meters_and_fail_closed():
         MATERIALX_SURFACE_PROFILE_DEFAULT
     )
     assert REALITYKIT_OS27_DEFAULTS["normalize_unsupported_values"] is False
-    assert REALITYKIT_OS27_ADVANCED_CONTENT_KEYS == frozenset()
 
 
 def test_spatial_contract_is_not_a_profile_deviation():

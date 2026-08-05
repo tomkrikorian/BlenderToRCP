@@ -34,7 +34,6 @@ REALITYKIT_OS27_DEFAULTS: dict[str, Any] = {
     "normalize_unsupported_values": False,
 }
 
-REALITYKIT_OS27_ADVANCED_CONTENT_KEYS = frozenset()
 
 # Keys that are internal bookkeeping and should not be exposed via the CLI
 INTERNAL_KEYS = frozenset({

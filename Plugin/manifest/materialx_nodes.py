@@ -52,16 +52,6 @@ def get_node_def(manifest: Dict[str, Any], nodedef_name: str) -> Optional[Dict[s
     if not manifest:
         return None
     return manifest.get("nodes", {}).get(nodedef_name)
-
-
-def get_node_defs_for_node(manifest: Dict[str, Any], node_name: str) -> List[Dict[str, Any]]:
-    """Return all nodedef entries for a node name."""
-    if not manifest:
-        return []
-    names = manifest.get("index", {}).get("by_node", {}).get(node_name, [])
-    return [manifest.get("nodes", {}).get(name) for name in names if name in manifest.get("nodes", {})]
-
-
 def _declared_types(node_def: Optional[Dict[str, Any]], key: str) -> set:
     """Types a nodedef declares on the given axis, for constraint checks.
 

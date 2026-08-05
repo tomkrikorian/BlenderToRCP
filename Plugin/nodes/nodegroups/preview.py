@@ -584,8 +584,8 @@ def _link_math_inputs(group, input_node, math_node, fac_name: str, in1_name: str
 
 
 def _new_mix_node(group: bpy.types.NodeTree, kind: str):
-    if not hasattr(bpy.types, "ShaderNodeMix"):
-        return None
+    # ShaderNodeMix has existed since Blender 3.4 and this add-on targets 5.2
+    # LTS only, so there is no version to guard against.
     mix_node = group.nodes.new("ShaderNodeMix")
     if kind == "vector":
         mix_node.data_type = 'VECTOR'

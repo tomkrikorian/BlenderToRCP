@@ -1219,14 +1219,6 @@ def _node_label(node, socket=None) -> str:
     if socket_name:
         return f"{name} ({node.type}:{socket_name})"
     return f"{name} ({node.type})"
-
-
-def _is_normal_socket(socket) -> bool:
-    """Return True when a socket represents a normal input."""
-    name = (socket.name or "").lower()
-    return "normal" in name
-
-
 def _is_unit_z_vector(value) -> bool:
     """Whether a nodedef default spells the unit Z vector, in any formatting.
 
@@ -2982,42 +2974,6 @@ def _apply_base_color_texture_semantics(
 
 def _record_base_color_texture_semantics(data: Dict[str, Any], expr: Any) -> None:
     _apply_base_color_texture_semantics(data, _expression_texture_sources(expr))
-
-
-def _extract_channel_from_socket(socket) -> Optional[str]:
-    """Get a channel swizzle hint from a linked Separate node."""
-    if not socket or not socket.is_linked:
-        return None
-    link = socket.links[0]
-    from_node = getattr(link, "from_node", None)
-    from_socket = getattr(link, "from_socket", None)
-    if not from_node or not from_socket:
-        return None
-
-    if from_node.type in {'SEPARATE_COLOR', 'SEPARATE_RGB'}:
-        name = (from_socket.name or "").lower()
-        if name in {"r", "red"}:
-            return "r"
-        if name in {"g", "green"}:
-            return "g"
-        if name in {"b", "blue"}:
-            return "b"
-        if name in {"a", "alpha"}:
-            return "a"
-        return None
-
-    if from_node.type in {'SEPARATE_XYZ', 'SEPXYZ'}:
-        name = (from_socket.name or "").lower()
-        if name in {"x"}:
-            return "x"
-        if name in {"y"}:
-            return "y"
-        if name in {"z"}:
-            return "z"
-
-    return None
-
-
 def _channel_from_socket_name(name: str) -> Optional[str]:
     """Normalize a socket name to a channel token."""
     name = (name or "").lower()
@@ -3746,22 +3702,21 @@ def _extract_mapping_from_node(node) -> Optional[Dict[str, Any]]:
                 f"vector_type={vector_type}; bake the texture transform"
             )
 
-        def constant_vector(socket_name: str, legacy_name: str, fallback):
+        def constant_vector(socket_name: str, fallback):
+            # Blender 2.81 moved these from node properties to sockets; 5.2 is
+            # the only supported host, so the socket is always the source.
             socket = node.inputs.get(socket_name) if hasattr(node, "inputs") else None
-            if socket is not None:
-                if socket.is_linked:
-                    raise ValueError(
-                        f"Mapping node '{getattr(node, 'name', 'Mapping')}' has linked "
-                        f"{socket_name}; bake the texture transform"
-                    )
-                value = getattr(socket, "default_value", fallback)
-            else:
-                value = getattr(node, legacy_name, fallback)
+            if socket is not None and socket.is_linked:
+                raise ValueError(
+                    f"Mapping node '{getattr(node, 'name', 'Mapping')}' has linked "
+                    f"{socket_name}; bake the texture transform"
+                )
+            value = getattr(socket, "default_value", fallback) if socket else fallback
             return tuple(float(component) for component in value[:3])
 
-        translation = constant_vector("Location", "translation", (0.0, 0.0, 0.0))
-        rotation = constant_vector("Rotation", "rotation", (0.0, 0.0, 0.0))
-        scale = constant_vector("Scale", "scale", (1.0, 1.0, 1.0))
+        translation = constant_vector("Location", (0.0, 0.0, 0.0))
+        rotation = constant_vector("Rotation", (0.0, 0.0, 0.0))
+        scale = constant_vector("Scale", (1.0, 1.0, 1.0))
         if abs(rotation[0]) > 1e-6 or abs(rotation[1]) > 1e-6:
             raise ValueError(
                 f"Mapping node '{getattr(node, 'name', 'Mapping')}' has X/Y rotation; "
