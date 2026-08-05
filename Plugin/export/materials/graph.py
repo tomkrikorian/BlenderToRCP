@@ -1033,7 +1033,15 @@ class MaterialXGraphBuilder:
         if 'base_color_texture' in material_data:
             color_scale = material_data.get('base_color_texture_scale')
             if color_scale is None:
-                color_scale = material_data.get('emission_strength')
+                # Emission Strength scales an *emission*-derived unlit colour.
+                # A baked texture already contains the lighting, and Blender's
+                # Principled defaults Emission Strength to 0 on any material
+                # that does not emit - so taking it here multiplied every baked
+                # Lighting & Shadows texture by black. Only a positive strength
+                # can be a meaningful scale.
+                strength = material_data.get('emission_strength')
+                if strength is not None and float(strength) > 0.0:
+                    color_scale = strength
             inputs['color'] = self._create_texture_input(
                 material_data['base_color_texture'],
                 'color3',

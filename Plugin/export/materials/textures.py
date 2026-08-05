@@ -404,6 +404,8 @@ def _postprocess_texture_output(
     )
 
     scale = texture_spec.get('scale')
+    if scale is not None and abs(float(scale) - 1.0) <= 1e-6:
+        scale = None  # identity: authoring a multiply by 1 is pure noise
     if scale is not None and texture_output:
         scaled_output = _create_scale_output(
             manifest,
@@ -628,11 +630,6 @@ def _create_scale_output(
     if not nodedef_name:
         return None
 
-    const_name = _sanitize_name(f"scale_{input_name}")
-    const_prim = stage.DefinePrim(f"{nodegraph_path}/{const_name}", "Shader")
-    const_shader = UsdShade.Shader(const_prim)
-    const_shader.CreateIdAttr(select_nodedef_name_for_node(manifest, "constant", output_type=output_type))
-
     if output_type == 'color4':
         value = (scale, scale, scale, scale)
     elif output_type == 'color3':
@@ -646,8 +643,10 @@ def _create_scale_output(
     else:
         value = float(scale)
 
-    const_shader.CreateInput("value", _map_mtlx_type_to_sdf(output_type)).Set(value)
-    const_output = const_shader.CreateOutput("out", _map_mtlx_type_to_sdf(output_type))
+    # The scale is a literal, so it goes straight onto the multiply's second
+    # input. ND_constant_* has no Metal symbol and no nodegraph expansion in
+    # RealityKit's 1.38 library - the same signature as ND_swizzle_* - so
+    # authoring one risks the whole material for no benefit.
 
     mult_name = _sanitize_name(f"scale_mult_{input_name}")
     mult_prim = stage.DefinePrim(f"{nodegraph_path}/{mult_name}", "Shader")
@@ -656,8 +655,7 @@ def _create_scale_output(
 
     mult_in1 = mult_shader.CreateInput("in1", _map_mtlx_type_to_sdf(output_type))
     mult_in1.ConnectToSource(source_output)
-    mult_in2 = mult_shader.CreateInput("in2", _map_mtlx_type_to_sdf(output_type))
-    mult_in2.ConnectToSource(const_output)
+    mult_shader.CreateInput("in2", _map_mtlx_type_to_sdf(output_type)).Set(value)
     return mult_shader.CreateOutput("out", _map_mtlx_type_to_sdf(output_type))
 
 
