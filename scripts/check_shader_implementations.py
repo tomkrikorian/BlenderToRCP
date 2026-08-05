@@ -24,6 +24,7 @@ Scans .usda / .usdc / .usdz. Exits 1 if anything would fail.
 from __future__ import annotations
 
 import argparse
+import bisect
 import re
 import subprocess
 import sys
@@ -41,9 +42,20 @@ COMMON_LIBRARY = (
     "ShaderGraph.framework/Versions/A/Resources/MaterialX-Common.metallib"
 )
 
-#: Node families the engine implements outside the MaterialX Metal libraries.
-#: Texture sampling, UV lookup and the surface constructors are wired by the
-#: renderer, so their absence from the library is expected and not a defect.
+_MATERIALX_XML = (
+    "/Applications/RealityComposerPro.app/Contents/SystemFrameworks/"
+    "ShaderGraph.framework/Versions/A/Resources/MaterialX"
+)
+
+#: Per-version MaterialX definition trees, plus Apple's shared overrides.
+XML_TREES = {
+    "1.38": (f"{_MATERIALX_XML}/MaterialX-1.38", f"{_MATERIALX_XML}/Apple"),
+    "1.39": (f"{_MATERIALX_XML}/MaterialX-1.39.4", f"{_MATERIALX_XML}/Apple"),
+}
+
+#: Node families the engine implements outside both the Metal libraries and the
+#: MaterialX XML. Texture sampling, UV lookup and the surface constructors are
+#: wired by the renderer.
 #: Verified by exports that render correctly while using every one of them.
 ENGINE_PROVIDED = (
     "ND_image_",
@@ -80,9 +92,33 @@ def implemented_symbols(version: str) -> tuple[str, ...]:
     return tuple(sorted(symbols))
 
 
-def _is_implemented(nodedef: str, symbols: tuple[str, ...]) -> bool:
-    import bisect
+def xml_implemented(version: str) -> frozenset[str]:
+    """Nodedefs expanded from a nodegraph rather than compiled to Metal.
 
+    470 nodedefs are expanded from a ``<nodegraph nodedef="...">`` at compile
+    time and never get a Metal symbol of their own - ``ND_normal_map_decode``
+    and ``ND_separate4_color4`` are two. Judging on the metallib alone reports
+    every one of them as broken.
+
+    Deliberately only ``<nodegraph>``, not ``<implementation>``: an
+    implementation element names a Metal function that may not be in the
+    shipped library, which is precisely the failure this script exists to find.
+    """
+    found: set[str] = set()
+    pattern = re.compile(r'<nodegraph\b[^>]*\bnodedef="(ND_[A-Za-z0-9_]+)"')
+    for root in XML_TREES.get(version, ()):
+        base = Path(root)
+        if not base.is_dir():
+            continue
+        for path in base.rglob("*.mtlx"):
+            found.update(pattern.findall(path.read_text(encoding="utf-8", errors="replace")))
+    return frozenset(found)
+
+
+def _is_implemented(nodedef: str, implemented) -> bool:
+    symbols, xml = implemented
+    if nodedef in xml:
+        return True
     index = bisect.bisect_left(symbols, nodedef)
     return index < len(symbols) and symbols[index].startswith(nodedef)
 
@@ -127,7 +163,7 @@ def scan(path: Path, symbols_by_version: dict) -> list[tuple[str, str, str]]:
     text = layer_text(path)
     if not text:
         return []
-    symbols = symbols_by_version[declared_version(text)]
+    implemented = symbols_by_version[declared_version(text)]
 
     findings = []
     boundaries = [(m.start(), m.group(1)) for m in _MATERIAL.finditer(text)]
@@ -138,8 +174,10 @@ def scan(path: Path, symbols_by_version: dict) -> list[tuple[str, str, str]]:
         for nodedef in sorted(set(_NODE_ID.findall(body))):
             if nodedef.startswith(ENGINE_PROVIDED):
                 continue
-            if not _is_implemented(nodedef, symbols):
-                findings.append((name, nodedef, "no Metal implementation"))
+            if not _is_implemented(nodedef, implemented):
+                findings.append(
+                    (name, nodedef, "no Metal symbol and no nodegraph expansion")
+                )
     return findings
 
 
@@ -151,7 +189,9 @@ def main() -> int:
     if not Path(METAL_LIBRARIES["1.38"]).exists():
         print("Reality Composer Pro is not installed here.", file=sys.stderr)
         return 2
-    symbols_by_version = {v: implemented_symbols(v) for v in METAL_LIBRARIES}
+    symbols_by_version = {
+        v: (implemented_symbols(v), xml_implemented(v)) for v in METAL_LIBRARIES
+    }
 
     targets: list[Path] = []
     for path in args.paths:

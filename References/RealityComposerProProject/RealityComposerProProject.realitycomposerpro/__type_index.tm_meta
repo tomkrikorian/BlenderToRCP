@@ -1606,7 +1606,6 @@
 		]
 		default: {
 			id: {
-				id: "18662a5b12606607"
 			}
 			target: {
 			}
@@ -3341,7 +3340,6 @@
 		]
 		default: {
 			id: {
-				id: "0f9636514e3b50d5"
 			}
 			target: {
 			}
@@ -4444,7 +4442,7 @@
 							}
 						}
 						{
-							type: "tm_did_init"
+							type: "tm_did_add"
 							position: {
 								x: 52
 								y: 365
@@ -10556,7 +10554,6 @@
 				indices: {
 				}
 			}
-			transform: "3865a2eea51b6038"
 			transform_settings: {
 				graph: {
 					interface: {
@@ -15821,6 +15818,7 @@
 					shape: {
 						__type: "tm_re_collision_shape_box"
 					}
+					id: 1
 					name: "Shape 1"
 				}
 			]
@@ -16203,7 +16201,6 @@
 					__type: "tm_re_directional_light_shadows_component_projection_automatic"
 					maximum_distance: 10
 				}
-				cull_mode: 1
 				shadow_cascades: {
 					__type: "tm_re_directional_light_shadows_component_shadow_cascades_fixed"
 					cascade_count: 1
@@ -19017,7 +19014,6 @@
 									__type: "tm_scene_optimizer_merging_mode"
 								}
 								public: true
-								order: 1
 							}
 							{
 								name: "Entities to Keep"
@@ -19026,7 +19022,6 @@
 									__type: "tm_scene_optimizer_keep_entities_list"
 								}
 								public: true
-								order: 2
 							}
 						]
 					}
@@ -26031,7 +26026,6 @@
 											__type: "tm_scene_optimizer_merging_mode"
 										}
 										public: true
-										order: 1
 									}
 									{
 										name: "Entities to Keep"
@@ -26040,7 +26034,6 @@
 											__type: "tm_scene_optimizer_keep_entities_list"
 										}
 										public: true
-										order: 2
 									}
 								]
 							}
