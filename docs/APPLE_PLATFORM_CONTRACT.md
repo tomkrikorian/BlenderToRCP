@@ -95,8 +95,10 @@ resolves nodedefs from a library that ships with the OS.
   node the editor shows, the device renders.
 - Everything this exporter authors — the RealityKit PBR and Unlit surfaces,
   image readers with wrap and filter modes, UV transforms, normal-map
-  decoding, channel swizzles — exists in that library with matching
-  signatures.
+  decoding, channel reads — exists in that library with matching signatures
+  *and* a compiled implementation. Resolving is not enough: every
+  `ND_swizzle_*` nodedef resolves and none is implemented, which is why the
+  exporter reads a channel with `convert` and `dotproduct` instead.
 
 One family of nodes is a known trap: the MaterialX *pbrlib* closure nodes
 (`ND_dielectric_bsdf`, `ND_mix_bsdf`, displacement, and similar). USD files
@@ -117,9 +119,12 @@ matter for Blender exports:
 | `raw`, `data`, `none` | non-color data, in the USD preview network only |
 
 Blender labels sRGB textures with a name RealityKit does not know,
-`srgb_rec709_display`. The exporter renames it to `srgb_texture`
-automatically; the encoding is the same and you don't need to change
-anything in Blender.
+`srgb_rec709_display`. The exporter renames it to `srgb_rec709_scene`
+automatically; the encoding is the same and you don't need to change anything
+in Blender. The MaterialX metadata on the image node's file input keeps the
+name MaterialX uses for that encoding, `srgb_texture` — the two live in
+different vocabularies and only one of them is resolved by
+`UsdColorSpaceAPI`.
 
 MaterialX shader graphs take no color space on a non-color texture. An absent
 color space is MaterialX's no-transform contract, and it is what Reality
@@ -145,7 +150,7 @@ graph. The `raw` and `data` names still appear on the retained
 The facts on this page were established by inspecting the shipped binaries
 and libraries of macOS 27, Reality Composer Pro 3.0 (80.0.1.500.1), and the
 Xcode 27 SDKs, including direct file-format probing of the USD library.
-Three tests in this repository re-check the most important facts against the
+Four tests in this repository re-check the most important facts against the
 locally installed software and fail if a platform update changes them:
 
 - `tests/unit/test_manifest_matches_editor_libraries.py` — the unrenderable

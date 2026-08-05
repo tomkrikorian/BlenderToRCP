@@ -355,8 +355,8 @@ anywhere.
 | Baked AO texture | forced `Non-Color` | **Silent** | — |
 
 The token set the preflight accepts, and the postprocess rename of Blender's
-ColorSpaceAPI opinion `srgb_rec709_display` to `srgb_texture`, follow what the
-RealityKit engine actually recognizes — see the color-space section of
+ColorSpaceAPI opinion `srgb_rec709_display` to `srgb_rec709_scene`, follow what
+the RealityKit engine actually recognizes — see the color-space section of
 [APPLE_PLATFORM_CONTRACT.md](APPLE_PLATFORM_CONTRACT.md).
 
 A data texture carries no MaterialX color space at all. An absent color space
@@ -508,12 +508,11 @@ is still allowed, since no encoder runs.
 
 | Trigger | What happens | Told? |
 |---|---|---|
-| Normal Map node, Strength ≈ 1.0, tangent space | `ND_normal_map_decode` (RealityKit's decoder) | **Silent** |
-| Strength ≠ 1.0, or object space | generic `ND_normalmap` with explicit `scale`/`space` | **Silent** |
-| OpenPBR profile | forced to `ND_normalmap` (`normal_decode = 'materialx'`) | **Silent** |
-| OpenPBR + object-space normal | **export fails** | **Error** |
+| Normal Map node, tangent space, Strength 1.0 | `ND_normal_map_decode` (RealityKit's decoder) | **Silent** |
+| Tangent space, Strength ≠ 1.0 | `ND_normal_map_decode`, then a mix toward the geometric normal and a renormalize — Blender's own smooth-shaded strength, expressed in tangent space | **Silent** |
+| Object or world space, any profile | **export fails** with bake advice | **Error** |
+| OpenPBR profile | `ND_normalmap` (`normal_decode = 'materialx'`), whose socket is world space | **Silent** |
 | PBR2 + non-default Strength | **export fails** (strict validator) | **Error** |
-| PBR2 + non-tangent space | **export fails** (strict validator) | **Error** |
 | Normal Map node with **linked** Strength | **export fails** (strict validator) | **Error** |
 | Normal Map node set to **DirectX** convention | **export fails** (strict validator) | **Error** |
 | Bump node anywhere in the chain | **export fails** (strict validator) | **Error** |

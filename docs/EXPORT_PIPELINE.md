@@ -802,18 +802,17 @@ hard exit may leak an unused immutable generation but cannot corrupt the
 previously published asset. The `_publication_phase_checkpoint` no-op at
 `:906` is the fault-injection point the crash-coherence tests use.
 
-One thing does accumulate. `_remove_stale_sidecars_after_commit` unlinks
-files only (`Plugin/export/blender_usd_export.py:1023-1027`); it never
-removes the emptied generation directory. An empty
-`textures/<output>/<generation>/` directory therefore remains in the output
-folder per superseded export. You can delete these empty directories safely.
+`_remove_stale_sidecars_after_commit`
+(`Plugin/export/blender_usd_export.py:1066`) unlinks the superseded files, and
+`_remove_emptied_sidecar_generations` then removes the directories it just
+emptied. Re-exporting to the same path leaves exactly one generation
+directory, however many times you run it.
 
 *Verification: three consecutive exports of the same scene to `t1/scene.usda`
 each succeeded. After each, the manifest listed exactly the current
 generation and the previous generation's files were gone. Generation tokens
 observed: `bd6f04c8…`, then `e506e3d1…`, then `ff53566d…`. After the three
-exports, `textures/scene.usda/` held three generation directories — two of
-them empty.*
+exports, `textures/scene.usda/` held exactly one generation directory.*
 
 ---
 
@@ -832,7 +831,6 @@ The staged intermediate extension is chosen at
 - `USDZ` stages as **`.usdc`** — the archive root is always binary, never
   ASCII.
 - `USDA` and `USDC` stage with the final extension.
-- A legacy `USD` format value is normalized to `USDC` at `:251-253`.
 
 `RCP_IMPORT` is an outer packaging mode: the native export underneath is
 USDA, the `.usda` source is published beside the `.import` directory, and

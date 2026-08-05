@@ -843,6 +843,13 @@ Every export uses the non-configurable Apple spatial contract: Blender's native 
 | `INVALID_SETTING_OVERRIDE` | Blender | Override names an unknown or internal setting |
 | `INVALID_SETTING_VALUE` | Blender | Override value rejected for that setting |
 | `RCP_IMPORT_EXISTS` | Blender | `--format RCP_IMPORT` and the `.import` directory already exists; nothing is overwritten |
+
+`--replace` opts into refreshing an existing `.import` package. Without it the
+exporter refuses rather than overwrite. The refusal codes above cover the cases
+it will not take: a path that is not an `.import` directory, a symlink, a
+directory that is not a package, a package another process holds open, a failed
+rollback, and a format other than `RCP_IMPORT`. The setting behind the flag is
+`rcp_import_replace`.
 | `INVALID_EXPORT_SELECTION` | Blender | The selected object set could not be resolved |
 | `NO_EXPORTABLE_OBJECTS` | Blender | `--selected-only` with nothing selected |
 | `UNSUPPORTED_MATERIAL_NODES` | Blender | Strict material-graph validation failed |
@@ -850,7 +857,7 @@ Every export uses the non-configurable Apple spatial contract: Blender's native 
 | `POSTPROCESS_FAILED` | Blender | USD post-processing failed |
 | `EXPORT_FAILED` | Blender | Catch-all for anything else in the export stage |
 
-`RCP_IMPORT_EXISTS` is a deliberate refusal, not a crash — remove or rename the existing directory and rerun:
+`RCP_IMPORT_EXISTS` is a deliberate refusal, not a crash. To refresh a package in place, pass `--replace`; the exporter stages the new package beside the old one and swaps it atomically. Rerun with:
 
 ```bash
 blendertorcp --json export scene.blend -o /output/pkg.import --format RCP_IMPORT
@@ -1397,6 +1404,12 @@ Without `--json`, the same interrupt prints `Aborted.` to stderr and nothing to 
 | `INVALID_SETTING_VALUE` | `settings set`, `export`, `bake-export` |
 | `SETTINGS_SAVE_FAILED` | `settings set --save` |
 | `RCP_IMPORT_EXISTS` | `export`, `bake-export` (with `--format RCP_IMPORT`) |
+| `RCP_IMPORT_REPLACE_NOT_IMPORT_PATH` | `export`, `bake-export` (with `--replace`) |
+| `RCP_IMPORT_REPLACE_SYMLINK` | `export`, `bake-export` (with `--replace`) |
+| `RCP_IMPORT_REPLACE_NOT_A_PACKAGE` | `export`, `bake-export` (with `--replace`) |
+| `RCP_IMPORT_REPLACE_BUSY` | `export`, `bake-export` (with `--replace`) |
+| `RCP_IMPORT_REPLACE_RESTORE_FAILED` | `export`, `bake-export` (with `--replace`) |
+| `RCP_IMPORT_REPLACE_NOT_APPLICABLE` | `export`, `bake-export` (with `--replace`) |
 | `INVALID_EXPORT_SELECTION` | `export` |
 | `NO_EXPORTABLE_OBJECTS` | `export`, `bake-export` |
 | `UNSUPPORTED_MATERIAL_NODES` | `export` |

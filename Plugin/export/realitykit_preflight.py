@@ -112,8 +112,10 @@ _DATA_INPUT_TERMS = (
 # its CoreRE engine aliases ``srgb_texture``, ``srgb_rec709_scene`` and the
 # ``lin_rec709*`` family, but has no mapping at all for Blender's OCIO name
 # ``srgb_rec709_display`` — the postprocess retags that token to
-# ``srgb_texture`` before this gate runs, so accepting it here would only
-# mask a regression of that rewrite.
+# ``srgb_rec709_scene`` before this gate runs, so accepting it here would only
+# mask a regression of that rewrite. The prim-level ColorSpaceAPI token has to
+# be one ``UsdColorSpaceAPI`` resolves, which ``srgb_texture`` is not; it stays
+# correct as MaterialX metadata on an image node's file input.
 _COLOR_TEXTURE_COLOR_SPACES = frozenset(
     {
         "srgb",

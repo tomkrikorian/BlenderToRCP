@@ -81,7 +81,7 @@ Wrong (lab-note style):
 Right (public style):
 
 > RealityKit does not recognize Blender's default color-space name,
-> `srgb_rec709_display`. The exporter renames it to `srgb_texture`, which
+> `srgb_rec709_display`. The exporter renames it to `srgb_rec709_scene`, which
 > RealityKit reads as the same sRGB encoding. You don't need to change
 > anything in Blender.
 >

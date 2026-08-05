@@ -223,7 +223,6 @@ Once installed, an agent can respond to prompts like "export my Blender scene to
 
 The add-on preferences expose:
 - `USDZ Packager Path`: optional path to `usdzip`. If empty, the add-on uses the built-in Python packager.
-- `MaterialX Library Path`: optional override for MaterialX definitions. If empty, the add-on uses the bundled references.
 
 The add-on also persists the last-used export settings and remembers export paths per `.blend` file. That state lives in Blender preferences, not in the repository.
 

@@ -51,22 +51,22 @@ Consequences:
 
 The same operator path also forces `export_texture_settings_enabled = True` into the background job payload (`Plugin/ops/bake_export_operator.py:183` → `:730`). See [`export_texture_settings_enabled`](#export_texture_settings_enabled) — this is why the Optimization panel's fields work in the UI bake route even though the toggle is not drawn there.
 
-Three further derived values are never user-editable:
+Two further derived values are never user-editable:
 
 - `force_unlit_materials` is recomputed from `bake_mode` before every export (`Plugin/export/bake_finalize.py:17`, `:22`).
 - `export_format` is rewritten to `USDA` whenever `RCP_IMPORT` is requested, because the `.import` package is generated from the post-processed USDA (`Plugin/api/commands/export.py:107`, `Plugin/api/commands/bake_export.py:307`).
-- The legacy value `USD` is silently normalized to `USDC` (`Plugin/ops/export_operator.py:33`).
 
 ---
 
 ## Summary table
 
-40 public settings. `Group` is the `settings get --group` / `settings list` membership defined in `Plugin/api/commands/_settings_common.py:63`.
+41 public settings. `Group` is the `settings get --group` / `settings list` membership defined in `Plugin/api/commands/_settings_common.py:63`.
 
 | Key | Type | Default | Group | UI control | Applies to |
 |-----|------|---------|-------|-----------|-----------|
 | `filepath` | string | `""` | general | Export ▸ Output Path | both |
 | `export_format` | enum | `USDA` | general | Export ▸ Format | both |
+| `rcp_import_replace` | bool | `false` | general | Export ▸ Replace Existing .import | both |
 | `root_prim_name` | string | `/root` | general | Advanced USD ▸ General | both |
 | `export_animation` | bool | `false` | general | Advanced USD ▸ General ▸ Include | both |
 | `author_animation_library` | bool | `false` | general | Advanced USD ▸ General *(needs `export_animation`)* | both |
@@ -827,7 +827,7 @@ Genuinely non-configurable policy constants — cameras, lights, curves, points,
 |---|---|
 | `bake_mode` | the Blender Export button, from `ui_material_type`/`ui_pbr_processing`/`ui_unlit_appearance` (`Plugin/ops/bake_export_operator.py:116`) |
 | `export_texture_settings_enabled` | forced `true` by the Blender Export button on bake routes (`Plugin/ops/bake_export_operator.py:183`); staged `true` by `bake-export --resolution/--image-format/--margin` |
-| `export_format` | coerced `RCP_IMPORT` → `USDA` for the underlying Blender export; legacy `USD` → `USDC` |
+| `export_format` | coerced `RCP_IMPORT` → `USDA` for the underlying Blender export |
 | `filepath` | extension rewritten to match `export_format` |
 | `force_unlit_materials` | recomputed from `bake_mode` before every bake export |
 | every setting except `filepath` | a stale/foreign persisted payload triggers a full reset to RNA defaults (`Plugin/prefs.py:377`) |
