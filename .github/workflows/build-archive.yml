@@ -36,6 +36,10 @@ jobs:
       - name: Checkout release revision
         uses: actions/checkout@v4
         with:
+          # Blender scenes and USD assets are LFS-backed; without this the
+          # checkout yields pointer files and the add-on ships a broken
+          # nodegroups.blend while every .blend test fixture fails to open.
+          lfs: true
           fetch-depth: 0
 
       - name: Validate bare tag and manifest version
@@ -134,6 +138,11 @@ jobs:
     steps:
       - name: Checkout release revision
         uses: actions/checkout@v4
+        with:
+          # Blender scenes and USD assets are LFS-backed; without this the
+          # checkout yields pointer files and the add-on ships a broken
+          # nodegroups.blend while every .blend test fixture fails to open.
+          lfs: true
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -171,6 +180,10 @@ jobs:
       - name: Check out the exact tested commit
         uses: actions/checkout@v4
         with:
+          # Blender scenes and USD assets are LFS-backed; without this the
+          # checkout yields pointer files and the add-on ships a broken
+          # nodegroups.blend while every .blend test fixture fails to open.
+          lfs: true
           ref: ${{ github.sha }}
           fetch-depth: 1
 

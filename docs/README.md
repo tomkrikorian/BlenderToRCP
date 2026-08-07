@@ -45,12 +45,13 @@ If you are chasing a specific surprise:
 ## Known issues
 
 Open defects, including several that produce silently wrong output, are tracked
-in [../CODE_REVIEW_FINDINGS.md](../CODE_REVIEW_FINDINGS.md). Read it before
-filing a bug — it may already be there, with a measurement attached.
+in [GitHub Issues](https://github.com/tomkrikorian/BlenderToRCP/issues). Search
+there before filing a bug — it may already be recorded, with a measurement
+attached.
 
 ## How these pages are verified
 
 Behavioral claims in the pipeline documents are linked to the source lines that
-implement them and pinned to the versions they were checked against. Findings
-that contradict a documented claim are recorded in
-[../CODE_REVIEW_FINDINGS.md](../CODE_REVIEW_FINDINGS.md).
+implement them and pinned to the versions they were checked against. A finding
+that contradicts a documented claim is filed as an issue and the page is
+corrected — the page is never left standing against a measurement.

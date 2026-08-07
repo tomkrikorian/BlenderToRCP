@@ -91,6 +91,6 @@ Right (public style):
 ## What stays out of docs/
 
 Measurement logs, acceptance evidence, findings, and open-defect narratives
-live in `CODE_REVIEW_FINDINGS.md`, test docstrings, and commit messages —
-not in `docs/` pages. A docs page states the current behavior; the history of
-how it got that way is the repository's job, not the reader's.
+live in GitHub Issues, test docstrings, and commit messages — not in `docs/`
+pages. A docs page states the current behavior; the history of how it got that
+way is the repository's job, not the reader's.

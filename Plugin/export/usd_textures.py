@@ -1325,6 +1325,29 @@ def _remove_unreferenced_superseded_textures(
     superseded_paths: set[Path],
     diagnostics=None,
 ) -> None:
+    """Delete only the *superseded* copies, never everything unreferenced.
+
+    A generation directory carries one unreferenced duplicate per image: the
+    same texture reaches staging both as the original and as the copy Blender's
+    own exporter wrote, and the two are not byte-identical because Blender
+    re-encodes, so content fingerprinting cannot merge them. It is wasted bytes,
+    not a correctness problem.
+
+    Do not "fix" that by pruning whatever ``_referenced_texture_paths`` omits.
+    That function walks ``stage.Traverse()`` and reads ``attr.Get()`` with no
+    time code, so it misses three classes of live reference: a texture used only
+    by a **non-selected variant** (preflight iterates up to
+    ``MAX_VARIANT_COMBINATIONS`` = 256, so variants are real here), one
+    referenced only at a **time sample**, and anything under an **inactive prim
+    or unloaded payload**. Pruning on that basis trades wasted bytes for an
+    asset whose variants have no textures. Audited 2026-07-29.
+
+    The two safe routes, in preference order: stop creating the duplicate by
+    reusing the already-staged destination when the source is one of the native
+    copies recorded by ``staging_namespace.record_native_texture_copies``; or
+    harden ``_referenced_texture_paths`` to walk variant combinations, time
+    samples and inactive prims first.
+    """
     if not superseded_paths:
         return
 

@@ -43,6 +43,10 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
+          # Blender scenes and USD assets are LFS-backed; without this the
+          # checkout yields pointer files and the add-on ships a broken
+          # nodegroups.blend while every .blend test fixture fails to open.
+          lfs: true
           # Full history so the whitespace gate below can diff against the
           # base revision (PR base, push predecessor, or origin/dev).
           fetch-depth: 0
@@ -154,6 +158,11 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          # Blender scenes and USD assets are LFS-backed; without this the
+          # checkout yields pointer files and the add-on ships a broken
+          # nodegroups.blend while every .blend test fixture fails to open.
+          lfs: true
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -219,6 +228,11 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          # Blender scenes and USD assets are LFS-backed; without this the
+          # checkout yields pointer files and the add-on ships a broken
+          # nodegroups.blend while every .blend test fixture fails to open.
+          lfs: true
 
       - name: Configure isolated Blender paths
         run: |

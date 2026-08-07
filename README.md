@@ -86,13 +86,18 @@ Full documentation index: [`docs/README.md`](docs/README.md).
 | [`docs/MATERIAL_TRANSLATION.md`](docs/MATERIAL_TRANSLATION.md) | Blender shader graph to RealityKit MaterialX ShaderGraph |
 | [`docs/BAKING.md`](docs/BAKING.md) | When a bake runs, what each mode captures, what scene state it overrides |
 | [`docs/EXPORT_PIPELINE.md`](docs/EXPORT_PIPELINE.md) | Geometry, units, animation, staging, USDZ packaging |
+| [`CHANGELOG.md`](CHANGELOG.md) | What changed in every release, and what breaks on upgrade |
 
 The three pipeline documents each carry a section on the decisions the exporter
 makes **on your behalf**, and whether it tells you it made them. Start there if
 an export came out differently than you expected.
 
+Upgrading from 1.3.0 is not a drop-in: 2.0.0 removes several settings and
+refuses some materials it used to export. The breaking changes are listed first
+in [`CHANGELOG.md`](CHANGELOG.md).
+
 Open defects are tracked in
-[`CODE_REVIEW_FINDINGS.md`](CODE_REVIEW_FINDINGS.md).
+[GitHub Issues](https://github.com/tomkrikorian/BlenderToRCP/issues).
 
 ## A compatibility-first exporter
 

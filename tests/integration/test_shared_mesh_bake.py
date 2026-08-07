@@ -129,8 +129,9 @@ def test_each_instance_gets_its_own_baked_texture(shared_mesh_export):
 
     # Assert on distinct *content*, not file count: the same baked image is
     # currently staged under two names because it reaches staging through two
-    # asset paths (tracked separately in CODE_REVIEW_FINDINGS.md). That
-    # duplication is orthogonal to this regression.
+    # asset paths - see the note on _remove_unreferenced_superseded_textures in
+    # Plugin/export/usd_textures.py. That duplication is orthogonal to this
+    # regression.
     digests = {hashlib.sha256(path.read_bytes()).hexdigest() for path in textures}
     assert len(digests) == 2, (
         "expected one distinct bake per instance - the lit cube and the "
