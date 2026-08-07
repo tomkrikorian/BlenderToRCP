@@ -24,15 +24,54 @@ On that exact file:
 |---|---|
 | `realitytool compile --platform xros` | exit 0, **emits `shadergraph_<material>`**, zero PBR fallbacks |
 | `usdchecker --arkit --strict` | `Success!` |
+| `scripts/check_shader_implementations.py` | passes — every nodedef in it resolves to a symbol |
 | Reality Composer Pro 3 | refuses the material |
 
 `realitytool` does not merely stay quiet. It reports a *successful* shader graph
 for a material the app cannot build.
 
+**The cause of this refusal is not known.** It was attributed to the material's
+`ND_swizzle_color3_float`, on the belief that no `ND_swizzle_*` had a Metal
+implementation. Both halves of that are now measured false:
+
+- Every one of the 61 declared swizzle nodedefs has a Metal symbol, under a
+  rewritten name (see below).
+- A generated package whose roughness reads through `ND_swizzle_color3_float`
+  **imports into Reality Composer Pro 3 with no console error and renders** —
+  with and without an authored `channels` value. Measured on build
+  `80.0.1.500.1`.
+
+So the swizzle node is not what `Robot.usda` trips over. Do not restate that
+explanation. What survives is the observation that matters: Reality Composer Pro
+refuses a material that `realitytool`, `usdchecker`, and this repository's own
+checker all pass. Only an import tells you what the editor will build.
+
 **Why they disagree.** Reality Composer Pro compiles through
 `ShaderGraph.framework` and the `libtm-*` libraries. `realitytool` links neither.
 They are different compilers reading the same file, and only one of them ships in
 the app the user runs.
+
+**A second measured instance.** A USDZ nested unchanged inside a temporary
+`.rkassets` compiled with exit 0, and RealityKit then rejected the result with
+error 20. The validator now expands already-validated USDZ members before
+compilation rather than nesting them.
+
+**Importing into Reality Composer Pro has its own trap.** When an import fails
+part way, the editor leaves a `.import` cache beside the source containing
+records but no geometry buffers, and importing the corrected file *under the same
+name does not rebuild it*. It keeps reporting
+
+```text
+Failed reading file `.../geometry/….tm_buffers/…`
+Geometry still has buffers being streamed, object_to_geometry() shouldn't be
+called before receive all the buffers!
+```
+
+against buffers that were never written, which reads exactly like a fresh defect
+in the file you just fixed. Delete that cache, or import under a new name, before
+concluding anything about a change. This applies to plain `.usda`/`.usdz` imports
+too - the editor builds the same cache for them - so it outlives any one export
+format.
 
 **What `realitytool` is still good for:** proving a file parses, packages, and
 survives crate conversion. Treat it as a syntax check.
@@ -48,8 +87,18 @@ It reads Apple's shipped Metal libraries directly, so it catches the failure
 class above. Two traps it exists to handle:
 
 - A nodedef can **resolve** in RealityKit's nodedef store and still have **no
-  implementation**. Every `ND_swizzle_*` is exactly that: no Metal symbol and no
-  nodegraph expansion. Resolution is not implementation.
+  implementation** — no Metal symbol and no nodegraph expansion. Resolution is
+  not implementation.
+- **Symbols are not always spelled like their nodedef.** ShaderGraph rewrites a
+  `swizzle` node to `ND_appleinternal_swizzle_<from><to>`: separator dropped,
+  MaterialX's `vectorN` spelled `floatN`. So `ND_swizzle_color3_float` compiles
+  to `ND_appleinternal_swizzle_color3float`, and `ND_swizzle_color4_vector3` to
+  `ND_appleinternal_swizzle_color4float3`. **Nothing in the shipped MaterialX
+  XML records this mapping** — the string `appleinternal` does not appear in
+  that tree at all. Matching nodedef names against the symbol table therefore
+  reported all 61 declared swizzle nodedefs as unimplemented; every one of them
+  has a symbol. The checker now applies the rewrite. Assume other families may
+  hide behind renames too: a missing symbol is a hypothesis, not a verdict.
 - The converse trap: ~470 nodedefs are expanded from a `<nodegraph>` at compile
   time and never get a Metal symbol — `ND_normal_map_decode` and
   `ND_separate4_color4` among them. Judging on the metallib alone calls every one

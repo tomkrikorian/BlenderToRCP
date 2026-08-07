@@ -115,12 +115,46 @@ def xml_implemented(version: str) -> frozenset[str]:
     return frozenset(found)
 
 
+#: MaterialX type names as they appear inside a rewritten Metal symbol.
+_SYMBOL_TYPE_NAMES = {
+    "vector2": "float2",
+    "vector3": "float3",
+    "vector4": "float4",
+}
+
+
+def _rewritten_symbol(nodedef: str) -> str | None:
+    """The Metal symbol ShaderGraph compiles a ``swizzle`` node into.
+
+    ShaderGraph does not emit ``ND_swizzle_<from>_<to>``. It rewrites the node
+    to ``ND_appleinternal_swizzle_<from><to>``, dropping the separator and
+    spelling MaterialX's ``vectorN`` as ``floatN``. Nothing in the shipped
+    MaterialX XML records that mapping, so a checker reasoning from the XML and
+    the symbol table alone concludes the whole family is unimplemented. It is
+    not: all 61 declared swizzle nodedefs resolve to a symbol this way.
+    """
+
+    if not nodedef.startswith("ND_swizzle_"):
+        return None
+    parts = nodedef[len("ND_swizzle_") :].split("_")
+    return "ND_appleinternal_swizzle_" + "".join(
+        _SYMBOL_TYPE_NAMES.get(part, part) for part in parts
+    )
+
+
+def _has_symbol(symbols, name: str) -> bool:
+    index = bisect.bisect_left(symbols, name)
+    return index < len(symbols) and symbols[index].startswith(name)
+
+
 def _is_implemented(nodedef: str, implemented) -> bool:
     symbols, xml = implemented
     if nodedef in xml:
         return True
-    index = bisect.bisect_left(symbols, nodedef)
-    return index < len(symbols) and symbols[index].startswith(nodedef)
+    if _has_symbol(symbols, nodedef):
+        return True
+    rewritten = _rewritten_symbol(nodedef)
+    return rewritten is not None and _has_symbol(symbols, rewritten)
 
 
 def layer_text(path: Path) -> str:

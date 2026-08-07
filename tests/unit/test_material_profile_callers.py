@@ -194,7 +194,7 @@ def _install_export_dependencies(
         ),
     )
 
-    def fake_export(_context, _settings, filepath, _diagnostics):
+    def fake_export(_context, _settings, filepath, _diagnostics, **_kwargs):
         Path(filepath).write_text("#usda 1.0\n")
         return filepath
 
@@ -607,7 +607,7 @@ def _install_ui_export_dependencies(
 
     output = tmp_path / "scene.usda"
 
-    def fake_export(_context, _settings, filepath, _diagnostics):
+    def fake_export(_context, _settings, filepath, _diagnostics, **_kwargs):
         Path(filepath).write_text("#usda 1.0\n")
         return filepath
 

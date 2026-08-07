@@ -254,8 +254,6 @@ def cmd_export(parsed: argparse.Namespace) -> int:
         args["no_diagnostics"] = True
     if parsed.diagnostics:
         args["diagnostics"] = True
-    if parsed.replace:
-        args["replace"] = True
 
     overrides = _collect_overrides(parsed.overrides)
     if overrides:
@@ -290,8 +288,6 @@ def cmd_bake_export(parsed: argparse.Namespace) -> int:
         args["no_diagnostics"] = True
     if parsed.diagnostics:
         args["diagnostics"] = True
-    if parsed.replace:
-        args["replace"] = True
     if parsed.ibl_source:
         args["ibl_source"] = parsed.ibl_source
     if parsed.ibl_filepath:
@@ -495,20 +491,12 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("-o", "--output", required=True, help="Output file path")
     p.add_argument(
         "--format",
-        choices=["USDA", "USDC", "USDZ", "RCP_IMPORT"],
+        choices=["USDA", "USDC", "USDZ"],
         help="Export format",
     )
     p.add_argument("--selected-only", action="store_true", help="Export selected objects only")
     p.add_argument("--diagnostics", action="store_true", help="Write diagnostics JSON sidecar")
     p.add_argument("--no-diagnostics", action="store_true", help="Skip diagnostics")
-    p.add_argument(
-        "--replace",
-        action="store_true",
-        help=(
-            "Refresh an existing .import package instead of refusing; only "
-            "meaningful with --format RCP_IMPORT, and an error with any other format"
-        ),
-    )
     p.add_argument(
         "overrides", nargs="*", metavar="key=value",
         help="Setting overrides (place immediately after the blend file, before -o/--format)",
@@ -524,7 +512,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("-o", "--output", required=True, help="Output file path")
     p.add_argument(
         "--format",
-        choices=["USDA", "USDC", "USDZ", "RCP_IMPORT"],
+        choices=["USDA", "USDC", "USDZ"],
         help="Export format",
     )
     p.add_argument("--bake-mode", choices=["UNLIT_ALBEDO", "LIT_ALBEDO", "LIT_IBL"], help="Bake mode: LIT_IBL (Lighting & Shadows, default), UNLIT_ALBEDO (Material Color Only - Unlit), or LIT_ALBEDO (Material Color Only - Lit PBR)")
@@ -534,14 +522,6 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--selected-only", action="store_true", help="Only bake/export selected objects")
     p.add_argument("--diagnostics", action="store_true", help="Write diagnostics JSON sidecar")
     p.add_argument("--no-diagnostics", action="store_true", help="Skip diagnostics")
-    p.add_argument(
-        "--replace",
-        action="store_true",
-        help=(
-            "Refresh an existing .import package instead of refusing; only "
-            "meaningful with --format RCP_IMPORT, and an error with any other format"
-        ),
-    )
     # Lighting source options for LIT_IBL mode.
     p.add_argument("--ibl-source", choices=["SCENE_WORLD", "HDRI_FILE"], help="Lighting source for LIT_IBL mode")
     p.add_argument("--ibl-filepath", help="Path to HDRI file")

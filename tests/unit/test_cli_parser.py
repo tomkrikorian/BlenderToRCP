@@ -153,19 +153,6 @@ class TestExportCommand:
         args = parser.parse_args(["export", "scene.blend", "-o", "out.usdz", "--format", "USDZ"])
         assert args.format == "USDZ"
 
-    def test_rcp_import_format(self, parser):
-        args = parser.parse_args(
-            [
-                "export",
-                "scene.blend",
-                "-o",
-                "out.import",
-                "--format",
-                "RCP_IMPORT",
-            ]
-        )
-        assert args.format == "RCP_IMPORT"
-
     def test_selected_only(self, parser):
         args = parser.parse_args(["export", "scene.blend", "-o", "out.usdz", "--selected-only"])
         assert args.selected_only is True
@@ -177,24 +164,6 @@ class TestExportCommand:
     def test_diagnostics(self, parser):
         args = parser.parse_args(["export", "scene.blend", "-o", "out.usdz", "--diagnostics"])
         assert args.diagnostics is True
-
-    def test_replace_defaults_off(self, parser):
-        args = parser.parse_args(["export", "scene.blend", "-o", "out.import"])
-        assert args.replace is False
-
-    def test_replace(self, parser):
-        args = parser.parse_args(
-            [
-                "export",
-                "scene.blend",
-                "-o",
-                "out.import",
-                "--format",
-                "RCP_IMPORT",
-                "--replace",
-            ]
-        )
-        assert args.replace is True
 
     def test_missing_output_raises(self, parser):
         with pytest.raises(CLIUsageError):
@@ -220,19 +189,6 @@ class TestBakeExportCommand:
     def test_bake_mode(self, parser):
         args = parser.parse_args(["bake-export", "scene.blend", "-o", "out.usdz", "--bake-mode", "LIT_IBL"])
         assert args.bake_mode == "LIT_IBL"
-
-    def test_rcp_import_format(self, parser):
-        args = parser.parse_args(
-            [
-                "bake-export",
-                "scene.blend",
-                "-o",
-                "out.import",
-                "--format",
-                "RCP_IMPORT",
-            ]
-        )
-        assert args.format == "RCP_IMPORT"
 
     def test_resolution(self, parser):
         args = parser.parse_args(["bake-export", "scene.blend", "-o", "out.usdz", "--resolution", "4096"])
@@ -273,21 +229,6 @@ class TestBakeExportCommand:
         assert args.no_base_color is True
         assert args.no_opacity is True
         assert args.keep_materials is True
-        assert args.replace is False
-
-    def test_replace(self, parser):
-        args = parser.parse_args(
-            [
-                "bake-export",
-                "scene.blend",
-                "-o",
-                "out.import",
-                "--format",
-                "RCP_IMPORT",
-                "--replace",
-            ]
-        )
-        assert args.replace is True
 
     def test_diagnostics(self, parser):
         args = parser.parse_args(["bake-export", "scene.blend", "-o", "out.usdz", "--diagnostics"])

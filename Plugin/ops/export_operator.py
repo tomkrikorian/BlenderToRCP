@@ -73,7 +73,6 @@ class BLENDERTORCP_OT_export(Operator, ExportHelper):
             'USDA': '.usda',
             'USDC': '.usdc',
             'USDZ': '.usdz',
-            'RCP_IMPORT': '.import',
         }.get(export_format, '.usdz')
 
     @classmethod
@@ -118,26 +117,6 @@ class BLENDERTORCP_OT_export(Operator, ExportHelper):
             self.report({'ERROR'}, "Set Output Path before exporting.")
             return {'CANCELLED'}
         settings.filepath = self.filepath
-        rcp_import_export = export_format == 'RCP_IMPORT'
-        usd_filepath = (
-            str(Path(self.filepath).with_suffix('.usda'))
-            if rcp_import_export
-            else self.filepath
-        )
-        from ..export import rcp_import_publish
-
-        rcp_import_replace = rcp_import_export and bool(
-            getattr(settings, "rcp_import_replace", False)
-        )
-        if rcp_import_export:
-            try:
-                rcp_import_publish.check_destination(
-                    self.filepath,
-                    replace=rcp_import_replace,
-                )
-            except rcp_import_publish.ImportPublishError as exc:
-                self.report({'ERROR'}, str(exc))
-                return {'CANCELLED'}
         surface_profile = getattr(
             settings,
             "materialx_surface_profile",
@@ -248,7 +227,7 @@ class BLENDERTORCP_OT_export(Operator, ExportHelper):
             # Step 1: Export from Blender to USD
             self.report({'INFO'}, "Exporting from Blender...")
             temp_usd_path = blender_usd_export.export_blender_scene(
-                context, settings, usd_filepath, diag,
+                context, settings, self.filepath, diag,
             )
             
             if not temp_usd_path or not os.path.exists(temp_usd_path):
@@ -288,25 +267,6 @@ class BLENDERTORCP_OT_export(Operator, ExportHelper):
                     settings,
                     context,
                     diag
-                )
-            elif rcp_import_export:
-                self.report(
-                    {'INFO'},
-                    "Generating build-80 Reality Composer Pro .import...",
-                )
-                # Staged beside the destination and swapped in last, so a
-                # refresh cannot leave the artist without a package.
-                rcp_import_publish.publish_static_import(
-                    staged_source=temp_usd_path,
-                    recorded_source=usd_filepath,
-                    destination=self.filepath,
-                    replace=rcp_import_replace,
-                    commit_source=lambda: blender_usd_export.publish_unpacked_export(
-                        temp_usd_path, usd_filepath, diag
-                    ),
-                )
-                diag.add_generated_file(
-                    "rcp_import", self.filepath, source=usd_filepath
                 )
             else:
                 # Publish the staged USD and sidecar assets to the final location.
@@ -349,7 +309,7 @@ class BLENDERTORCP_OT_export(Operator, ExportHelper):
                 try:
                     from ..export import blender_usd_export
                     blender_usd_export.remove_export_staging_dir(
-                        usd_filepath,
+                        self.filepath,
                         diag,
                         staging_dir=Path(temp_usd_path).parent,
                     )

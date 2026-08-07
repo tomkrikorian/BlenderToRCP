@@ -54,7 +54,6 @@ The same operator path also forces `export_texture_settings_enabled = True` into
 Two further derived values are never user-editable:
 
 - `force_unlit_materials` is recomputed from `bake_mode` before every export (`Plugin/export/bake_finalize.py:17`, `:22`).
-- `export_format` is rewritten to `USDA` whenever `RCP_IMPORT` is requested, because the `.import` package is generated from the post-processed USDA (`Plugin/api/commands/export.py:107`, `Plugin/api/commands/bake_export.py:307`).
 
 ---
 
@@ -66,7 +65,6 @@ Two further derived values are never user-editable:
 |-----|------|---------|-------|-----------|-----------|
 | `filepath` | string | `""` | general | Export ▸ Output Path | both |
 | `export_format` | enum | `USDA` | general | Export ▸ Format | both |
-| `rcp_import_replace` | bool | `false` | general | Export ▸ Replace Existing .import | both |
 | `root_prim_name` | string | `/root` | general | Advanced USD ▸ General | both |
 | `export_animation` | bool | `false` | general | Advanced USD ▸ General ▸ Include | both |
 | `author_animation_library` | bool | `false` | general | Advanced USD ▸ General *(needs `export_animation`)* | both |
@@ -167,18 +165,17 @@ Excluded from the persisted settings payload; remembered per-.blend instead (`Pl
 | | |
 |---|---|
 | Type | enum |
-| Values | `USDA`, `USDC`, `USDZ`, `RCP_IMPORT` |
+| Values | `USDA`, `USDC`, `USDZ` |
 | Default | `USDA` |
 | Declared | `Plugin/ui/panel.py:167` |
 | UI | Export box ▸ Format (`Plugin/ui/panel.py:618`) |
 
-Selects the output container and drives the enforced file extension (`.usda` / `.usdc` / `.usdz` / `.import`, `Plugin/ops/export_operator.py:40`).
+Selects the output container and drives the enforced file extension (`.usda` / `.usdc` / `.usdz`).
 
 Behavioral differences:
 
 - `USDA` / `USDC` — Blender's native USD export writes this format directly, then the post-processed result is published to the final path (`Plugin/export/blender_usd_export.py:270`).
 - `USDZ` — Blender exports `.usdc` into a temp location, post-processing runs, then `pack_usdz.create_usdz()` packages and *compliance-checks* the archive (`Plugin/api/commands/export.py:289`). This is also the only format that triggers the USDZ branch of the RealityKit preflight (`Plugin/export/realitykit_preflight.py:1337`).
-- `RCP_IMPORT` — **experimental.** The property is internally coerced to `USDA` for the Blender export step, and the `.import` directory is generated from the post-processed USDA (`Plugin/api/commands/export.py:106`). The command refuses to overwrite an existing `.import` directory (`Plugin/api/commands/export.py:128`). Unsupported geometry fails closed.
 
 ### `root_prim_name`
 
@@ -827,7 +824,6 @@ Genuinely non-configurable policy constants — cameras, lights, curves, points,
 |---|---|
 | `bake_mode` | the Blender Export button, from `ui_material_type`/`ui_pbr_processing`/`ui_unlit_appearance` (`Plugin/ops/bake_export_operator.py:116`) |
 | `export_texture_settings_enabled` | forced `true` by the Blender Export button on bake routes (`Plugin/ops/bake_export_operator.py:183`); staged `true` by `bake-export --resolution/--image-format/--margin` |
-| `export_format` | coerced `RCP_IMPORT` → `USDA` for the underlying Blender export |
 | `filepath` | extension rewritten to match `export_format` |
 | `force_unlit_materials` | recomputed from `bake_mode` before every bake export |
 | every setting except `filepath` | a stale/foreign persisted payload triggers a full reset to RNA defaults (`Plugin/prefs.py:377`) |

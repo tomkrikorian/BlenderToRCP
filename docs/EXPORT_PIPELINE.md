@@ -574,17 +574,52 @@ animation resource in app code — the same guidance as
 [`ARCHITECTURE.MD`](ARCHITECTURE.MD) (line 122).
 
 *Verification: the example block above is the recorded output of a real
-two-take export. The flattening finding is recorded in
-[`RCP_IMPORT_EXPERIMENT.md`](RCP_IMPORT_EXPERIMENT.md) (lines 580–583), and
-the structural capture in
-`tests/fixtures/rcp_import/evidence/rcp3-80.0.1.500.1/clean-1/CubeWith4Animations.json`
-— an asset whose source authored four named clips — records
-`"tm_timeline": 1` in its `record_types`: RCP produced a single timeline
-record rather than four clip definitions.*
+two-take export. The flattening was measured on Reality Composer Pro 3.0 (build
+80.0.1.500.1): importing an asset whose source authored four named clips
+produced a single timeline record rather than four clip definitions.*
+
+*The same USD files loaded through public RealityKit 27 kept their clips — a
+transform-animated source retained `GoBackward`, `GoDown`, `GoForward` and
+`GoUp`; a skeletal source retained `Agree_Gesture`, `Running`, `Walking` and
+`walking_2` along with its `MeshDeformerComponent` and `SkeletalPosesComponent`.
+So the clips survive the format and the runtime; it is the editor's import that
+flattens them.*
 
 ---
 
+### Shape keys travel through the skeletal schema
+
+Blender does not export an unrigged shape-keyed mesh as an unrigged mesh. Shape
+keys reach USD through its skeletal schema, so a scene with **no armature** still
+gets a `SkelRoot` wrapper and a synthesized `Skeleton`: one joint, identity bind
+and rest transforms, and every vertex fully weighted to it. That skeleton deforms
+nothing — it exists to carry the shapes.
+
+Blender also names the shapes in the `SkelAnimation` when nothing animates them,
+leaving the weights unauthored. Reality Composer Pro refuses such a file with
+*Failed to import blend shape animation*, so the exporter clears that empty
+declaration. The shapes themselves are untouched: they stay on the mesh's
+`skel:blendShapes` and `skel:blendShapeTargets`, which is where Apple's own
+shape-keyed assets carry them.
+
 ## 5. Staging and publication
+
+### Exports are not byte-reproducible
+
+Exporting the same unchanged `.blend` twice does not give you the same file.
+Blender's USD exporter writes top-level prims in an order that varies between
+runs: the prims and their values are identical, the order is not, so the bytes
+and any checksum differ.
+
+This matters if you put exports under version control or compare them by hash.
+Diff the composed stage rather than the file — for example by opening both with
+USD and walking the prims in sorted path order — or accept that every re-export
+shows as changed.
+
+*Verification: three consecutive exports of one unchanged scene of three
+independent cubes produced two distinct SHA-256 values; the only difference was
+the order of the top-level `Xform` prims.*
+
 
 Nothing is ever written directly to the destination. This section explains
 the machinery, because you will see the directories it leaves behind.
@@ -820,9 +855,8 @@ exports, `textures/scene.usda/` held exactly one generation directory.*
 
 ### Format selection
 
-`export_format` offers `USDA`, `USDC`, `USDZ`, and the experimental
-`RCP_IMPORT` (`Plugin/ui/panel.py:167-180`; default `USDA`). The CLI maps
-each to a mandatory extension and rewrites the output path with it
+`export_format` offers `USDA`, `USDC` and `USDZ` (default `USDA`). The CLI
+maps each to a mandatory extension and rewrites the output path with it
 (`Plugin/api/commands/export.py:116-123`).
 
 The staged intermediate extension is chosen at
@@ -831,13 +865,6 @@ The staged intermediate extension is chosen at
 - `USDZ` stages as **`.usdc`** — the archive root is always binary, never
   ASCII.
 - `USDA` and `USDC` stage with the final extension.
-
-`RCP_IMPORT` is an outer packaging mode: the native export underneath is
-USDA, the `.usda` source is published beside the `.import` directory, and
-the directory is generated afterwards
-(`Plugin/api/commands/export.py:98-107`, `:294-313`). It refuses to
-overwrite an existing `.import` directory with `RCP_IMPORT_EXISTS`
-(`:128-134`).
 
 ### USDZ layout requirements
 
@@ -923,7 +950,6 @@ the support bundle has the source material (`:184-185`).
 | Gate | Where | Failure |
 |------|-------|---------|
 | Setting override keys/values | `Plugin/api/commands/export.py:74-96` | `INVALID_SETTING_OVERRIDE`, `INVALID_SETTING_VALUE` |
-| `.import` directory already exists | `Plugin/api/commands/export.py:128-134` | `RCP_IMPORT_EXISTS` |
 | Selection closure raises | `Plugin/api/commands/export.py:189-200` | `INVALID_EXPORT_SELECTION` |
 | Selected-only with nothing exportable | `Plugin/api/commands/export.py:201-208` | `NO_EXPORTABLE_OBJECTS` |
 | Strict material validation | `Plugin/api/commands/export.py:216-243` | `UNSUPPORTED_MATERIAL_NODES` |

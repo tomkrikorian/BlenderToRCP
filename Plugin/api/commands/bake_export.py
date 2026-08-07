@@ -302,42 +302,17 @@ def _handle(args: dict, settings) -> dict:
         )
 
     requested_format = str(settings.export_format).upper()
-    rcp_import_export = requested_format == "RCP_IMPORT"
-    # RCP_IMPORT is an outer package generated from the post-processed USDA.
-    settings.export_format = "USDA" if rcp_import_export else requested_format
+    settings.export_format = requested_format
 
     # Enforce extension
     ext_map = {
         "USDA": ".usda",
         "USDC": ".usdc",
         "USDZ": ".usdz",
-        "RCP_IMPORT": ".import",
     }
     ext = ext_map.get(requested_format, ".usdz")
     filepath = str(Path(filepath).with_suffix(ext))
     settings.filepath = filepath
-    usd_filepath = (
-        str(Path(filepath).with_suffix(".usda")) if rcp_import_export else filepath
-    )
-    from ...export import rcp_import_publish
-
-    try:
-        replace_existing = rcp_import_publish.resolve_replace_request(
-            args,
-            settings,
-            rcp_import_export=rcp_import_export,
-        )
-        if rcp_import_export:
-            rcp_import_publish.check_destination(
-                filepath,
-                replace=replace_existing,
-            )
-    except rcp_import_publish.ImportPublishError as exc:
-        raise CommandError(
-            str(exc),
-            code=exc.code,
-            stage="validation",
-        ) from exc
 
     import bpy
     from ...export import (
@@ -529,7 +504,7 @@ def _handle(args: dict, settings) -> dict:
         # Allocate one unique staging attempt before baking. The exact same
         # directory is passed to the native export below so it preserves the
         # freshly baked textures without sharing state with another attempt.
-        staging_dir = blender_usd_export.create_export_staging_dir(usd_filepath, diag)
+        staging_dir = blender_usd_export.create_export_staging_dir(filepath, diag)
         texture_dir = staging_dir / "textures"
         resolved_image_format = bake_textures._resolve_bake_image_format(settings, diag, safe_for_blender_save=True)
         diag.data["bake"] = {
@@ -587,7 +562,7 @@ def _handle(args: dict, settings) -> dict:
         temp_usd_path = blender_usd_export.export_blender_scene(
             bpy.context,
             settings,
-            usd_filepath,
+            filepath,
             diag,
             reset_staging=False,
             staging_dir=staging_dir,
@@ -648,40 +623,6 @@ def _handle(args: dict, settings) -> dict:
                 "pack_usdz",
                 context={"file_size": Path(filepath).stat().st_size if Path(filepath).exists() else None},
             )
-        elif rcp_import_export:
-            step_watchdog.enter_step("Generating RCP import")
-            diag.begin_phase(
-                "generate_rcp_import",
-                {
-                    "output_path": filepath,
-                    "source_usd_path": usd_filepath,
-                    "rcp_version": "3.0",
-                    "rcp_build": "80.0.1.500.1",
-                    "replace_existing": replace_existing,
-                },
-            )
-
-            def _publish_usda_source():
-                step_watchdog.enter_step("Publishing USDA source")
-                if temp_usd_path != usd_filepath:
-                    blender_usd_export.publish_unpacked_export(
-                        temp_usd_path, usd_filepath, diag
-                    )
-                else:
-                    diag.add_generated_file("export", usd_filepath)
-
-            # The package is staged from the pre-publication USD and swapped in
-            # last, so the .usda source and the package are refreshed together
-            # or not at all.
-            rcp_import_publish.publish_static_import(
-                staged_source=temp_usd_path,
-                recorded_source=usd_filepath,
-                destination=filepath,
-                replace=replace_existing,
-                commit_source=_publish_usda_source,
-            )
-            diag.add_generated_file("rcp_import", filepath, source=usd_filepath)
-            diag.end_phase("generate_rcp_import")
         else:
             step_watchdog.enter_step("Publishing USD export")
             if temp_usd_path != filepath:
@@ -727,15 +668,6 @@ def _handle(args: dict, settings) -> dict:
         _save_diagnostics(diag, diagnostics_path)
         exc.artifacts.update(_artifacts(diagnostics_path, filepath, bpy.data.filepath))
         raise
-    except rcp_import_publish.ImportPublishError as exc:
-        diag.add_exception(exc, stage="generate_rcp_import")
-        _save_diagnostics(diag, diagnostics_path)
-        raise CommandError(
-            str(exc),
-            code=exc.code,
-            stage="generate_rcp_import",
-            artifacts=_artifacts(diagnostics_path, filepath, bpy.data.filepath),
-        ) from exc
     except Exception as exc:
         diag.add_exception(exc, stage="bake_export")
         _save_diagnostics(diag, diagnostics_path)
@@ -825,7 +757,7 @@ def _handle(args: dict, settings) -> dict:
                 _restore(
                     "the export staging directory",
                     lambda: blender_usd_export.remove_export_staging_dir(
-                        usd_filepath,
+                        filepath,
                         diag,
                         staging_dir=cleanup_staging_dir,
                     ),

@@ -440,23 +440,6 @@ def main() -> int:
     requested_format = str(
         getattr(scene_settings, "export_format", "USDZ") or "USDZ"
     ).upper()
-    rcp_import_export = requested_format == "RCP_IMPORT"
-    usd_export_path = (
-        str(Path(export_path).with_suffix(".usda"))
-        if rcp_import_export and export_path
-        else export_path
-    )
-    # ``--replace`` reaches the worker as the serialized scene setting the
-    # sidebar checkbox writes; ``replace`` in the payload is the explicit
-    # per-run request. Either enables a refresh, neither is the default.
-    rcp_import_replace = rcp_import_export and (
-        bool(payload.get("replace"))
-        or bool(getattr(scene_settings, "rcp_import_replace", False))
-    )
-    if rcp_import_export:
-        # The private package is generated from the post-processed USDA.
-        scene_settings.export_format = "USDA"
-
     if payload.get("selected_only"):
         _select_objects(payload.get("selection") or [])
 
@@ -663,16 +646,6 @@ def main() -> int:
             terminal_status["warnings"] = list(warnings)
 
     try:
-        rcp_import_publish = _import_package_module("export.rcp_import_publish")
-        if rcp_import_export:
-            try:
-                rcp_import_publish.check_destination(
-                    export_path,
-                    replace=rcp_import_replace,
-                )
-            except rcp_import_publish.ImportPublishError as exc:
-                _defer_terminal_status("error", str(exc))
-                return 1
         bake_ops._ensure_object_mode(bpy.context)
         bake_ops._set_render_engine(bpy.context.scene, 'CYCLES')
         animation_export._link_processing_objects_for_bake(
@@ -685,7 +658,7 @@ def main() -> int:
         # directory is passed to the native export below so it preserves the
         # freshly baked textures without sharing state with another attempt.
         staging_dir = blender_usd_export.create_export_staging_dir(
-            usd_export_path, diag
+            export_path, diag
         )
         texture_dir = staging_dir / "textures"
 
@@ -725,7 +698,7 @@ def main() -> int:
         temp_usd_path = blender_usd_export.export_blender_scene(
             bpy.context,
             scene_settings,
-            usd_export_path,
+            export_path,
             diag,
             reset_staging=False,
             staging_dir=staging_dir,
@@ -761,28 +734,6 @@ def main() -> int:
                 scene_settings,
                 bpy.context,
                 diag
-            )
-        elif rcp_import_export:
-            _set_running_stage(0.86, "Generating RCP import")
-
-            def _publish_usda_source():
-                _set_running_stage(0.92, "Publishing USDA source")
-                if temp_usd_path != usd_export_path:
-                    blender_usd_export.publish_unpacked_export(
-                        temp_usd_path, usd_export_path, diag
-                    )
-
-            # Staged first, swapped in last: an interrupted or failed refresh
-            # leaves the previous package and its .usda source in place.
-            rcp_import_publish.publish_static_import(
-                staged_source=temp_usd_path,
-                recorded_source=usd_export_path,
-                destination=export_path,
-                replace=rcp_import_replace,
-                commit_source=_publish_usda_source,
-            )
-            diag.add_generated_file(
-                "rcp_import", export_path, source=usd_export_path
             )
         else:
             _set_running_stage(0.9, "Publishing USD export")
@@ -861,7 +812,7 @@ def main() -> int:
         if cleanup_staging_dir is not None:
             try:
                 blender_usd_export.remove_export_staging_dir(
-                    usd_export_path,
+                    export_path,
                     diag,
                     staging_dir=cleanup_staging_dir,
                 )

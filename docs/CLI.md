@@ -639,7 +639,7 @@ This command takes no arguments and does not require a `.blend` file. It still s
     "type": "ENUM",
     "description": "Export format and file extension",
     "group": "general",
-    "values": ["USDA", "USDC", "USDZ", "RCP_IMPORT"],
+    "values": ["USDA", "USDC", "USDZ"],
     "default": "USDA"
   },
   {
@@ -665,7 +665,7 @@ This command takes no arguments and does not require a `.blend` file. It still s
 
 ### `export`
 
-Export the scene to USD, USDZ, or the experimental RCP 3 `.import` directory.
+Export the scene to USD or USDZ.
 
 ```bash
 blendertorcp export <file.blend> [setting=value ...] -o <output_path> [options]
@@ -682,7 +682,7 @@ blendertorcp export <file.blend> [setting=value ...] -o <output_path> [options]
 
 | Flag | Description |
 |------|-------------|
-| `--format <FORMAT>` | Override export format: `USDA`, `USDC`, `USDZ`, or experimental `RCP_IMPORT` |
+| `--format <FORMAT>` | Override export format: `USDA`, `USDC`, or `USDZ` |
 | `--selected-only` | Export selected objects only |
 | `--diagnostics` | Keep `<output>.diagnostics.json` after a successful export |
 | `--no-diagnostics` | Do not keep success diagnostics, even if enabled by settings. Failures still write diagnostics |
@@ -802,12 +802,6 @@ blendertorcp export scene.blend \
 
 Experimental RCP 3 private package plus its adjacent USDA source:
 
-```bash
-blendertorcp export scene.blend \
-  -o /output/scene.import \
-  --format RCP_IMPORT
-```
-
 Every export uses the non-configurable Apple spatial contract: Blender's native orientation conversion, `-Z` forward, `Y` up, meters at `metersPerUnit=1`, relative dependencies, and mesh/UV/normal export.
 
 **Output:**
@@ -823,7 +817,7 @@ Every export uses the non-configurable Apple spatial contract: Blender's native 
 }
 ```
 
-`diagnostics_path` is `null` unless success diagnostics were retained. For `RCP_IMPORT`, `export_path` is the `.import` directory and the post-processed `.usda` is published beside it.
+`diagnostics_path` is `null` unless success diagnostics were retained.
 
 **Exit codes:**
 
@@ -842,33 +836,6 @@ Every export uses the non-configurable Apple spatial contract: Blender's native 
 | `INVALID_OVERRIDE` | CLI | An override token has no `=` |
 | `INVALID_SETTING_OVERRIDE` | Blender | Override names an unknown or internal setting |
 | `INVALID_SETTING_VALUE` | Blender | Override value rejected for that setting |
-| `RCP_IMPORT_EXISTS` | Blender | `--format RCP_IMPORT` and the `.import` directory already exists; nothing is overwritten |
-
-`--replace` opts into refreshing an existing `.import` package. Without it the
-exporter refuses rather than overwrite. The refusal codes above cover the cases
-it will not take: a path that is not an `.import` directory, a symlink, a
-directory that is not a package, a package another process holds open, a failed
-rollback, and a format other than `RCP_IMPORT`. The setting behind the flag is
-`rcp_import_replace`.
-| `INVALID_EXPORT_SELECTION` | Blender | The selected object set could not be resolved |
-| `NO_EXPORTABLE_OBJECTS` | Blender | `--selected-only` with nothing selected |
-| `UNSUPPORTED_MATERIAL_NODES` | Blender | Strict material-graph validation failed |
-| `BLENDER_USD_EXPORT_FAILED` | Blender | Blender's own USD exporter failed |
-| `POSTPROCESS_FAILED` | Blender | USD post-processing failed |
-| `EXPORT_FAILED` | Blender | Catch-all for anything else in the export stage |
-
-`RCP_IMPORT_EXISTS` is a deliberate refusal, not a crash. To refresh a package in place, pass `--replace`; the exporter stages the new package beside the old one and swaps it atomically. Rerun with:
-
-```bash
-blendertorcp --json export scene.blend -o /output/pkg.import --format RCP_IMPORT
-```
-
-The envelope reports:
-
-```
-error.code:    "RCP_IMPORT_EXISTS"
-error.message: "Refusing to overwrite existing .import directory: /output/pkg.import"
-```
 
 ---
 
@@ -906,7 +873,7 @@ blendertorcp bake-export <file.blend> -o <output_path> [options]
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `--format <FORMAT>` | from settings | Export format: `USDA`, `USDC`, `USDZ`, or experimental `RCP_IMPORT` |
+| `--format <FORMAT>` | from settings | Export format: `USDA`, `USDC`, or `USDZ` |
 | `--bake-mode <MODE>` | from settings (`LIT_IBL` for fresh scenes) | `UNLIT_ALBEDO` for Material Color Only - Unlit, `LIT_ALBEDO` for Material Color Only - Lit PBR, `LIT_IBL` for Lighting & Shadows |
 | `--resolution <RES>` | setting (`ORIGINAL`) | Enables texture overrides for this run and sets bake/export texture resolution: `ORIGINAL`, `512`, `1024`, `2048`, `4096`, or any integer for custom. `ORIGINAL` sizes each material from its own source textures, floored at 512 |
 | `--image-format <FMT>` | `AVIF` | Enables texture overrides for this run and sets baked/exported texture format: `ORIGINAL`, `AVIF`, or `PNG`. AVIF is encoded natively by Blender; no external tools required |
@@ -1010,8 +977,6 @@ blendertorcp bake-export scene.blend -o /output/scene.usdz --format USDZ \
 Experimental RCP 3 private package plus its adjacent USDA source:
 
 ```bash
-blendertorcp bake-export scene.blend -o /output/scene.import \
-  --format RCP_IMPORT \
   --bake-mode LIT_IBL
 ```
 
@@ -1052,14 +1017,6 @@ blendertorcp --timeout 900 bake-export scene.blend -o /output/scene.usdz --forma
 
 **Output:**
 
-For `RCP_IMPORT`, the output path is a directory and the command also publishes the post-processed `.usda` source beside it. This lane is pinned to RCP 3.0 build `80.0.1.500.1`. Its current limits:
-
-- Static scenes may contain multiple mesh objects and shared materials.
-- Single- or multi-mesh skeletal inputs are structurally generated only when every mesh shares the same rig, skeleton, and animation contract. The multi-mesh skeletal lane has not yet been verified through Reality Composer Pro reimport and Sequence Editor playback.
-- A USD mesh with multiple face materials is currently split into one generated RCP mesh resource per material. That representation preserves faces, UVs, normals, skin weights, and material appearance; opens and renders in Reality Composer Pro; and passes public RealityKit source-runtime checks. It is not RCP-compatible yet: a second genuine reimport duplicates resources, because Reality Composer Pro itself authors a different combined descriptor with nested `subsets`. The single-descriptor subset representation the writer needs to adopt is documented in [`RCP_IMPORT_MULTI_MATERIAL_MESH.md`](RCP_IMPORT_MULTI_MATERIAL_MESH.md); the acceptance bar is two reimports that do not grow the project.
-- Baked RGBA base color (including merged opacity) is supported per material for all three bake modes; `LIT_ALBEDO` also supports each material's baked roughness map. Normal, metallic, occlusion, and independent opacity texture records remain unsupported.
-- Multi-mesh transform animation and mixed rig or skeleton contracts fail closed.
-
 ```json
 {
   "ok": true,
@@ -1095,7 +1052,6 @@ For `RCP_IMPORT`, the output path is a directory and the command also publishes 
 | `INVALID_OVERRIDE` | An override token has no `=` (raised by the CLI) |
 | `INVALID_SETTING_OVERRIDE` | Override names an unknown or internal setting |
 | `INVALID_SETTING_VALUE` | Override value rejected for that setting |
-| `RCP_IMPORT_EXISTS` | `--format RCP_IMPORT` and the `.import` directory already exists |
 | `NO_EXPORTABLE_OBJECTS` | `--selected-only` with nothing selected |
 | `MISSING_EXTERNAL_TEXTURES` | Unpacked source images are missing (preflight) |
 | `MISSING_EXTERNAL_ASSETS` | A non-image dependency is missing (preflight) |
@@ -1306,7 +1262,7 @@ blendertorcp export scene.blend normalize-unsupported-values=true -o scene.usdc 
 
 ### Diagnostics sidecars
 
-Failures **always** write `<output>.diagnostics.json`, including failures rejected before any geometry is touched (a bad override, `RCP_IMPORT_EXISTS`). `diagnostics_enabled`, `--diagnostics`, and `--no-diagnostics` only decide whether a *successful* run keeps its sidecar, and `--no-diagnostics` wins if both flags are passed.
+Failures **always** write `<output>.diagnostics.json`, including failures rejected before any geometry is touched (a bad override). `diagnostics_enabled`, `--diagnostics`, and `--no-diagnostics` only decide whether a *successful* run keeps its sidecar, and `--no-diagnostics` wins if both flags are passed.
 
 ### Bake mode names
 
@@ -1403,13 +1359,6 @@ Without `--json`, the same interrupt prints `Aborted.` to stderr and nothing to 
 | `INVALID_SETTING_OVERRIDE` | `settings set`, `export`, `bake-export` |
 | `INVALID_SETTING_VALUE` | `settings set`, `export`, `bake-export` |
 | `SETTINGS_SAVE_FAILED` | `settings set --save` |
-| `RCP_IMPORT_EXISTS` | `export`, `bake-export` (with `--format RCP_IMPORT`) |
-| `RCP_IMPORT_REPLACE_NOT_IMPORT_PATH` | `export`, `bake-export` (with `--replace`) |
-| `RCP_IMPORT_REPLACE_SYMLINK` | `export`, `bake-export` (with `--replace`) |
-| `RCP_IMPORT_REPLACE_NOT_A_PACKAGE` | `export`, `bake-export` (with `--replace`) |
-| `RCP_IMPORT_REPLACE_BUSY` | `export`, `bake-export` (with `--replace`) |
-| `RCP_IMPORT_REPLACE_RESTORE_FAILED` | `export`, `bake-export` (with `--replace`) |
-| `RCP_IMPORT_REPLACE_NOT_APPLICABLE` | `export`, `bake-export` (with `--replace`) |
 | `INVALID_EXPORT_SELECTION` | `export` |
 | `NO_EXPORTABLE_OBJECTS` | `export`, `bake-export` |
 | `UNSUPPORTED_MATERIAL_NODES` | `export` |

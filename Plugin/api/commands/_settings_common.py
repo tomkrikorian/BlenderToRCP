@@ -63,7 +63,6 @@ SETTING_GROUPS: dict[str, set[str]] = {
     "general": {
         "filepath",
         "export_format",
-        "rcp_import_replace",
         "root_prim_name",
         "export_animation",
         "author_animation_library",

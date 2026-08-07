@@ -39,12 +39,6 @@ the Blender UI.
 - **Profile-driven texture baking**: when the selected material type requires
   a bake, the single Export button runs it in a second Blender process and
   keeps the UI responsive ([docs/BAKING.md](docs/BAKING.md)).
-- **Experimental `.import` generation**: build-pinned Reality Composer Pro 3
-  `.import` packages for static multi-mesh assets, single-mesh transform
-  animation, and skeletal assets that share one skeleton and animation
-  contract. This is not a compatibility claim; read
-  [docs/RCP_IMPORT_EXPERIMENT.md](docs/RCP_IMPORT_EXPERIMENT.md) for the exact
-  acceptance status and fail-closed boundaries before relying on it.
 - **Shader authoring helpers**: insert RealityKit PBR or Unlit node groups,
   browse a generated RealityKit node menu, and validate active materials in
   the Shader Editor.
@@ -88,6 +82,7 @@ Full documentation index: [`docs/README.md`](docs/README.md).
 | [`docs/ARCHITECTURE.MD`](docs/ARCHITECTURE.MD) | Codebase layout and module responsibilities |
 | [`docs/CLI.md`](docs/CLI.md) | Every command, flag, exit code, and the JSON envelope |
 | [`docs/SETTINGS.md`](docs/SETTINGS.md) | What every toggle changes, and which settings override each other |
+| [`docs/FEATURE_SUPPORT.md`](docs/FEATURE_SUPPORT.md) | Which Blender features survive an export, and which are refused or dropped |
 | [`docs/MATERIAL_TRANSLATION.md`](docs/MATERIAL_TRANSLATION.md) | Blender shader graph to RealityKit MaterialX ShaderGraph |
 | [`docs/BAKING.md`](docs/BAKING.md) | When a bake runs, what each mode captures, what scene state it overrides |
 | [`docs/EXPORT_PIPELINE.md`](docs/EXPORT_PIPELINE.md) | Geometry, units, animation, staging, USDZ packaging |
@@ -123,17 +118,6 @@ assets through RealityKit on macOS 27. Interactive import/save/reopen testing
 in Reality Composer Pro 3, visual acceptance in Reality Composer Pro or
 Quick Look/Spatial Preview, and physical-device testing remain manual release
 checks.
-
-### Experimental `.import` generation
-
-`.import` generation is experimental and pinned to RCP 3.0 build
-`80.0.1.500.1`. The `.import` container is not an Apple published interchange
-format. See [`docs/RCP_IMPORT_EXPERIMENT.md`](docs/RCP_IMPORT_EXPERIMENT.md)
-for its exact acceptance status and fail-closed boundaries. The measured
-requirements for one mesh with multiple materials are documented separately in
-[`docs/RCP_IMPORT_MULTI_MATERIAL_MESH.md`](docs/RCP_IMPORT_MULTI_MATERIAL_MESH.md).
-`References/RealityComposerProProject` contains the disposable RCP3 research
-corpus used to measure the private `.import` format.
 
 ## Where to find it in Blender
 
@@ -185,10 +169,6 @@ blendertorcp export scene.blend -o output.usdz --format USDZ
 
 # Bake textures and export
 blendertorcp bake-export scene.blend -o output.usdz --resolution 2048
-
-# Experimental: bake and generate an adjacent USDA plus RCP3 .import directory
-blendertorcp bake-export scene.blend -o output.import \
-  --format RCP_IMPORT --bake-mode LIT_IBL --resolution 2048
 
 # Read and modify settings
 blendertorcp settings get scene.blend --group bake

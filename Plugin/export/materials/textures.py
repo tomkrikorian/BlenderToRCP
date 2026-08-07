@@ -947,11 +947,15 @@ def _create_separate4_outputs(
 ):
     """Return one float output per channel of a color4 source.
 
-    Not ``ND_separate4_color4``: RealityKit resolves that nodedef and ships no
-    Metal implementation for it, so a material using it builds a graph with no
-    compiled shader - "Couldn't find compiled shader graph buffer". Same class
-    as ``ND_swizzle_*``. ``convert`` and ``dotproduct`` are both implemented, so
-    each channel is a dot product with a unit mask over one shared convert.
+    Not ``ND_separate4_color4``: each channel is a dot product with a unit mask
+    over one shared convert, which is the shape Reality Composer Pro itself
+    writes for a channel read and the shape the ``.import`` lane authors, so the
+    two output formats agree.
+
+    This replaced ``ND_separate4_color4`` on the belief that it shipped no Metal
+    implementation. That was wrong - it is expanded from a ``<nodegraph>``, and
+    the repository's own checker passes it. The chain below is kept because it
+    matches the editor, not because the alternative is broken.
     """
     if not source_output:
         return None

@@ -10,6 +10,7 @@ right page for what you want to know, or to trace an export that surprised you.
 | [ARCHITECTURE.MD](ARCHITECTURE.MD) | How the codebase is laid out and which module owns what |
 | [CLI.md](CLI.md) | Every command, flag, exit code, and the JSON envelope |
 | [SETTINGS.md](SETTINGS.md) | What every toggle changes, and which ones override each other |
+| [FEATURE_SUPPORT.md](FEATURE_SUPPORT.md) | Which Blender features survive an export, and which are refused, dropped, or dropped silently |
 | [APPLE_PLATFORM_CONTRACT.md](APPLE_PLATFORM_CONTRACT.md) | Which USD and MaterialX features Reality Composer Pro and RealityKit accept: file-format ceilings, the MaterialX node library, and why one validation covers every OS 27 device |
 | [STYLE_GUIDE.md](STYLE_GUIDE.md) | How these pages are written — voice, page types, and what stays out of `docs/` (for contributors) |
 
@@ -37,19 +38,9 @@ If you are chasing a specific surprise:
   transform is deliberately not applied to baked textures.
 - **"I set a setting and nothing happened."** → [SETTINGS.md](SETTINGS.md),
   which records the settings that other settings silently override.
-
-## Experimental: Reality Composer Pro `.import`
-
-Build-pinned to RCP 3.0 build `80.0.1.500.1`, not an Apple published interchange
-format, and not a compatibility claim. See
-[RCP_IMPORT_EXPERIMENT.md](RCP_IMPORT_EXPERIMENT.md) for the acceptance status
-and fail-closed boundaries before relying on any of it.
-
-| Document | Covers |
-|---|---|
-| [RCP_IMPORT_EXPERIMENT.md](RCP_IMPORT_EXPERIMENT.md) | Measured format contract, acceptance evidence, what is and is not supported |
-| [RCP_IMPORT_MULTI_MATERIAL_MESH.md](RCP_IMPORT_MULTI_MATERIAL_MESH.md) | Requirements for one mesh carrying multiple materials |
-| [RCP_IMPORT_SKELETAL_CHECKPOINT.md](RCP_IMPORT_SKELETAL_CHECKPOINT.md) | Skeletal import status |
+- **"Something is missing from the export and nothing told me."** →
+  [FEATURE_SUPPORT.md](FEATURE_SUPPORT.md), which ends with the list of
+  features that leave without a warning.
 
 ## Known issues
 

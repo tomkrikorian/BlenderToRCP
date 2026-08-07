@@ -39,7 +39,6 @@ _EXPORT_FORMAT_EXTENSIONS = {
     "USDA": ".usda",
     "USDC": ".usdc",
     "USDZ": ".usdz",
-    "RCP_IMPORT": ".import",
 }
 
 
@@ -165,25 +164,8 @@ class BlenderToRCPExportSettings(PropertyGroup):
             ('USDA', "USD ASCII (.usda)", "Export as USD ASCII (.usda)"),
             ('USDC', "USD Binary (.usdc)", "Export as USD binary (.usdc)"),
             ('USDZ', "USDZ Package (.usdz)", "Export as USDZ package (.usdz)"),
-            (
-                'RCP_IMPORT',
-                "RCP 3 Import (.import) [Experimental]",
-                "Generate a build-80 Reality Composer Pro 3 .import directory and its source USDA; unsupported geometry fails closed",
-            ),
         ],
         default='USDA',
-        update=_on_settings_changed,
-    )
-
-    rcp_import_replace: BoolProperty(
-        name="Replace Existing .import",
-        description=(
-            "Refresh an existing Reality Composer Pro .import package instead of "
-            "refusing to overwrite it. The replacement is written beside the old "
-            "package and swapped in only once it is complete; a directory that is "
-            "not a generated .import package is never touched"
-        ),
-        default=False,
         update=_on_settings_changed,
     )
 
@@ -641,8 +623,6 @@ class BLENDERTORCP_PT_export_panel(Panel):
             export_box.enabled = not job_running
             export_box.prop(settings, "filepath", placeholder="//export/scene.usdz")
             export_box.prop(settings, "export_format")
-            if settings.export_format == 'RCP_IMPORT':
-                export_box.prop(settings, "rcp_import_replace")
             export_box.label(text="Profile")
             profile_row = export_box.row(align=True)
             profile_row.prop(settings, "ui_material_type", expand=True)

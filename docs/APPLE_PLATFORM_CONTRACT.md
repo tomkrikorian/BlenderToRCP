@@ -30,10 +30,9 @@ parses and packages. Do not use it, or `usdchecker`, to judge whether a material
 renders — run `scripts/check_shader_implementations.py` and then look at the
 asset in Reality Composer Pro.
 
-The parts of Reality Composer Pro that are genuinely unique to the app are
-its editor: the project format, the `.import` asset format, and the editing
-UI. See [RCP_IMPORT_EXPERIMENT.md](RCP_IMPORT_EXPERIMENT.md) if you work
-with `.import` packages.
+The parts of Reality Composer Pro that are genuinely unique to the app are its
+editor: the project format, its private asset cache, and the editing UI. None of
+those are an interchange format, and this exporter does not write them.
 
 For you this means one validation is enough: a file that opens correctly in
 Reality Composer Pro will load the same way on every OS 27 device.
@@ -96,9 +95,12 @@ resolves nodedefs from a library that ships with the OS.
 - Everything this exporter authors — the RealityKit PBR and Unlit surfaces,
   image readers with wrap and filter modes, UV transforms, normal-map
   decoding, channel reads — exists in that library with matching signatures
-  *and* a compiled implementation. Resolving is not enough: every
-  `ND_swizzle_*` nodedef resolves and none is implemented, which is why the
-  exporter reads a channel with `convert` and `dotproduct` instead.
+  *and* a compiled implementation. Resolving is not enough on its own: a
+  nodedef can resolve and have no compiled shader behind it, which makes
+  RealityKit discard the whole material rather than the one node. To read one
+  channel out of a texture the exporter converts the color to a vector and
+  takes a dot product with a unit mask. That is the shape Reality Composer Pro
+  writes for the same operation.
 
 One family of nodes is a known trap: the MaterialX *pbrlib* closure nodes
 (`ND_dielectric_bsdf`, `ND_mix_bsdf`, displacement, and similar). USD files
@@ -170,6 +172,8 @@ this repository's own `Robot.usda`: `realitytool compile --platform xros` exits
 0 and emits `shadergraph_rig_skin_robot_mesh_mesh_export_pxrusdpreviewsurface5sg1`
 with zero PBR fallbacks, `usdchecker --arkit --strict` reports `Success!`, and
 Reality Composer Pro 3 refuses the same material with `Couldn't find compiled
-shader graph buffer`. The material authors `ND_swizzle_color3_float`, a nodedef
-that resolves in the nodedef store and has no implementation in
-`MaterialX-1.38-apple.metallib`.
+shader graph buffer`. Why the editor refuses it is not established. Every
+nodedef the file uses resolves to a compiled implementation, so no static check
+in this repository predicts the failure either — which is the reason this page
+tells you to open the asset in Reality Composer Pro rather than trust a green
+tool run.

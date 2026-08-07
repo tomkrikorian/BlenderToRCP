@@ -126,6 +126,13 @@ def process_usd_stage(usd_path: str, settings, context, diagnostics=None) -> Non
         )
         _run_step(
             diagnostics,
+            "complete_blend_shape_weights",
+            _complete_blend_shape_weights,
+            stage,
+            diagnostics,
+        )
+        _run_step(
+            diagnostics,
             "realitykit_preflight",
             _require_realitykit_preflight,
             stage,
@@ -146,6 +153,57 @@ def process_usd_stage(usd_path: str, settings, context, diagnostics=None) -> Non
             diagnostics.add_info("USD stage post-processed for RealityKit compatibility")
     finally:
         cleanup_image_staging_session(diagnostics)
+
+
+def _complete_blend_shape_weights(stage, diagnostics=None) -> None:
+    """Stop a SkelAnimation claiming blend-shape animation it does not have.
+
+    Blender routes shape keys through USD's skeletal schema. When the keys carry
+    no animation it still names them in the ``SkelAnimation``'s ``blendShapes``
+    and leaves ``blendShapeWeights`` with no value - no default, no time
+    samples. Reality Composer Pro then tries to import a blend-shape animation
+    that has no weights and refuses the file:
+
+        Failed to import blend shape animation: prim_path='.../Skel/Anim'
+
+    Apple's own shape-keyed assets do not do this: their animation leaves
+    ``blendShapes`` unauthored entirely, and the shapes still reach the mesh
+    through its ``skel:blendShapes`` and ``skel:blendShapeTargets``. Clearing
+    the empty declaration matches that, and loses nothing - there is no
+    animation to lose.
+
+    An animation with authored weights is left exactly as it is.
+    """
+
+    from pxr import UsdSkel
+
+    for prim in stage.TraverseAll():
+        if prim.GetTypeName() != "SkelAnimation":
+            continue
+        animation = UsdSkel.Animation(prim)
+        shapes_attr = animation.GetBlendShapesAttr()
+        if not shapes_attr or not shapes_attr.HasAuthoredValue():
+            continue
+        shapes = shapes_attr.Get() or ()
+        weights = animation.GetBlendShapeWeightsAttr()
+        if weights and weights.GetTimeSamples():
+            continue
+        values = weights.Get() if weights else None
+        if values is not None and len(values) == len(shapes) and any(values):
+            # A static non-zero pose is a pose, not an absence. Leave it.
+            continue
+
+        shapes_attr.Clear()
+        if weights:
+            weights.Clear()
+        if diagnostics:
+            diagnostics.add_warning(
+                f"{prim.GetPath()}: the shape keys "
+                f"({', '.join(str(name) for name in shapes)}) have no animated "
+                "weights, so the empty blend-shape animation was removed. "
+                "Reality Composer Pro refuses a file that declares one with no "
+                "weights. The shapes themselves are unaffected."
+            )
 
 
 def _run_step(diagnostics, name: str, func, *args):

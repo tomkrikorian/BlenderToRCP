@@ -95,16 +95,11 @@ def _handle(args: dict, settings) -> dict:
             details=assignment_errors,
         )
 
-    # ``RCP_IMPORT`` is an outer packaging mode. The native Blender export
-    # underneath it is USDA. Keeping that distinction here also lets a source
-    # checkout exercise a newer packaging mode when Blender has an older
-    # installed PropertyGroup whose enum does not yet contain ``RCP_IMPORT``.
     fmt = args.get("format")
     requested_format = (
         str(fmt).upper() if fmt else str(settings.export_format).upper()
     )
-    rcp_import_export = requested_format == "RCP_IMPORT"
-    settings.export_format = "USDA" if rcp_import_export else requested_format
+    settings.export_format = requested_format
 
     if args.get("selected_only"):
         settings.selected_objects_only = True
@@ -117,36 +112,10 @@ def _handle(args: dict, settings) -> dict:
         "USDA": ".usda",
         "USDC": ".usdc",
         "USDZ": ".usdz",
-        "RCP_IMPORT": ".import",
     }
     ext = ext_map.get(requested_format, ".usdz")
     filepath = str(Path(filepath).with_suffix(ext))
     settings.filepath = filepath
-    usd_filepath = (
-        str(Path(filepath).with_suffix(".usda")) if rcp_import_export else filepath
-    )
-
-    from ...export import rcp_import_publish
-
-    try:
-        replace_existing = rcp_import_publish.resolve_replace_request(
-            args,
-            settings,
-            rcp_import_export=rcp_import_export,
-        )
-        if rcp_import_export:
-            rcp_import_publish.check_destination(
-                filepath,
-                replace=replace_existing,
-            )
-    except rcp_import_publish.ImportPublishError as exc:
-        raise CommandError(
-            str(exc),
-            code=exc.code,
-            stage="validation",
-            artifacts=_artifacts(None, filepath, None),
-        ) from exc
-
     import bpy
     from ...export import (
         animation_export,
@@ -269,7 +238,7 @@ def _handle(args: dict, settings) -> dict:
         # Step 1: Export from Blender to USD
         diag.begin_phase("blender_usd_export", {"output_path": filepath})
         temp_usd_path = blender_usd_export.export_blender_scene(
-            bpy.context, settings, usd_filepath, diag
+            bpy.context, settings, filepath, diag
         )
         if not temp_usd_path or not os.path.exists(temp_usd_path):
             raise CommandError(
@@ -312,33 +281,6 @@ def _handle(args: dict, settings) -> dict:
                 "pack_usdz",
                 context={"file_size": Path(filepath).stat().st_size if Path(filepath).exists() else None},
             )
-        elif rcp_import_export:
-            diag.begin_phase(
-                "generate_rcp_import",
-                {
-                    "output_path": filepath,
-                    "source_usd_path": usd_filepath,
-                    "rcp_version": "3.0",
-                    "rcp_build": "80.0.1.500.1",
-                    "replace_existing": replace_existing,
-                },
-            )
-            # The package is built from the staged USD and swapped into place
-            # last, so a generation failure leaves the previous package and
-            # the previous .usda source untouched.
-            rcp_import_publish.publish_static_import(
-                staged_source=temp_usd_path,
-                recorded_source=usd_filepath,
-                destination=filepath,
-                replace=replace_existing,
-                commit_source=lambda: blender_usd_export.publish_unpacked_export(
-                    temp_usd_path, usd_filepath, diag
-                ),
-            )
-            diag.add_generated_file(
-                "rcp_import", filepath, source=usd_filepath
-            )
-            diag.end_phase("generate_rcp_import")
         else:
             if temp_usd_path != filepath:
                 blender_usd_export.publish_unpacked_export(
@@ -353,15 +295,6 @@ def _handle(args: dict, settings) -> dict:
         _save_diagnostics(diag, diagnostics_path)
         exc.artifacts.update(_artifacts(diagnostics_path, filepath, bpy.data.filepath))
         raise
-    except rcp_import_publish.ImportPublishError as exc:
-        diag.add_exception(exc, stage="generate_rcp_import")
-        _save_diagnostics(diag, diagnostics_path)
-        raise CommandError(
-            str(exc),
-            code=exc.code,
-            stage="generate_rcp_import",
-            artifacts=_artifacts(diagnostics_path, filepath, bpy.data.filepath),
-        ) from exc
     except Exception as exc:
         diag.add_exception(exc, stage="export")
         _save_diagnostics(diag, diagnostics_path)
@@ -377,7 +310,7 @@ def _handle(args: dict, settings) -> dict:
         if temp_usd_path:
             try:
                 blender_usd_export.remove_export_staging_dir(
-                    usd_filepath,
+                    filepath,
                     diag,
                     staging_dir=Path(temp_usd_path).parent,
                 )

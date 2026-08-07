@@ -103,13 +103,13 @@ def test_worker_replays_settings_with_persistence_suspended(tmp_path, monkeypatc
     runner._apply_settings(
         settings,
         {
-            "export_format": "RCP_IMPORT",
+            "export_format": "USDZ",
             "bake_mode": "UNLIT_ALBEDO",
             "unknown": "ignored",
         },
     )
 
-    assert settings.export_format == "RCP_IMPORT"
+    assert settings.export_format == "USDZ"
     assert settings.bake_mode == "UNLIT_ALBEDO"
     assert settings.assignment_suspension == [True, True]
     assert settings.persist_suspended is False

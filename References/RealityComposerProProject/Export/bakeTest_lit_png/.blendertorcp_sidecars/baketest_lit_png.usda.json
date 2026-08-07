@@ -1,0 +1,8 @@
+{
+  "output": "baketest_lit_png.usda",
+  "schema_version": 1,
+  "sidecars": [
+    "textures/bakeTest_lit_png.usda/1b12d3b7eb6b79a03dcbced4eccac29e/bakeTest_lit_png-Cube_001__Material_001_Baked_baseColor-b6f0d8e3e0de8450a2285a77f2862be720b751cb21eebeb56533960ff8bc59cb.png",
+    "textures/bakeTest_lit_png.usda/1b12d3b7eb6b79a03dcbced4eccac29e/bakeTest_lit_png-Cube__Material_Baked_baseColor-ab4c5a34a6db436021a9c9bf742d706f01f7c7587493ffa3d28a2905d824ba7f.png"
+  ]
+}

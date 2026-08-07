@@ -70,7 +70,6 @@ The mandatory shipping material profile is `realitykit_portable`, based on the e
 - `Plugin/export/realitykit_preflight.py`: post-authoring gate that inspects the composed stage against the RealityKit OS 27 contract (color spaces, texture transforms, UV sets) and fails the export on violation.
 - `Plugin/export/staging_namespace.py`: per-attempt sidecar generation namespaces, plus the record of textures Blender's own exporter wrote, used to decide which staged copies may be deleted.
 - `Plugin/export/sidecar_manifest.py`: the ownership manifest that makes re-export to an existing directory safe.
-- `Plugin/export/rcp_import_generator.py`: experimental Reality Composer Pro 3 `.import` package generation (see below).
 - `Plugin/export_profile.py`: maps the UI's artist-facing material controls onto a pipeline and a `bake_mode`.
 - `Plugin/material_policies.py` and `Plugin/apple_contract.py`: fixed policy constants, including the Apple spatial contract (Y-up, `metersPerUnit` 1.0) that is deliberately not user-configurable.
 - `scripts/`: developer tooling for packaging, manifest generation, nodegroup generation, and validation.
@@ -165,29 +164,6 @@ Packager: `Plugin/export/pack_usdz.py`
 - Otherwise uses the built-in uncompressed packager, which writes the root layer first and aligns every payload to the USDZ-required 64-byte boundary.
 - Packages the staged dependency tree, validates archive safety/alignment/CRC before publication, and additionally runs strict `usdchecker` when that tool is available.
 - Publishes atomically. A failed package or validation does not replace the requested output, and its staging tree is retained for diagnostics.
-
-### 4b. Experimental Reality Composer Pro `.import` generation
-
-Generator: `Plugin/export/rcp_import_generator.py`
-
-`RCP_IMPORT` is a fourth export format, selectable in the UI and as
-`--format RCP_IMPORT`. It is an *outer packaging mode*: the native Blender USD
-export still runs and an adjacent `.usda` is written, then the generator emits a
-Reality Composer Pro `.import` package beside it.
-
-This lane is experimental and pinned to RCP 3.0 build `80.0.1.500.1`. The
-`.import` container is a private Apple format. This repository documents it by
-measurement, not from a specification, so the generator writes no field unless
-it was observed in RCP-authored output. Supported today:
-static multi-mesh assets, single-mesh transform animation, and single- or
-multi-mesh skeletal assets sharing one skeleton. Multiple face materials use a
-temporary split-resource representation that opens and renders but fails the
-second-reimport idempotence gate.
-
-Structural acceptance is checked by `scripts/_lib/rcp_import_contract.py` via
-`scripts/inspect_rcp_import.py`. See
-[RCP_IMPORT_EXPERIMENT.md](RCP_IMPORT_EXPERIMENT.md) for the measured contract
-and the exact fail-closed boundaries before relying on any of it.
 
 ### 5. Diagnostics
 Collector: `Plugin/export/diagnostics.py`
