@@ -189,13 +189,13 @@ jobs:
           python -m pytest -q tests/integration
           --junitxml="$APPLE_VALIDATION_DIR/apple-blender-integration.xml"
 
-      - name: Export portable fixtures and assert Meshy rejection
+      - name: Export portable fixtures and assert the Specular Tint rejection
         run: |
           mkdir -p \
             "$APPLE_VALIDATION_DIR/exports/RedCube" \
             "$APPLE_VALIDATION_DIR/exports/CubeWith4Animations" \
-            "$APPLE_VALIDATION_DIR/exports/Robot" \
-            "$APPLE_VALIDATION_DIR/exports/MeshyRiggedCharacter"
+            "$APPLE_VALIDATION_DIR/exports/SkinnedLimb" \
+            "$APPLE_VALIDATION_DIR/exports/SpecularTint"
 
           python Plugin \
             --blender "$BLENDERTORCP_BLENDER" \
@@ -226,39 +226,37 @@ jobs:
           python Plugin \
             --blender "$BLENDERTORCP_BLENDER" \
             --timeout 900 \
-            export References/Blender/Robot.blend \
+            export References/Blender/t12_skinned_limb.blend \
             export-animation=true \
             author-animation-library=true \
-            -o "$APPLE_VALIDATION_DIR/exports/Robot/Robot.usdc" \
+            -o "$APPLE_VALIDATION_DIR/exports/SkinnedLimb/SkinnedLimb.usdc" \
             --format USDC \
-            --diagnostics > "$APPLE_VALIDATION_DIR/exports/Robot/export-usdc.json"
+            --diagnostics > "$APPLE_VALIDATION_DIR/exports/SkinnedLimb/export-usdc.json"
 
           set +e
           python Plugin \
             --blender "$BLENDERTORCP_BLENDER" \
             --json \
             --timeout 900 \
-            export References/Blender/MeshyRiggedCharacter.blend \
-            export-animation=true \
-            author-animation-library=true \
-            -o "$APPLE_VALIDATION_DIR/exports/MeshyRiggedCharacter/MeshyRiggedCharacter.usdc" \
+            export References/Blender/t21_specular_tint_refusal.blend \
+            -o "$APPLE_VALIDATION_DIR/exports/SpecularTint/SpecularTint.usdc" \
             --format USDC \
             --selected-only \
-            --diagnostics > "$APPLE_VALIDATION_DIR/exports/MeshyRiggedCharacter/expected-portable-rejection.json"
-          meshy_status=$?
+            --diagnostics > "$APPLE_VALIDATION_DIR/exports/SpecularTint/expected-portable-rejection.json"
+          tint_status=$?
           set -e
-          if [[ "$meshy_status" -eq 0 ]]; then
-            echo "Meshy portable export unexpectedly succeeded" >&2
+          if [[ "$tint_status" -eq 0 ]]; then
+            echo "Specular Tint portable export unexpectedly succeeded" >&2
             exit 1
           fi
 
-          MESHY_REPORT="$APPLE_VALIDATION_DIR/exports/MeshyRiggedCharacter/expected-portable-rejection.json" \
+          TINT_REPORT="$APPLE_VALIDATION_DIR/exports/SpecularTint/expected-portable-rejection.json" \
             python3 - <<'PY'
           import json
           import os
           from pathlib import Path
 
-          report = json.loads(Path(os.environ["MESHY_REPORT"]).read_text())
+          report = json.loads(Path(os.environ["TINT_REPORT"]).read_text())
           assert report.get("ok") is False, report
           error = report.get("error") or {}
           assert error.get("code") == "UNSUPPORTED_MATERIAL_NODES", error
@@ -275,16 +273,16 @@ jobs:
           test -s "$APPLE_VALIDATION_DIR/exports/RedCube/RedCube.usdc"
           test -s "$APPLE_VALIDATION_DIR/exports/RedCube/RedCube.usdz"
           test -s "$APPLE_VALIDATION_DIR/exports/CubeWith4Animations/CubeWith4Animations.usdc"
-          test -s "$APPLE_VALIDATION_DIR/exports/Robot/Robot.usdc"
-          test ! -e "$APPLE_VALIDATION_DIR/exports/MeshyRiggedCharacter/MeshyRiggedCharacter.usdc"
-          test -s "$APPLE_VALIDATION_DIR/exports/MeshyRiggedCharacter/MeshyRiggedCharacter.diagnostics.json"
+          test -s "$APPLE_VALIDATION_DIR/exports/SkinnedLimb/SkinnedLimb.usdc"
+          test ! -e "$APPLE_VALIDATION_DIR/exports/SpecularTint/SpecularTint.usdc"
+          test -s "$APPLE_VALIDATION_DIR/exports/SpecularTint/SpecularTint.diagnostics.json"
 
       - name: Validate fresh USD and USDZ strictly
         run: |
           for asset in \
             "$APPLE_VALIDATION_DIR/exports/RedCube/RedCube.usdc" \
             "$APPLE_VALIDATION_DIR/exports/CubeWith4Animations/CubeWith4Animations.usdc" \
-            "$APPLE_VALIDATION_DIR/exports/Robot/Robot.usdc"
+            "$APPLE_VALIDATION_DIR/exports/SkinnedLimb/SkinnedLimb.usdc"
           do
             xcrun usdchecker --strict "$asset"
             xcrun usdchecker --arkit --strict "$asset"
@@ -320,7 +318,7 @@ jobs:
             appletvos \
             appletvsimulator
           do
-            for asset_name in RedCube CubeWith4Animations Robot
+            for asset_name in RedCube CubeWith4Animations SkinnedLimb
             do
               compiled_dir="$APPLE_VALIDATION_DIR/compiled/$platform/$asset_name"
               python3 scripts/validate_exports.py \
@@ -363,7 +361,7 @@ jobs:
               --expect-animation-key GoDown \
               --expect-animation-key GoForward \
               --expect-animation-key GoUp \
-            --asset "$APPLE_VALIDATION_DIR/exports/Robot/Robot.usdc" \
+            --asset "$APPLE_VALIDATION_DIR/exports/SkinnedLimb/SkinnedLimb.usdc" \
               --expect-model \
               --expect-shader-graph \
               --expect-animation \
@@ -371,7 +369,7 @@ jobs:
               --expect-animation-name Animation \
               --expect-component MeshDeformerComponent \
               --expect-component SkeletalPosesComponent \
-            --asset "$APPLE_VALIDATION_DIR/compiled/macosx/Robot/Robot-macosx-27.0.reality" \
+            --asset "$APPLE_VALIDATION_DIR/compiled/macosx/SkinnedLimb/SkinnedLimb-macosx-27.0.reality" \
               --expect-model \
               --expect-shader-graph \
               --expect-animation \
@@ -387,8 +385,7 @@ jobs:
         # modes, yet no baked output had ever been through usdchecker,
         # realitytool, or a RealityKit load in CI - only direct exports were
         # validated. Two RedCube bakes cover two of the three bake modes;
-        # Robot's material intentionally fails the bake contract (normal via a
-        # UV Map chain), so it stays a direct-export-only fixture. Compiling
+        # Compiling
         # xros + macosx here is deliberate: the direct lane already proves all
         # seven platforms compile, and this lane's job is proving the *baked*
         # artifact is valid, not re-proving the toolchain.

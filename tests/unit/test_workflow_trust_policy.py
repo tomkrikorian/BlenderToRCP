@@ -552,32 +552,32 @@ def test_ci_whitespace_gate_diffs_the_revision_under_test() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Portable Meshy rejection stays wired into the Apple validation lane.
+# The portable Specular Tint rejection stays wired into the Apple lane.
 # ---------------------------------------------------------------------------
 
 
-def test_apple_workflow_keeps_meshy_as_a_portable_expected_rejection() -> None:
+def test_apple_workflow_keeps_a_portable_expected_rejection() -> None:
     workflow = _load_workflow(APPLE_WORKFLOW)
     steps = _steps_by_name(workflow["jobs"]["apple-27"])
 
-    export_step = steps["Export portable fixtures and assert Meshy rejection"]["run"]
+    export_step = steps["Export portable fixtures and assert the Specular Tint rejection"]["run"]
     assert 'error.get("code") == "UNSUPPORTED_MATERIAL_NODES"' in export_step
-    assert 'if [[ "$meshy_status" -eq 0 ]]' in export_step
+    assert 'if [[ "$tint_status" -eq 0 ]]' in export_step
     assert '"Specular Tint" in detail.get("message", "")' in export_step
     assert '"RealityKit Portable" in detail.get("message", "")' in export_step
     assert (
         'test ! -e "$APPLE_VALIDATION_DIR/exports/'
-        'MeshyRiggedCharacter/MeshyRiggedCharacter.usdc"'
+        'SpecularTint/SpecularTint.usdc"'
     ) in export_step
 
     compile_step = steps["Compile fresh export for every Apple 27 platform"]["run"]
     runtime_step = steps["Load fresh and compiled assets with RealityKit 27"]["run"]
-    assert "MeshyRiggedCharacter" not in compile_step
-    assert "MeshyRiggedCharacter" not in runtime_step
+    assert "SpecularTint" not in compile_step
+    assert "SpecularTint" not in runtime_step
 
-    assert "for asset_name in RedCube CubeWith4Animations Robot" in compile_step
-    assert "exports/Robot/Robot.usdc" in runtime_step
-    assert "compiled/macosx/Robot/Robot-macosx-27.0.reality" in runtime_step
+    assert "for asset_name in RedCube CubeWith4Animations SkinnedLimb" in compile_step
+    assert "exports/SkinnedLimb/SkinnedLimb.usdc" in runtime_step
+    assert "compiled/macosx/SkinnedLimb/SkinnedLimb-macosx-27.0.reality" in runtime_step
     assert runtime_step.count("--expect-animation-key Animation") == 2
     assert runtime_step.count("--expect-animation-name Animation") == 2
     assert runtime_step.count("--expect-component MeshDeformerComponent") == 2

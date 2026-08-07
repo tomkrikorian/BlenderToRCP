@@ -10,15 +10,16 @@ Composer Pro or RealityKit can render the asset. Do not cite it as validation of
 fidelity, correctness, or compatibility. The same goes for
 `usdchecker --arkit --strict`.
 
-This is measured, not cautious. `Robot.usda` in this repo contains a material
-Reality Composer Pro 3 refuses with
+This is measured, not cautious. A rigged-character export (`Robot.usda`, since
+removed from this repository along with its 27 MB source) contained a material
+Reality Composer Pro 3 refused with
 
 ```text
 GEN RESOURCE: tm_material object id: ... - Resource generation failed.
 Error: Couldn't find compiled shader graph buffer!
 ```
 
-On that exact file:
+On that exact file, measured before it was removed:
 
 | Check | Verdict |
 |---|---|
@@ -41,10 +42,15 @@ implementation. Both halves of that are now measured false:
   with and without an authored `channels` value. Measured on build
   `80.0.1.500.1`.
 
-So the swizzle node is not what `Robot.usda` trips over. Do not restate that
+So the swizzle node is not what that material tripped over. Do not restate that
 explanation. What survives is the observation that matters: Reality Composer Pro
-refuses a material that `realitytool`, `usdchecker`, and this repository's own
-checker all pass. Only an import tells you what the editor will build.
+refused a material that `realitytool`, `usdchecker`, and this repository's own
+checker all passed. Only an import tells you what the editor will build.
+
+The asset is gone, so this is no longer reproducible here. Treat it as a
+recorded measurement rather than a fixture you can re-run - and if you meet the
+`Couldn't find compiled shader graph buffer` refusal again, keep that asset:
+it is the only way this gets explained.
 
 **Why they disagree.** Reality Composer Pro compiles through
 `ShaderGraph.framework` and the `libtm-*` libraries. `realitytool` links neither.

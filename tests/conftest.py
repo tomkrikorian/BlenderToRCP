@@ -22,8 +22,8 @@ PLUGIN_DIR = REPO_ROOT / "Plugin"
 BLEND_FIXTURES: dict[str, Path] = {
     "RedCube": REPO_ROOT / "References" / "Blender" / "RedCube.blend",
     "CubeWith4Animations": REPO_ROOT / "References" / "Blender" / "CubeWith4Animations.blend",
-    "Robot": REPO_ROOT / "References" / "Blender" / "Robot.blend",
-    "MeshyRiggedCharacter": REPO_ROOT / "References" / "Blender" / "MeshyRiggedCharacter.blend",
+    "SkinnedLimb": REPO_ROOT / "References" / "Blender" / "t12_skinned_limb.blend",
+    "SpecularTint": REPO_ROOT / "References" / "Blender" / "t21_specular_tint_refusal.blend",
 }
 
 

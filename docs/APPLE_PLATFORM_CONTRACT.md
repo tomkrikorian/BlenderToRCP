@@ -168,7 +168,8 @@ After an OS, Reality Composer Pro, or Xcode update, run these first, then
 regenerate the gap table with `scripts/dump_rcp_nodedef_inputs.py`.
 
 The claim that `realitytool` disagrees with Reality Composer Pro is measured on
-this repository's own `Robot.usda`: `realitytool compile --platform xros` exits
+a rigged-character export since removed from this repository:
+`realitytool compile --platform xros` exits
 0 and emits `shadergraph_rig_skin_robot_mesh_mesh_export_pxrusdpreviewsurface5sg1`
 with zero PBR fallbacks, `usdchecker --arkit --strict` reports `Success!`, and
 Reality Composer Pro 3 refuses the same material with `Couldn't find compiled

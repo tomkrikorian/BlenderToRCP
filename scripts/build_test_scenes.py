@@ -635,6 +635,24 @@ def scene_bake_mask_mix() -> None:
     save("t20_bake_mask_mix")
 
 
+def scene_specular_tint_refusal() -> None:
+    """An active Specular Tint is refused by the Portable profile.
+
+    This replaces a 16 MB rigged character whose only job was to trip this
+    refusal. The exporter clamps an overbright *achromatic* tint only when
+    Normalize Unsupported Values is on; a coloured tint is refused outright,
+    which is the case worth pinning.
+    """
+    fresh()
+    obj = sphere("TintedBall", location=(0, 0, 0.6))
+    _t, bsdf, _m = material(obj, "TintedSurface")
+    bsdf.inputs["Base Color"].default_value = (0.7, 0.7, 0.75, 1)
+    # Coloured and overbright: refused regardless of the normalization setting.
+    bsdf.inputs["Specular Tint"].default_value = (1.8, 0.4, 0.4, 1.0)
+    sun()
+    save("t21_specular_tint_refusal")
+
+
 SCENES = (
     scene_orientation,
     scene_uv_layout,
@@ -656,6 +674,7 @@ SCENES = (
     scene_refused_mix_shader,
     scene_cm_scale_refusal,
     scene_bake_mask_mix,
+    scene_specular_tint_refusal,
 )
 
 

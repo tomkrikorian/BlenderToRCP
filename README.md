@@ -197,7 +197,7 @@ Browse and discover skills at [skills.sh](https://skills.sh).
 | `blendertorcp-cli` | Export scenes, bake textures, validate materials, and manage settings via the CLI. |
 | `blendertorcp-setup` | Set up the CLI — locate Blender, verify the plugin, configure the shell alias. Also covers troubleshooting. |
 
-Once installed, an agent can respond to prompts like "export my Blender scene to USDZ" or "bake and export Robot.blend at 4K resolution" by invoking the CLI commands automatically.
+Once installed, an agent can respond to prompts like "export my Blender scene to USDZ" or "bake and export my scene at 4K resolution" by invoking the CLI commands automatically.
 
 ## Add-on preferences and persisted state
 
