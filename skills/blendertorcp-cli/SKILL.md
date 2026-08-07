@@ -126,10 +126,6 @@ blendertorcp bake-export <file.blend> -o out.usdz --format USDZ --bake-mode LIT_
 # High-res PNG bake
 blendertorcp bake-export <file.blend> -o out.usdz --format USDZ --resolution 4096 --image-format PNG --margin 4
 
-# Experimental RCP3 private package plus adjacent USDA source
-blendertorcp bake-export <file.blend> -o out.import \
-  --format RCP_IMPORT --bake-mode LIT_IBL
-
 # Keep original texture override semantics where source textures are staged.
 # For newly baked images, ORIGINAL falls back to concrete bake outputs.
 blendertorcp bake-export <file.blend> -o out.usdz --format USDZ --resolution ORIGINAL --image-format ORIGINAL
@@ -150,7 +146,7 @@ Bake-export flags:
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `--format` | from settings | `USDA`, `USDC`, `USDZ`, or experimental `RCP_IMPORT` |
+| `--format` | from settings | `USDA`, `USDC`, or `USDZ` |
 | `--selected-only` | off | Only bake/export selected objects |
 | `--diagnostics` | off | Keep `<output>.diagnostics.json` after success |
 | `--no-diagnostics` | off | Suppress success diagnostics; failures still write diagnostics |
@@ -176,24 +172,6 @@ same way.
 The global `--timeout <sec>` flag (place before the subcommand, default 600, `0` = unlimited) bounds the whole Blender subprocess — raise it for long bakes. It is a different budget from `--step-timeout` and produces a different error: `--step-timeout` terminates the Blender worker (which exits 124) and returns a structured `BAKE_STEP_TIMEOUT` naming the stalled step with failure diagnostics, while `--timeout` kills Blender outright and returns a bare `BLENDER_TIMEOUT` with no stage and no sidecar. Both exit 1 — 124 appears only as `context.returncode`.
 
 Missing, unpacked external images fail before baking with `MISSING_EXTERNAL_TEXTURES`; missing linked libraries, caches, HDRIs, or other non-image dependencies fail with `MISSING_EXTERNAL_ASSETS`. Pack or relink textures, relink the other dependency, and rerun. The scan is limited to the dependency-closed export scope, including collection prototypes and active Geometry Nodes/modifier/Scene World inputs. For existing texture staging, `ORIGINAL` preserves Apple-compatible AVIF, PNG, JPEG, and OpenEXR encodings and/or source dimensions; unsupported LDR inputs are normalized to PNG. OpenEXR always remains byte-for-byte unchanged and ignores overrides. Radiance HDR (`.hdr`) fails with guidance to convert it to OpenEXR. Bake Textures & Export creates new baked images, so `ORIGINAL` falls back to PNG/2048 for bake output where there is no source image to preserve.
-
-`RCP_IMPORT` publishes the post-processed USDA beside the generated `.import`
-directory. The writer is pinned to RCP 3.0 build `80.0.1.500.1`, currently
-supports static multi-mesh scenes and shared materials, and structurally
-generates single- or multi-mesh skeletal inputs that share the measured rig,
-skeleton, and animation contract. Multi-mesh skeletal RCP reimport and Sequence
-Editor acceptance remain pending.
-
-Meshes with multiple face materials currently use one generated mesh resource
-per material. The split representation preserves geometry, skin weights, and
-appearance and passes source-runtime checks, but it is not RCP-compatible: a
-second genuine reimport duplicates resources and RCP authors a different
-combined descriptor with nested `subsets`. Do not claim multi-material
-compatibility until the measured one-descriptor subset writer passes two
-non-growing reimports. Baked RGBA base-color/opacity works per material in all
-three bake modes, and `LIT_ALBEDO` supports roughness maps. Multi-mesh transform
-animation, mixed rig/skeleton contracts, and unmeasured texture roles such as
-normal, metallic, occlusion, or a separate opacity image fail closed.
 
 Any export setting key can also be passed as a positional override (same as `export`), e.g. `export-animation=true`.
 
@@ -376,14 +354,11 @@ Raised by the CLI before Blender starts: `INVALID_ARGUMENTS`,
 `INTERRUPTED`.
 
 Raised inside Blender: `ADDON_LOAD_FAILED`, `INVALID_SETTING_OVERRIDE`,
-`INVALID_SETTING_VALUE`, `SETTINGS_SAVE_FAILED`, `RCP_IMPORT_EXISTS`,
+`INVALID_SETTING_VALUE`, `SETTINGS_SAVE_FAILED`,
 `INVALID_EXPORT_SELECTION`, `NO_EXPORTABLE_OBJECTS`,
 `UNSUPPORTED_MATERIAL_NODES` (`export` only), `MISSING_EXTERNAL_TEXTURES`,
 `MISSING_EXTERNAL_ASSETS`, `BAKE_STEP_TIMEOUT`, `BLENDER_USD_EXPORT_FAILED`,
 `POSTPROCESS_FAILED`, `EXPORT_FAILED`, `BAKE_EXPORT_FAILED`, `COMMAND_FAILED`.
-
-`RCP_IMPORT_EXISTS` is a deliberate refusal to overwrite an existing `.import`
-directory, not a crash — remove or rename it and rerun.
 
 A command that raises a plain Python exception reports the class name
 upper-cased (`VALUEERROR`, …) plus a `traceback` field. Treat those as internal
@@ -396,7 +371,7 @@ they appear in job `status.json` and support bundles, never as CLI envelopes.
 
 ## Common setting keys
 
-**Export:** `export_format` (USDA/USDC/USDZ/RCP_IMPORT), `root_prim_name`, `export_animation`, `selected_objects_only`
+**Export:** `export_format` (USDA/USDC/USDZ, default USDA), `root_prim_name`, `export_animation`, `selected_objects_only`
 
 **Texture:** `export_texture_settings_enabled`, `bake_resolution` (ORIGINAL/512/1024/2048/4096/CUSTOM), `bake_image_format` (ORIGINAL/AVIF/PNG), `bake_margin`
 

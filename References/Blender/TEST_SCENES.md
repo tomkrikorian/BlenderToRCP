@@ -1,6 +1,6 @@
 # Evaluation scenes
 
-Twenty small `.blend` files, one behaviour each, for checking by eye what no
+Twenty-one small `.blend` files, one behaviour each, for checking by eye what no
 automated test can: whether an export **looks right** in Reality Composer Pro.
 
 Regenerate the scenes:
@@ -107,6 +107,7 @@ colour check.
 |---|---|
 | `t18_refused_mix_shader` | Export **stops**. The message names the Mix Shader and points at **Bake Textures & Export**. Judge whether it tells you enough to act |
 | `t19_cm_scale_refusal` | Export **stops** with `Scene unit scale is 0.01, but the RealityKit export contract fixes metersPerUnit at 1.0…`. This guard is why working in centimetres does not ship an asset 100× too large. Judge whether the message tells you how to fix it |
+| `t21_specular_tint_refusal` | Export **stops** with `UNSUPPORTED_MATERIAL_NODES`, naming Principled *Specular Tint* and the RealityKit Portable profile. Nothing is written. This is the fixture the Apple validation job uses as its expected rejection, so a change here changes CI |
 
 ## The lifecycle check
 

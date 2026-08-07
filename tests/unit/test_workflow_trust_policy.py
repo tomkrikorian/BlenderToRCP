@@ -565,6 +565,10 @@ def test_apple_workflow_keeps_a_portable_expected_rejection() -> None:
     assert 'if [[ "$tint_status" -eq 0 ]]' in export_step
     assert '"Specular Tint" in detail.get("message", "")' in export_step
     assert '"RealityKit Portable" in detail.get("message", "")' in export_step
+    # The refusal comes from the material, so the whole scene has to be exported.
+    # Under --selected-only this scene yields NO_EXPORTABLE_OBJECTS instead - the
+    # step's own assertion then fails while the workflow still looks reasonable.
+    assert "--selected-only" not in export_step
     assert (
         'test ! -e "$APPLE_VALIDATION_DIR/exports/'
         'SpecularTint/SpecularTint.usdc"'
@@ -578,7 +582,7 @@ def test_apple_workflow_keeps_a_portable_expected_rejection() -> None:
     assert "for asset_name in RedCube CubeWith4Animations SkinnedLimb" in compile_step
     assert "exports/SkinnedLimb/SkinnedLimb.usdc" in runtime_step
     assert "compiled/macosx/SkinnedLimb/SkinnedLimb-macosx-27.0.reality" in runtime_step
-    assert runtime_step.count("--expect-animation-key Animation") == 2
-    assert runtime_step.count("--expect-animation-name Animation") == 2
+    assert runtime_step.count("--expect-animation-key Bend") == 2
+    assert runtime_step.count("--expect-animation-name Bend") == 2
     assert runtime_step.count("--expect-component MeshDeformerComponent") == 2
     assert runtime_step.count("--expect-component SkeletalPosesComponent") == 2

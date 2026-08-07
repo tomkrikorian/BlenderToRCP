@@ -71,6 +71,11 @@ def save(name: str) -> None:
 
 
 def _register(image) -> None:
+    # Pack, or the pixels never reach the file. A GENERATED image's buffer is
+    # not serialized: Blender regenerates it from generated_color on load, so
+    # an unpacked probe texture opens as a flat fill and the scene silently
+    # proves nothing. Every image in this kit shipped black once because of it.
+    image.pack()
     digest = hashlib.sha256(bytes(int(c * 255) for c in image.pixels)).hexdigest()
     clash = next((n for n, d in _IMAGE_DIGESTS.items() if d == digest), None)
     if clash:
@@ -678,9 +683,39 @@ SCENES = (
 )
 
 
+def _verify_written_scenes() -> None:
+    """Reopen every scene and check its textures survived the save.
+
+    The digest guard above runs on in-memory pixels, so it cannot see a texture
+    that fails to serialize. This measures what actually shipped: a probe image
+    with one distinct texel is a flat fill, which is the exact appearance its
+    own expectation defines as failure.
+    """
+
+    failures = []
+    for path in sorted(OUT.glob("t*.blend")):
+        bpy.ops.wm.open_mainfile(filepath=str(path))
+        for image in bpy.data.images:
+            if image.name == "Render Result" or not image.has_data:
+                continue
+            pixels = list(image.pixels)
+            texels = {
+                tuple(pixels[i:i + 4])
+                for i in range(0, min(len(pixels), 40000), 4)
+            }
+            if len(texels) < 2:
+                failures.append(f"{path.name}: {image.name} is a flat fill")
+    if failures:
+        raise SystemExit(
+            "textures did not survive the save:\n  " + "\n  ".join(failures)
+        )
+    print("VERIFIED every written scene keeps its textures")
+
+
 def main() -> None:
     for builder in SCENES:
         builder()
+    _verify_written_scenes()
     print(f"DONE {len(SCENES)} scenes -> {OUT}")
 
 

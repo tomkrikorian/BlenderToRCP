@@ -241,7 +241,6 @@ jobs:
             export References/Blender/t21_specular_tint_refusal.blend \
             -o "$APPLE_VALIDATION_DIR/exports/SpecularTint/SpecularTint.usdc" \
             --format USDC \
-            --selected-only \
             --diagnostics > "$APPLE_VALIDATION_DIR/exports/SpecularTint/expected-portable-rejection.json"
           tint_status=$?
           set -e
@@ -365,16 +364,16 @@ jobs:
               --expect-model \
               --expect-shader-graph \
               --expect-animation \
-              --expect-animation-key Animation \
-              --expect-animation-name Animation \
+              --expect-animation-key Bend \
+              --expect-animation-name Bend \
               --expect-component MeshDeformerComponent \
               --expect-component SkeletalPosesComponent \
             --asset "$APPLE_VALIDATION_DIR/compiled/macosx/SkinnedLimb/SkinnedLimb-macosx-27.0.reality" \
               --expect-model \
               --expect-shader-graph \
               --expect-animation \
-              --expect-animation-key Animation \
-              --expect-animation-name Animation \
+              --expect-animation-key Bend \
+              --expect-animation-name Bend \
               --expect-component MeshDeformerComponent \
               --expect-component SkeletalPosesComponent \
             --output "$APPLE_VALIDATION_DIR/realitykit-runtime.json" \
@@ -384,8 +383,8 @@ jobs:
         # The bake lane is the default UI route for three of four material
         # modes, yet no baked output had ever been through usdchecker,
         # realitytool, or a RealityKit load in CI - only direct exports were
-        # validated. Two RedCube bakes cover two of the three bake modes;
-        # Compiling
+        # validated. Two RedCube bakes cover LIT_ALBEDO and UNLIT_ALBEDO;
+        # LIT_IBL is exercised by the evaluation scenes, not here. Compiling
         # xros + macosx here is deliberate: the direct lane already proves all
         # seven platforms compile, and this lane's job is proving the *baked*
         # artifact is valid, not re-proving the toolchain.
