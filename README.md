@@ -443,10 +443,10 @@ The workflows divide the gates by trust and toolchain:
 | Event | Automated gates |
 |---|---|
 | Pull request | `.github/workflows/ci.yml`: compile check, unit tests, archive build/validation/installed-extension smoke, and Blender 5.2 integration tests on GitHub-hosted Linux. The protected Apple runner is not exposed to pull requests. |
-| Push to `dev` | Portable CI always runs. `.github/workflows/apple-platform-validation.yml` also runs on the labeled Apple 27 self-hosted runner when its configured `Plugin`, `References`, `scripts`, `tests`, or workflow paths change. |
-| Push to `main` | Portable CI. The release candidate must first pass the protected Apple validation through `dev`; the Apple workflow cannot be dispatched directly from `main`. |
-| Manual workflow dispatch | The release workflow accepts dry runs only from trusted `dev`; the protected Apple workflow has no direct manual entry point. Dry runs never publish a GitHub release. |
-| Push of a bare `X.Y.Z` tag | `.github/workflows/build-archive.yml` first requires the tagged commit to be reachable from `origin/dev`, then calls both reusable validation workflows, verifies that the tag exactly matches the manifest version, builds one deterministic versioned archive and checksum, and publishes only after every gate succeeds. |
+| Push to `dev` | Portable CI. Apple 27 verification is manual: run `scripts/verify_apple_platform.sh` on a Mac. |
+| Push to `main` | Portable CI. Run `scripts/verify_apple_platform.sh` on a Mac before promoting a release candidate. |
+| Manual workflow dispatch | The release workflow accepts dry runs only from trusted `dev`. Dry runs never publish a GitHub release. |
+| Push of a bare `X.Y.Z` tag | `.github/workflows/build-archive.yml` first requires the tagged commit to be reachable from `origin/dev`, then calls the portable validation workflow, verifies that the tag exactly matches the manifest version, builds one deterministic versioned archive and checksum, and publishes only after every gate succeeds. |
 
 The Apple job requires a self-hosted runner carrying all of these labels:
 

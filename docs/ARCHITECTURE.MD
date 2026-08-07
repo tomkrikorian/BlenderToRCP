@@ -77,7 +77,7 @@ The mandatory shipping material profile is `realitykit_portable`, based on the e
 - `References/RealityComposerProProject/`: disposable Reality Composer Pro 3 research corpus used to measure the private `.import` format. Not a validation fixture, and not shipped. The `.import` capture directories themselves are gitignored (`*.import/`) because their opaque buffer payloads are unsuitable for version control; regenerate them locally from RCP.
 - `References/Doc/` and `References/Blender/`: supporting reference documentation and sample Blender scenes.
 - `.github/workflows/ci.yml`: portable unit, archive-smoke, and pinned Blender 5.2 integration gates.
-- `.github/workflows/apple-platform-validation.yml`: protected self-hosted Apple 27 validation lane.
+- `scripts/verify_apple_platform.sh`: Apple 27 verification, run by hand on a Mac.
 - `.github/workflows/build-archive.yml`: tag-gated validation, packaging, checksum, and release publication workflow.
 
 ## Blender UX surface
@@ -374,20 +374,15 @@ The second form is the tag-release check. It requires a bare-semver tag that exa
 
 The installed-archive gate uses isolated `BLENDER_USER_RESOURCES`; it does not import the development checkout as the add-on. It requires the canonical `bl_ext.user_default.blender_to_rcp` module, registered `Scene.blender_to_rcp_export_settings`, no `Plugin`/`Plugin.*` aliases, and clean on-demand `rk_pbr` loading with provenance inside the installed archive. It runs the installed CLI's `version` and `settings list` commands, then exports a tiny default-material scene to both USDC and USDZ through that installed CLI. Standard-library package checks enforce the installed packager's immutable USDZ member contract and 64-byte alignment, while Blender's bundled USD runtime requires mesh geometry, material binding, a connected MaterialX surface, and `ND_realitykit_pbr_surfaceshader`. Available Apple tooling adds `usdchecker --arkit --strict`; an Xcode 27 host also compiles both assets for `xros` 27 with Metal via `realitytool`. Finally, the installed background bake runner must reach the controlled empty-scene `No exportable objects found` preflight.
 
-`.github/workflows/apple-platform-validation.yml` is reusable and runs directly for relevant `Plugin`, `References`, `scripts`, `tests`, or workflow changes pushed to `dev`. It intentionally has no direct manual or pull-request entry point: trusted manual dry runs enter through `.github/workflows/build-archive.yml` on `dev`, and a GitHub-hosted authorization job resolves and approves the immutable revision before the self-hosted Apple runner is allocated. Its `apple-27` job uses this exact protected runner label set:
+Apple 27 verification is **manual**. `scripts/verify_apple_platform.sh` runs it on a Mac with Xcode 27, Blender 5.2 and Reality Composer Pro 3 installed. It was a self-hosted GitHub workflow, but no runner with the required labels was ever registered — the job queued for 24 hours and was cancelled, while appearing in the release pipeline as a gate. A check that cannot run is worse than no check, because it still has to be maintained and its assertions rot unnoticed.
 
-```text
-self-hosted, macOS, ARM64, macos-27, xcode-27,
-reality-composer-pro-3, blender-5.2
-```
-
-That job preflights the installed tools and runs the Blender integration suite. It then creates these fresh portable-profile assets from source `.blend` fixtures:
+The script preflights the tools and runs the Blender integration suite. It then creates these fresh portable-profile assets from source `.blend` fixtures:
 
 - `RedCube.usdc` and `RedCube.usdz`
 - `CubeWith4Animations.usdc`
 - `SkinnedLimb.usdc`, the positive skinned/skeletal portable-material fixture
 
-`t21_specular_tint_refusal.blend` is the expected-rejection fixture: its active Blender 5.2 `Specular Tint` cannot be represented by the portable PBR v1 profile, so the workflow requires `UNSUPPORTED_MATERIAL_NODES`, a `Specular Tint` detail, diagnostics, and no output asset.
+`t21_specular_tint_refusal.blend` is the expected-rejection fixture: its active Blender 5.2 `Specular Tint` cannot be represented by the portable PBR v1 profile, so the script requires `UNSUPPORTED_MATERIAL_NODES`, a `Specular Tint` detail, diagnostics, and no output asset.
 
 Each successfully exported asset receives strict and legacy-ARKit `usdchecker` checks. Xcode 27's `realitytool` then compiles the three USDC fixtures with Metal enabled at deployment target `27.0` for `xros`, `xrsimulator`, `macosx`, `iphoneos`, `iphonesimulator`, `appletvos`, and `appletvsimulator`, retaining every tested `.reality` output as evidence.
 

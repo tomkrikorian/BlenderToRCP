@@ -115,20 +115,15 @@ jobs:
     needs: validate-release-metadata
     uses: ./.github/workflows/ci.yml
 
-  apple-27-quality-gate:
-    name: Apple 27 quality gate
-    needs: validate-release-metadata
-    # Keep the protected runner workflow definition on the trusted dev ref.
-    # The reusable workflow still receives this caller's ref/SHA and validates
-    # the release commit before allocating the Apple runner.
-    uses: tomkrikorian/BlenderToRCP/.github/workflows/apple-platform-validation.yml@dev
-
   build-release-archive:
     name: Build tested release archive
+    # Apple 27 verification is a manual gate: run scripts/verify_apple_platform.sh
+    # on a Mac before tagging. It used to be a self-hosted workflow, but no such
+    # runner is registered, so the job never ran - it queued for 24 hours and was
+    # cancelled, while looking like a gate.
     needs:
       - validate-release-metadata
       - portable-quality-gates
-      - apple-27-quality-gate
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     outputs:
