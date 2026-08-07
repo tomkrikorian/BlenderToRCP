@@ -37,7 +37,7 @@ emit nothing at all. Those are listed at the end of this page.
 | Multi-material meshes | Yes | Each material becomes a `GeomSubset` binding. |
 | Shape keys (blend shapes) | Yes | See the note below on shading. |
 | Armature skinning | Yes | Exported through USD's skeletal schema. |
-| Instanced (linked) copies | Yes | Written as instanceable prims referencing a prototype. |
+| Instanced (linked) copies | Partial | Each copy is written as its own full mesh, so a scene of linked duplicates exports at full size rather than referencing one prototype. |
 | Object hierarchy | Yes | Object transforms and parenting are preserved. |
 | Curves, hair, point clouds, volumes | Dropped | These object types are never exported and nothing warns. |
 | Cameras and lights | Dropped | Author them in Reality Composer Pro; nothing warns that they were skipped. |
@@ -64,7 +64,8 @@ editor's behavior, and nothing the exporter writes changes it.
 | Coat, sheen, subsurface, IOR, anisotropy | Partial | The Portable profile refuses these when active; the experimental profiles carry some of them. |
 | Transmission, thin wall, thin film | Refused | Export stops and names the Principled input to bake or clear. |
 | Mix Shader and other shader-level mixes | Refused | Use **Bake Textures & Export** instead; the message says so. |
-| Procedural nodes (Checker, Brick, Wave, Bump, Gamma, and similar) | Refused | These need baking; the export names each node. |
+| Noise and Voronoi textures | Partial | Exported as a MaterialX procedural sampled in object space, with a warning. It will not match Blender pixel for pixel. |
+| Checker, Brick, Wave, Bump, Gamma and similar | Refused | These need baking; the export names each node. |
 | Non-Principled BSDFs, geometry and light-path inputs | Refused | Export stops before writing anything. |
 | Math nodes | Partial | Two dozen operations map exactly; the rest are refused with the operation named. |
 

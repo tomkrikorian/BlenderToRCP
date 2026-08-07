@@ -554,6 +554,16 @@ strict, so the export is blocked first. A material with
 | Colored or linked overbright Specular Tint | **export fails** regardless of the setting | **Error** |
 | Nothing sets `specular` | defaulted to `0.5` | **Silent** |
 
+**Why clamping, rather than moving the excess elsewhere.** An overbright tint of
+`[2,2,2]` could in principle be expressed as `[1,1,1]` with `specularWeight = 2`,
+preserving the energy instead of discarding it. The exporter does not do this.
+Apple does not document PBR Surface 2 closely enough to assume that weight and
+tint trade off that way, and no measurement settled it — so redistribution is a
+guess that happens to look plausible, and a clamp is a loss you can see. If you
+want to revisit it, `scripts/generate_pbr2_specular_tint_research.py` builds a
+three-sphere comparison (direct, clamped, redistributed) to view under one fixed
+Reality Composer Pro environment.
+
 Blender's default `0.5` multiplier corresponds to PBR2 weight `1`
 (`Plugin/export/materials/extract/core.py:279-281`, `:437-438`;
 `Plugin/export/materials/graph.py:773`, `:784`).

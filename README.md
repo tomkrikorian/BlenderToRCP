@@ -266,7 +266,6 @@ Diagnostics workflow:
 - Support bundles include environment, scene/settings, asset dependency diagnostics, and export diagnostics. They include material validation only for non-baked exports. Background job files are included by the UI action for the active job or by passing `--job-dir` to the CLI. Source `.blend` files and exported assets are opt-in.
 - Redaction covers absolute paths in plain text and JSON-escaped Windows path strings; `--no-redact` disables that protection.
 
-For a PBR Surface 2 visual comparison of direct, clamp-only, and experimental `specularWeight` redistribution strategies, generate the research fixture described in [`References/SpecularTintResearch/README.md`](References/SpecularTintResearch/README.md). Weight redistribution is deliberately not used by production exports.
 
 ## Troubleshooting and support capture
 
