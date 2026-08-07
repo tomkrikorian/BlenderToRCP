@@ -7,11 +7,6 @@ pytestmark = pytest.mark.integration
 
 
 class TestSceneInfo:
-    def test_returns_json(self, run_cli, blend_file):
-        result = run_cli("info", str(blend_file))
-        assert result.ok
-        assert result.json is not None
-
     def test_has_object_count(self, run_cli, blend_file):
         result = run_cli("info", str(blend_file))
         assert result.ok

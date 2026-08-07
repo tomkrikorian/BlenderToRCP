@@ -44,6 +44,8 @@ def test_vector3_unit_z_inputs_expect_a_decoded_normal(node_id, input_name):
     "input_name", ["baseColor", "roughness", "metallic", "opacity"]
 )
 def test_other_inputs_do_not_expect_a_decoded_normal(input_name):
+    # A resolved nodedef is authoritative: these stay raw however their socket
+    # is spelled upstream.
     assert core._input_expects_decoded_normal(RK_PBR, input_name) is False
 
 
@@ -51,11 +53,6 @@ def test_unresolvable_nodedef_falls_back_to_the_socket_name():
     """A user node group has no manifest entry; the name is all there is."""
     assert core._input_expects_decoded_normal(None, "Normal Map") is True
     assert core._input_expects_decoded_normal(None, "Base Color") is False
-
-
-def test_the_nodedef_overrides_a_misleading_name():
-    """A resolved nodedef is authoritative, so a non-normal input stays raw."""
-    assert core._input_expects_decoded_normal(RK_PBR, "baseColor") is False
 
 
 def test_a_unit_z_default_alone_is_not_a_normal_socket():

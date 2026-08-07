@@ -7,11 +7,6 @@ pytestmark = pytest.mark.integration
 
 
 class TestVersion:
-    def test_returns_json(self, run_cli):
-        result = run_cli("version")
-        assert result.ok
-        assert result.json is not None
-
     def test_has_plugin_version(self, run_cli):
         result = run_cli("version")
         assert result.ok

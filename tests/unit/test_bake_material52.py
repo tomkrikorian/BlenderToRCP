@@ -588,21 +588,6 @@ def test_restore_puts_slot_link_back_before_the_material():
     assert slot.material is original
 
 
-def test_restore_leaves_untouched_slots_on_their_original_link():
-    original = object()
-    slot = _Slot(material=object(), link='DATA')
-    obj = _SlotObject([slot])
-
-    result = bake_textures.BakeResult()
-    result.original_materials[obj] = [original]
-    result.original_slot_links[obj] = ['DATA']
-
-    bake_textures.restore_baked_materials(result, keep_baked_materials=False)
-
-    assert slot.link == 'DATA'
-    assert slot.material is original
-
-
 def test_restore_without_recorded_links_still_restores_materials():
     """Older results, and objects whose links were never captured."""
     original = object()

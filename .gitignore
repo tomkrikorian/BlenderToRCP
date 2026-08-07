@@ -29,6 +29,11 @@ dist/
 tests/tmp/
 .pytest_cache/
 
+# Local test environment. Not ignored before, so `git clean -fdx` deleted it
+# along with the untracked build litter and the suite could not run until it
+# was rebuilt. Rebuild with the Contributor quick start in README.md.
+.venv/
+
 # Reality Composer Pro builds an .import cache beside any asset it imports.
 # It is the editor's own regenerated content, never ours to commit.
 *.import/

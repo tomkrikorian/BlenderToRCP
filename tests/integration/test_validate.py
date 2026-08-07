@@ -7,10 +7,6 @@ pytestmark = pytest.mark.integration
 
 
 class TestValidate:
-    def test_returns_json(self, run_cli, blend_file):
-        result = run_cli("validate", str(blend_file))
-        assert result.json is not None
-
     def test_has_ok_field(self, run_cli, blend_file):
         result = run_cli("validate", str(blend_file))
         assert "ok" in result.json

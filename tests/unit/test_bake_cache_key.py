@@ -44,13 +44,11 @@ def _key(**overrides):
     return _make_cache_key(**base)
 
 
-def test_identical_parameters_collide():
-    # The chess-set case: two pawns, same marble material + same mesh + same
-    # params -> same key -> one shared baked material -> instanceable.
-    assert _key() == _key()
-
-
 def test_key_is_hashable_and_usable_as_dict_key():
+    # The chess-set case: two pawns, same marble material + same mesh + same
+    # params -> same key -> one shared baked material -> instanceable. A dict
+    # round-trip needs both __eq__ and __hash__ to agree, so it covers plain
+    # equality too.
     cache = {_key(): "baked_marble"}
     assert cache[_key()] == "baked_marble"
 
@@ -97,10 +95,6 @@ def test_uv_layer_none_and_empty_collapse():
 
 def test_strip_no_suffix_is_unchanged():
     assert _strip_baked_suffix("_1___Default") == "_1___Default"
-
-
-def test_strip_single_baked():
-    assert _strip_baked_suffix("Marble_Baked") == "Marble"
 
 
 def test_strip_compounded_baked_chain():

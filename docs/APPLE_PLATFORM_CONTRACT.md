@@ -157,12 +157,17 @@ locally installed software and fail if a platform update changes them:
 
 - `tests/unit/test_manifest_matches_editor_libraries.py` — the unrenderable
   nodedef list still matches the installed MaterialX libraries.
-- `tests/unit/test_rcp_contract_matches_type_index.py` — the `.import`
-  contract still matches Reality Composer Pro's shipped schema.
+- `tests/unit/test_manifest_runtime_overlay.py` — regenerating the node
+  manifest from the installed libraries still reproduces the checked-in bytes.
 - `tests/unit/test_material_os27.py` — the node manifest still pins the
   expected Reality Composer Pro build.
 - `tests/unit/test_nodedef_input_gate.py` — the recorded per-version nodedef
   and input gaps still match the installed nodedef store.
+
+All four read Reality Composer Pro's own installed libraries, so they skip
+where the app is absent — which includes this project's Linux CI. They run
+only on a Mac with Reality Composer Pro installed, and that is the only place
+their result means anything. Run them there.
 
 After an OS, Reality Composer Pro, or Xcode update, run these first, then
 regenerate the gap table with `scripts/dump_rcp_nodedef_inputs.py`.

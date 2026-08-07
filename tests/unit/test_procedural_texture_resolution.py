@@ -11,6 +11,15 @@ Blender samples an unwired Vector with Generated coordinates
 (object-bounding-box normalized). The manifest's runtime-resolvable stand-in
 is object-space position (ND_position_vector3); the deliberate approximation
 is named by an always-on warning in ``collect_material_warnings``.
+
+Do not add a check here that every authored node_id is a manifest key. One
+lived here and could not fail: ``_nodedef_for`` only ever returns names that
+already survived a manifest lookup, so the assertion compared the manifest
+with itself and would have stayed green on a manifest that was wrong about
+what RealityKit accepts. The real check is
+``tests/integration/test_authored_nodedefs_exist.py``, which reads the ids
+back out of an exported stage - including the ones textures.py builds from
+f-strings and never routes through the manifest at all.
 """
 
 from __future__ import annotations
@@ -26,10 +35,6 @@ if not hasattr(_bpy_stub, "types"):
     _bpy_stub.types = types.SimpleNamespace(NodeTree=object)
 
 from Plugin.export.materials.extract import core  # noqa: E402
-from Plugin.manifest.materialx_nodes import load_manifest  # noqa: E402
-
-
-_MANIFEST_NODES = frozenset(load_manifest()["nodes"].keys())
 
 
 class _Socket:
@@ -48,14 +53,6 @@ class _Link:
 
 class _Node:
     pass
-
-
-def _walk_expr(expr):
-    if not isinstance(expr, dict):
-        return
-    yield expr
-    for child in (expr.get("inputs") or {}).values():
-        yield from _walk_expr(child)
 
 
 def _resolve_from(node, output_name="Fac", expected_type="float"):
@@ -145,14 +142,6 @@ def test_gradient_unwired_vector_authors_converted_position():
     texcoord = expr["inputs"]["texcoord"]
     assert texcoord["node_id"] == "ND_convert_vector3_vector2"
     _assert_is_object_position(texcoord["inputs"]["in"])
-
-
-def test_every_authored_procedural_nodedef_is_manifest_backed():
-    for node in (_noise_node(), _voronoi_node(), _gradient_node()):
-        expr = _resolve_from(node)
-        for part in _walk_expr(expr):
-            if part.get("kind") == "node":
-                assert part["node_id"] in _MANIFEST_NODES, part["node_id"]
 
 
 def test_unresolvable_wired_vector_still_refuses():

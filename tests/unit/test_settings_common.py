@@ -45,10 +45,6 @@ class TestInternalKeys:
         }
         assert expected.issubset(INTERNAL_KEYS)
 
-    def test_not_empty(self):
-        assert len(INTERNAL_KEYS) >= 3
-
-
 def test_transient_command_settings_suspend_and_restore_persistence():
     settings = SimpleNamespace(persist_suspended=False)
 

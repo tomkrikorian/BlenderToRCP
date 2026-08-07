@@ -331,7 +331,8 @@ python3 "<path-to-this-repo>/Plugin" --blender /Applications/Blender.app/Content
 Run the portable checks from the repository root:
 
 ```bash
-python3 -m pip install pytest==9.1.1 usd-core==26.8 numpy==2.3.4
+python3 -m venv .venv && source .venv/bin/activate
+python3 -m pip install pytest==9.1.1 usd-core==26.8 numpy==2.3.4 PyYAML==6.0.3 pillow==12.3.0
 python3 -m compileall -q Plugin scripts tests
 git diff --check
 bash tests/test_check_apple27_toolchain.sh

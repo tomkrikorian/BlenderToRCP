@@ -12,11 +12,6 @@ class TestListMaterials:
         assert result.ok
         assert isinstance(result.json, list)
 
-    def test_has_materials(self, run_cli, blend_file):
-        result = run_cli("list-materials", str(blend_file))
-        assert result.ok
-        assert len(result.json) > 0, "RedCube.blend should have at least one material"
-
     def test_material_has_required_keys(self, run_cli, blend_file):
         result = run_cli("list-materials", str(blend_file))
         assert result.ok

@@ -22,6 +22,13 @@ env:
   # Matches the numpy bundled with Blender 5.2 LTS. Plugin.export.bake_textures
   # uses numpy for pixel-buffer work; without it those tests cannot run.
   NUMPY_VERSION: "2.3.4"
+  # test_workflow_trust_policy.py parses the workflow YAML; without PyYAML the
+  # whole tests/unit collection errors out rather than skipping one file.
+  PYYAML_VERSION: "6.0.3"
+  # test_bake_export_mix_shader.py reads baked texels back. Absent pillow its
+  # pixel checks importorskip themselves, so the bake lane went unverified in
+  # every environment - nobody had it installed.
+  PILLOW_VERSION: "12.3.0"
   BLENDER_VERSION: "5.2.0"
   BLENDER_ARCHIVE_NAME: blender-5.2.0-linux-x64.tar.xz
   BLENDER_DOWNLOAD_URL: https://download.blender.org/release/Blender5.2/blender-5.2.0-linux-x64.tar.xz
@@ -84,6 +91,8 @@ jobs:
           pytest==${PYTEST_VERSION}
           usd-core==${USD_CORE_VERSION}
           numpy==${NUMPY_VERSION}
+          PyYAML==${PYYAML_VERSION}
+          pillow==${PILLOW_VERSION}
 
       - name: Compile Python sources
         run: python -m compileall -q Plugin scripts tests
@@ -228,7 +237,9 @@ jobs:
           python -m pip install \
             pytest==${PYTEST_VERSION} \
             usd-core==${USD_CORE_VERSION} \
-            numpy==${NUMPY_VERSION}
+            numpy==${NUMPY_VERSION} \
+            PyYAML==${PYYAML_VERSION} \
+            pillow==${PILLOW_VERSION}
           sudo apt-get update
           sudo apt-get install -y \
             libegl1 \

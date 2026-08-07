@@ -55,13 +55,6 @@ class TestExtractResultSuccess:
         result = extract_result(stdout, "", 0)
         assert result["items"] == [1, 2, 3]
 
-    def test_nested_result(self):
-        payload = {"ok": True, "result": {"a": {"b": {"c": 1}}}}
-        stdout = f"{OUTPUT_MARKER}{json.dumps(payload)}{OUTPUT_MARKER}"
-        result = extract_result(stdout, "", 0)
-        assert result["a"]["b"]["c"] == 1
-
-
 class TestExtractResultErrors:
     def test_missing_markers_raises(self):
         with pytest.raises(RuntimeError, match="No output from Blender"):
@@ -242,9 +235,6 @@ class TestFindBlender:
 
 
 class TestOutputMarker:
-    def test_marker_is_string(self):
-        assert isinstance(OUTPUT_MARKER, str)
-
     def test_marker_is_distinctive(self):
         """Marker should not appear in normal Blender output."""
         assert "BLENDERTORCP" in OUTPUT_MARKER

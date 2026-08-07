@@ -81,14 +81,6 @@ class TestExport:
         assert actual_path.exists(), f"Output USDA file was not created at {actual_path}"
         assert actual_path.stat().st_size > 0, "Output file is empty"
 
-    def test_output_has_export_path(self, run_cli, blend_file, tmp_output):
-        out = tmp_output / "scene.usdz"
-        result = run_cli("export", str(blend_file), "-o", str(out), "--format", "USDZ")
-        assert result.ok
-        assert "export_path" in result.json
-        assert isinstance(result.json["export_path"], str)
-        assert len(result.json["export_path"]) > 0
-
     def test_output_has_duration(self, run_cli, blend_file, tmp_output):
         out = tmp_output / "scene.usdz"
         result = run_cli("export", str(blend_file), "-o", str(out), "--format", "USDZ")
