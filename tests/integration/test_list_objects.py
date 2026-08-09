@@ -28,7 +28,7 @@ class TestListObjects:
     def test_type_filter_camera(self, run_cli, blend_file):
         result = run_cli("list-objects", str(blend_file), "--type", "CAMERA")
         assert result.ok
-        # RedCube.blend should have at least one camera
+        # t22_red_cube.blend should have at least one camera
         assert len(result.json) > 0, "CAMERA filter returned empty list — test would pass trivially"
         for obj in result.json:
             assert obj["type"] == "CAMERA"

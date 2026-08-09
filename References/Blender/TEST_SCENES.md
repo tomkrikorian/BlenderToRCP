@@ -1,7 +1,8 @@
 # Evaluation scenes
 
-Twenty-one small `.blend` files, one behaviour each, for checking by eye what no
-automated test can: whether an export **looks right** in Reality Composer Pro.
+Twenty-four small `.blend` files, one behaviour each, for checking by eye what
+no automated test can: whether an export **looks right** in Reality Composer
+Pro.
 
 Regenerate the scenes:
 
@@ -116,6 +117,21 @@ or `t12_skinned_limb` are good candidates. Import it, **save the project, close
 it, reopen it**, then open the material in the shader graph editor. Materials
 must still be editable graphs rather than flattened, and animation must survive.
 Nothing automated reaches this, and it is where round-trip damage shows up.
+
+## Also doubling as automated fixtures
+
+These three are driven by `tests/conftest.py` and
+`scripts/verify_apple_platform.sh` as well as by eye. Changing them changes
+what the suite exports, so edit them only deliberately.
+
+| Scene | Correct | Wrong | Not built |
+|---|---|---|---|
+| `t22_red_cube` | A single red cube with one material | Any other colour, or more than one material — the suite's simplest fixture is no longer simple | Grey cube |
+| `t23_cube_with_4_animations` | Four takes on one cube, each a distinct motion | Fewer than four takes, or two playing the same motion | — |
+| `t24_bake_test` | Bakes and exports with its textures intact | Flat or black textures | Placeholder stripes |
+
+`t24_bake_test.blend` is credited to Steve Talkowski; see
+[`README.md`](README.md).
 
 ## What is not covered
 

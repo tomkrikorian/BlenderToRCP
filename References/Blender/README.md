@@ -2,4 +2,4 @@
 
 ## Credits
 
-- `bakeTest.blend`: credited to Steve Talkowski, https://github.com/stevetalkowski
+- `t24_bake_test.blend`: credited to Steve Talkowski, https://github.com/stevetalkowski

@@ -454,16 +454,24 @@ The workflows divide the gates by trust and toolchain:
 | Manual workflow dispatch | The release workflow accepts dry runs only from trusted `dev`. Dry runs never publish a GitHub release. |
 | Push of a bare `X.Y.Z` tag | `.github/workflows/build-archive.yml` first requires the tagged commit to be reachable from `origin/dev`, then calls the portable validation workflow, verifies that the tag exactly matches the manifest version, builds one deterministic versioned archive and checksum, and publishes only after every gate succeeds. |
 
-The Apple job requires a self-hosted runner carrying all of these labels:
+Apple 27 verification is not automated. There is no self-hosted runner, and the
+workflow that assumed one was removed — it never ran, and its assertions rotted
+unnoticed. Run it yourself on a Mac carrying Blender 5.2, Xcode 27, the
+version-27 SDKs and Reality Composer Pro 3:
 
-```text
-self-hosted, macOS, ARM64, macos-27, xcode-27,
-reality-composer-pro-3, blender-5.2
+```bash
+scripts/verify_apple_platform.sh
 ```
 
-The runner must have Blender 5.2, Xcode 27, the version-27 SDKs, Reality Composer Pro 3, `usdchecker`, `usdcat`, and `realitytool` installed. `scripts/check_apple27_toolchain.sh` fails before validation when that contract is not met.
+It runs the integration suite, exports the fixtures, checks the expected
+Specular Tint refusal, runs `usdchecker` strict and ARKit-strict, guards the
+shipping profile against an experimental surface, and compiles for all seven
+Apple 27 platforms. `scripts/check_apple27_toolchain.sh` fails first when the
+toolchain contract is not met.
 
-The Apple gate retains every platform-specific `.reality` file, then loads the fresh and macOS-compiled RedCube, animated-cube, and rigged-character fixtures with public RealityKit APIs. It requires model and ShaderGraph material evidence for every asset, plus animation evidence and the exact expected clip-library keys for the animated fixtures. The runtime JSON report, runtime log, fresh exports, and compiled artifacts are uploaded as release evidence.
+None of that proves an asset **renders**. Only importing the evaluation scenes
+into Reality Composer Pro does — see
+[`References/Blender/TEST_SCENES.md`](References/Blender/TEST_SCENES.md).
 
 Before pushing a release tag:
 

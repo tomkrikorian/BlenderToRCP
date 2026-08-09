@@ -20,8 +20,8 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 PLUGIN_DIR = REPO_ROOT / "Plugin"
 
 BLEND_FIXTURES: dict[str, Path] = {
-    "RedCube": REPO_ROOT / "References" / "Blender" / "RedCube.blend",
-    "CubeWith4Animations": REPO_ROOT / "References" / "Blender" / "CubeWith4Animations.blend",
+    "RedCube": REPO_ROOT / "References" / "Blender" / "t22_red_cube.blend",
+    "CubeWith4Animations": REPO_ROOT / "References" / "Blender" / "t23_cube_with_4_animations.blend",
     "SkinnedLimb": REPO_ROOT / "References" / "Blender" / "t12_skinned_limb.blend",
     "SpecularTint": REPO_ROOT / "References" / "Blender" / "t21_specular_tint_refusal.blend",
 }
