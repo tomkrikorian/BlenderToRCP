@@ -1,8 +1,0 @@
-{
-  "output": "baketest_lit_avif.usda",
-  "schema_version": 1,
-  "sidecars": [
-    "textures/bakeTest_lit_avif.usda/78de08628e094cf875bd6ce4359b36d8/bakeTest_lit_avif-Cube_001__Material_001_Baked_baseColor-d2594cc77b81c08f890d448b311072c8fd9bbd747fc0d5ed22ae1b606ed811c8.avif",
-    "textures/bakeTest_lit_avif.usda/78de08628e094cf875bd6ce4359b36d8/bakeTest_lit_avif-Cube__Material_Baked_baseColor-62daf1232384fd56f21ce11dca6880e126641c7ab52434a4d37e0b72de16b618.avif"
-  ]
-}
