@@ -128,7 +128,15 @@ what the suite exports, so edit them only deliberately.
 |---|---|---|---|
 | `t22_red_cube` | A single red cube with one material | Any other colour, or more than one material — the suite's simplest fixture is no longer simple | Grey cube |
 | `t23_cube_with_4_animations` | Four takes on one cube, each a distinct motion | Fewer than four takes, or two playing the same motion | — |
-| `t24_bake_test` | Bakes and exports with its textures intact | Flat or black textures | Placeholder stripes |
+| `t24_bake_test` | Direct export **refuses** with `UNSUPPORTED_MATERIAL_NODES`, naming Principled *IOR*; `bake-export` succeeds and the model keeps its texturing | Baked textures flat, black, or misaligned to the UVs | Placeholder stripes |
+
+`t24_bake_test` is a bake-lane scene like `t20`, so `export_test_scenes.sh`
+reports it refused — that is the expected result. Bake it instead:
+
+```bash
+blendertorcp bake-export References/Blender/t24_bake_test.blend \
+  -o out.usdz --format USDZ --bake-mode LIT_ALBEDO --resolution 512
+```
 
 `t24_bake_test.blend` is credited to Steve Talkowski; see
 [`README.md`](README.md).
