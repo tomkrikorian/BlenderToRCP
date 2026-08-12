@@ -38,6 +38,12 @@ tests/tmp/
 # It is the editor's own regenerated content, never ours to commit.
 *.import/
 
+# RCP also writes a directory record *beside* each .import, which `*.import/`
+# does not cover. Importing the 24 evaluation scenes therefore produced 24
+# untracked files that a `git add -A` swept straight into a commit. They are
+# regenerated on every import; only the project skeleton belongs in git.
+__tm_directory.tm_dir
+
 # Evaluation-scene exports; regenerate with scripts/export_test_scenes.sh.
 # The .blend sources in References/Blender are tracked; their output is not.
 # This ignored `t*/` alone until 2026-08-09, so the pre-t01 exports stayed
