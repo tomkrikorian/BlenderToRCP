@@ -181,3 +181,93 @@ def test_cleanup_drops_the_unconsumed_native_texture_record(tmp_path):
     cleanup_export_staging_dir(staged_layer)
 
     assert staging_namespace.take_native_texture_copies(staging) == frozenset()
+
+
+def test_staging_dir_is_absolute_for_a_relative_output(tmp_path, monkeypatch):
+    """A relative ``-o`` must still stage under an absolute directory.
+
+    Measured defect: ``bake-export -o scene.usdz`` wrote its baked textures to
+    ``.blendertorcp_temp/…`` and then died with
+
+        Texture file not found: /.blendertorcp_temp/…/Cube_Baked_baseColor.png
+
+    against a file it had just written. ``create_texture_staging_state``
+    resolves the staging USD to an absolute path and authors baked textures
+    relative to it, so a relative staging directory made that a
+    relative-against-absolute comparison. The authored asset path came back as
+    ``../`` × 7 - enough to walk past the filesystem root, where it clamps -
+    and every anchor downstream inherited the ``/``-rooted result.
+
+    Assert the property that prevents it rather than the symptom: the staging
+    directory is absolute, and it is inside the output's own directory.
+    """
+    monkeypatch.chdir(tmp_path)
+
+    staging = get_export_staging_dir("scene.usdz")
+
+    assert staging.is_absolute(), staging
+    # Rooted at the output's directory, not at "/".
+    assert staging.parent == (tmp_path / ".blendertorcp_temp").resolve()
+    # The ../-walk that produced the defect cannot be built from this.
+    assert ".." not in staging.parts
+
+
+def test_staging_dir_matches_between_relative_and_absolute_spellings(tmp_path, monkeypatch):
+    """The same output named two ways must stage in the same place.
+
+    Relative and absolute spellings of one destination diverged before the fix:
+    only the absolute spelling produced a usable staging root, which is why the
+    Blender panel never hit the defect and the CLI always did.
+    """
+    monkeypatch.chdir(tmp_path)
+    token = "0123456789abcdef0123456789abcdef"
+
+    relative = get_export_staging_dir("out/scene.usdz", attempt_id=token)
+    absolute = get_export_staging_dir(tmp_path / "out" / "scene.usdz", attempt_id=token)
+
+    assert relative == absolute
+
+
+def test_ownership_check_accepts_a_relatively_named_output(tmp_path, monkeypatch):
+    """The guard must normalize its expectation the same way staging does.
+
+    Second half of the same defect. Making ``get_export_staging_dir`` absolute
+    was not enough: ``_validate_staging_matches_final`` rebuilt its expected
+    root from the caller's raw path, so an absolute staging directory failed
+    the ownership check against a relative output with
+
+        Export staging directory '/…/.blendertorcp_temp/scene.usdz.<token>'
+        does not belong to 'scene.usdz'.
+
+    Both sides go through one normalizer now, so the two spellings of a
+    destination cannot drift apart again.
+    """
+    from Plugin.export.blender_usd_export import _validate_staging_matches_final
+
+    monkeypatch.chdir(tmp_path)
+    # Build the absolute staging directory directly rather than through
+    # get_export_staging_dir. Taking both sides from the same function would
+    # let them agree while both were wrong, which is not a test.
+    token = "0123456789abcdef0123456789abcdef"
+    staging = tmp_path / ".blendertorcp_temp" / f"scene.usdz.{token}"
+    staging.mkdir(parents=True)
+
+    # Names the output relatively; the staging directory is absolute.
+    assert _validate_staging_matches_final(staging, "scene.usdz") == staging
+
+
+def test_ownership_check_still_rejects_a_foreign_staging_dir(tmp_path, monkeypatch):
+    """Normalizing must not soften the guard it runs inside.
+
+    The check exists to stop one export writing into another's staging
+    directory. Absolutizing both sides makes more paths comparable, so prove a
+    genuine mismatch is still refused rather than newly accepted.
+    """
+    from Plugin.export.blender_usd_export import _validate_staging_matches_final
+
+    monkeypatch.chdir(tmp_path)
+    other = get_export_staging_dir("somebody_else.usdz")
+    other.mkdir(parents=True)
+
+    with pytest.raises(RuntimeError, match="does not belong to"):
+        _validate_staging_matches_final(other, "scene.usdz")

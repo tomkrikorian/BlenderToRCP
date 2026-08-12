@@ -86,6 +86,20 @@ def _ngon_method_for_usd_export(value: str) -> str:
 _STAGING_ATTEMPT_SUFFIX = re.compile(r".+\.[0-9a-f]{32}$")
 
 
+def _absolute_output_path(path: str | Path) -> Path:
+    """Anchor an output path to the working directory if it is relative.
+
+    Every consumer of a staging path compares it against another path that has
+    already been resolved, so the two spellings of one destination must not
+    diverge. They did: ``get_export_staging_dir`` built its directory from the
+    caller's raw path while ``create_texture_staging_state`` resolved the same
+    output to an absolute path, and a relative ``-o`` put those on opposite
+    sides of a relative/absolute comparison.
+    """
+    candidate = Path(path).expanduser()
+    return candidate if candidate.is_absolute() else Path.cwd() / candidate
+
+
 def get_export_staging_dir(
     final_path: str | Path,
     *,
@@ -97,8 +111,18 @@ def get_export_staging_dir(
     directory, and a concurrent reset could delete another process's in-flight
     export. The complete output filename plus a random attempt token makes the
     directory an ownership handle rather than global mutable state.
+
+    The result is always absolute. Texture staging resolves the staging USD to
+    an absolute path (``create_texture_staging_state``) and then authors baked
+    textures relative to it. A relative staging directory - which is what a
+    relative ``-o`` produced - made that a relative-against-absolute
+    comparison, so the authored asset path came out as a run of ``../``
+    segments long enough to walk past the filesystem root and clamp there:
+    ``/.blendertorcp_temp/…``. The bake then died reporting its own freshly
+    written texture missing. The panel never saw it because it always passes an
+    absolute output path.
     """
-    final_path = Path(final_path)
+    final_path = _absolute_output_path(final_path)
     token = attempt_id or secrets.token_hex(16)
     if not re.fullmatch(r"[0-9a-f]{32}", token):
         raise ValueError(f"Invalid export staging attempt id: {token!r}")
@@ -206,7 +230,9 @@ def _validate_staging_matches_final(
     final_path: str | Path,
 ) -> Path:
     staging_dir = Path(staging_dir)
-    final_path = Path(final_path)
+    # Normalize both sides the same way get_export_staging_dir does, or a
+    # relative output path fails its own ownership check.
+    final_path = _absolute_output_path(final_path)
     expected_root = final_path.parent / ".blendertorcp_temp"
     staged_output_key, separator, _attempt_token = staging_dir.name.rpartition(".")
     expected_output_key = _portable_staging_output_name(final_path.name)
