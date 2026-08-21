@@ -5,7 +5,7 @@ from __future__ import annotations
 import hashlib
 import sys
 import unicodedata
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 from types import SimpleNamespace
 
 import pytest
@@ -804,3 +804,117 @@ def test_identical_source_and_destination_is_not_superseded(tmp_path):
     same.write_bytes(b"staged in place")
 
     assert _superseded(same, same, generation, frozenset({same.resolve()})) == set()
+
+
+# ---------------------------------------------------------------------------
+# Windows MAX_PATH
+# ---------------------------------------------------------------------------
+
+# The directory from the reported failure, verbatim. A Windows user exported to
+# their Desktop and the content-addressed rename blew past MAX_PATH.
+_REPORTED_TEXTURES_DIR = (
+    r"C:\Users\Guest Dev\Desktop\ExportUsingPlugin"
+    r"\.blendertorcp_temp\Export.usdz.68033a94e13f55aed3c4eac7b164ec50"
+    r"\textures\Export.usdc\abccfa1b93abba8b8767a1890009eed1"
+)
+_REPORTED_STEM = "Export-StonePaving_low_DefaultMaterial_BaseColor"
+_REPORTED_DIGEST = (
+    "e49c93472d6ec7539bf54f8a89e3badde684977c1c1362e60d1fe0a196292f2a"
+)
+
+
+def test_reported_windows_export_now_fits_max_path(monkeypatch):
+    """The exact path from the field report must fit, stem shortened as needed.
+
+    Measured before the fix, on Blender 5.2 / Windows 11:
+
+        [WinError 3] Le chemin d'acces specifie est introuvable:
+          '...\\Export-StonePaving_low_DefaultMaterial_BaseColor.png'
+          -> '...-e49c9347...f2a.png'
+
+    The copy landed at 215 characters and succeeded; appending the 64-character
+    digest took the same path to 280 and ``os.replace`` failed. Assert the
+    arithmetic against Windows' own limit rather than against a name we chose,
+    so this keeps meaning something if the staging layout changes.
+    """
+    monkeypatch.setattr(usd_textures, "_PATH_LENGTH_IS_CAPPED", True)
+    directory = PureWindowsPath(_REPORTED_TEXTURES_DIR)
+
+    budget = usd_textures._content_stem_budget(
+        directory, _REPORTED_DIGEST, ".png"
+    )
+    stem = usd_textures._truncate_utf8_stem(_REPORTED_STEM, budget)
+    full = directory / f"{stem}-{_REPORTED_DIGEST}.png"
+
+    assert len(str(full)) <= 260, f"{len(str(full))} chars: {full}"
+    # The unshortened name is what actually failed in the field.
+    unshortened = directory / f"{_REPORTED_STEM}-{_REPORTED_DIGEST}.png"
+    assert len(str(unshortened)) == 280, len(str(unshortened))
+
+
+def test_short_paths_keep_their_full_texture_name(monkeypatch):
+    """Shortening must be reserved for paths that would otherwise fail.
+
+    Truncating names that already fit would rename textures in every export
+    that works today, for nothing.
+    """
+    monkeypatch.setattr(usd_textures, "_PATH_LENGTH_IS_CAPPED", True)
+    directory = PureWindowsPath(r"C:\out\textures")
+    stem = "StonePaving_low_DefaultMaterial_BaseColor"
+
+    budget = usd_textures._content_stem_budget(
+        directory, _REPORTED_DIGEST, ".png"
+    )
+
+    assert usd_textures._truncate_utf8_stem(stem, budget) == stem
+
+
+def test_stem_budget_never_returns_an_unusable_length(monkeypatch):
+    """A directory with no room left still asks for a writable name.
+
+    Such a directory is already unusable on Windows but legal on macOS and
+    Linux, where these exports work today. Clamp rather than refuse, and let
+    the filesystem be the one to say no.
+    """
+    monkeypatch.setattr(usd_textures, "_PATH_LENGTH_IS_CAPPED", True)
+    hopeless = PureWindowsPath("C:\\" + "d" * 300)
+
+    budget = usd_textures._content_stem_budget(
+        hopeless, _REPORTED_DIGEST, ".png"
+    )
+
+    assert budget >= usd_textures._MIN_CONTENT_STEM_CHARS
+    assert usd_textures._truncate_utf8_stem("BaseColor", budget)
+
+
+def test_long_path_failure_explains_itself(monkeypatch):
+    """WinError 3 names a path that exists one directory up. Say what is wrong."""
+    monkeypatch.setattr(usd_textures, "_PATH_LENGTH_IS_CAPPED", True)
+    hint = usd_textures._long_path_hint(Path("C:\\" + "d" * 240))
+
+    assert "path limit" in hint
+    assert "shorter directory" in hint
+
+
+def test_short_path_failure_does_not_blame_path_length():
+    """A texture missing for an ordinary reason must not be mislabelled."""
+    assert usd_textures._long_path_hint(Path("/tmp/out/textures")) == ""
+
+
+def test_posix_keeps_the_flat_stem_cap(monkeypatch):
+    """A Windows limit must not shorten names on macOS or Linux.
+
+    Caught by measurement, not by review: budgeting every platform to MAX_PATH
+    left 8 bytes for the stem against this repository's own evaluation exports,
+    which stage 248 characters deep on macOS. That would have renamed textures
+    in exports that work today, to satisfy a limit those platforms do not have.
+    """
+    monkeypatch.setattr(usd_textures, "_PATH_LENGTH_IS_CAPPED", False)
+    deep = Path("/Users/someone/a/very/deep/export/tree/" + "d" * 200)
+    stem = "StonePaving_low_DefaultMaterial_BaseColor"
+
+    budget = usd_textures._content_stem_budget(deep, "e" * 64, ".png")
+
+    assert budget == usd_textures._MAX_CONTENT_STEM_UTF8_BYTES
+    assert usd_textures._truncate_utf8_stem(stem, budget) == stem
+    assert usd_textures._long_path_hint(deep) == ""

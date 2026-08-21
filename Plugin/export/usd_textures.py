@@ -89,6 +89,28 @@ _NON_FILE_ASSET_SCHEMES = {
 _CONTENT_HASH_SUFFIX = re.compile(r"^(?P<stem>.+)-[0-9a-f]{64}$")
 _MAX_CONTENT_STEM_UTF8_BYTES = 120
 
+# Windows refuses a path longer than MAX_PATH unless both the process manifest
+# and the machine's LongPathsEnabled policy opt in, neither of which we can
+# assume on an artist's machine. Measured failure, Blender 5.2 on Windows 11:
+#
+#   [WinError 3] ...\textures\Export.usdc\<32 hex>\
+#     Export-StonePaving_low_DefaultMaterial_BaseColor.png
+#     -> ...-<64 hex>.png
+#
+# The copy landed at 215 characters and succeeded; appending the content digest
+# took the same path to 280 and os.replace failed. The output directory was an
+# unremarkable C:\Users\<name>\Desktop\<folder>, so this is not a pathological
+# case - the staging scheme itself spends 118 characters before the texture's
+# own name, and the digest spends 65 more.
+#
+# Windows only. Budgeting every platform to MAX_PATH was the first attempt and
+# it was wrong: this repository's own evaluation exports stage 248 characters
+# deep on macOS, so a global budget left 8 bytes for the stem and would have
+# renamed textures in exports that work today. POSIX keeps the flat cap.
+_MAX_STAGED_PATH_CHARS = 259  # MAX_PATH (260) less the terminating NUL
+_MIN_CONTENT_STEM_CHARS = 8
+_PATH_LENGTH_IS_CAPPED = os.name == "nt"
+
 
 class _TextureStagingError(RuntimeError):
     """Raised when a texture cannot satisfy the self-contained contract."""
@@ -513,6 +535,9 @@ def _stage_texture_source(
         raise
     except Exception as exc:
         message = f"Failed to stage texture '{source_path}': {exc}"
+        hint = _long_path_hint(state.textures_dir)
+        if hint:
+            message = f"{message} {hint}"
         if diagnostics:
             diagnostics.add_texture_failed(str(source_path), message)
         raise _TextureStagingError(message) from exc
@@ -943,7 +968,7 @@ def _finalize_content_addressed_texture(dest_path: Path, textures_dir: Path) -> 
         semantic_stem = previous_digest.group("stem")
     semantic_stem = _truncate_utf8_stem(
         semantic_stem,
-        _MAX_CONTENT_STEM_UTF8_BYTES,
+        _content_stem_budget(dest_path.parent, digest, extension),
     )
     addressed_path = dest_path.with_name(
         f"{semantic_stem}-{digest}{extension}"
@@ -1013,6 +1038,54 @@ def _files_have_identical_bytes(first: Path, second: Path) -> bool:
                     return True
     except OSError:
         return False
+
+
+def _long_path_hint(textures_dir: Path) -> str:
+    """Name MAX_PATH as the likely cause when the staging path is near it.
+
+    A Windows failure here surfaces as ``[WinError 3] The system cannot find
+    the path specified``, naming a path that plainly exists a directory up.
+    Nothing about that points at the length, so say it.
+    """
+    if not _PATH_LENGTH_IS_CAPPED:
+        return ""
+    # The shortest content-addressed name we could possibly write.
+    shortest_name = _MIN_CONTENT_STEM_CHARS + 1 + 64 + len(".png")
+    if len(str(textures_dir)) + len(os.sep) + shortest_name <= _MAX_STAGED_PATH_CHARS:
+        return ""
+    return (
+        f"The staging path is {len(str(textures_dir))} characters before the "
+        f"texture's own name, which leaves too little of the Windows "
+        f"{_MAX_STAGED_PATH_CHARS + 1}-character path limit to write it. "
+        "Export to a shorter directory, or shorten the output filename."
+    )
+
+
+def _content_stem_budget(directory: Path, digest: str, extension: str) -> int:
+    """UTF-8 bytes the semantic stem may spend before the path breaks Windows.
+
+    The stem is the only part of a content-addressed texture name we are free to
+    shorten: the digest is the identity and the directory is the caller's. So
+    the budget is whatever MAX_PATH has left once the directory, the separator,
+    the ``-`` joint, the digest and the extension are paid for.
+
+    Clamped rather than raised on. A directory long enough to leave no room is
+    already unusable on Windows, but it is perfectly legal on macOS and Linux,
+    and refusing it here would break exports that work today. Ask for the
+    shortest usable stem instead and let the filesystem have the final say -
+    ``_stage_texture_source`` explains the failure when it comes.
+    """
+    if not _PATH_LENGTH_IS_CAPPED:
+        return _MAX_CONTENT_STEM_UTF8_BYTES
+    fixed = (
+        len(str(directory))
+        + len(os.sep)
+        + 1  # the "-" joining stem and digest
+        + len(digest)
+        + len(extension)
+    )
+    available = _MAX_STAGED_PATH_CHARS - fixed
+    return max(_MIN_CONTENT_STEM_CHARS, min(_MAX_CONTENT_STEM_UTF8_BYTES, available))
 
 
 def _truncate_utf8_stem(value: str, max_bytes: int) -> str:
