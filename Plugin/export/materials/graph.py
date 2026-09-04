@@ -17,9 +17,19 @@ _PROFILE_PORTABLE = "realitykit_portable"
 _PROFILE_RCP3 = "realitykit_pbr2"
 _PROFILE_OPENPBR = "openpbr_1_1"
 
-PBR2_EXPERIMENTAL_RUNTIME_WARNING = (
-    "RealityKit PBR Surface 2 is experimental. Mandatory strict USD/USDZ "
-    "validation remains enabled for this profile."
+# OpenPBR on RealityKit is not its own shading model. Reality Composer Pro
+# expands ND_open_pbr_surface_surfaceshader through standard_surface into
+# ND_realitykit_pbr_surfaceshader_2_0 and connects 22 of that surface's 30
+# inputs. Everything OpenPBR declares beyond those is converted and then
+# discarded at the last hop - the editor greys the survivors' siblings out on
+# the node. Measured in Apple/apple_nodedefs_overrides/apple_open_pbr_overrides
+# .mtlx and confirmed by import (t08_opacity, RCP 3, 2026-08).
+OPENPBR_SUBSET_RUNTIME_WARNING = (
+    "OpenPBR 1.1 on RealityKit is a subset of RealityKit PBR Surface 2: "
+    "Reality Composer Pro expands it into that surface and drops sheen, "
+    "specular and coat anisotropy, coat colour, transmission and thin film on "
+    "the way. Select RealityKit PBR Surface 2 unless the material is "
+    "hand-authored OpenPBR."
 )
 
 _COLOR_TEXTURE_INPUTS = {
@@ -53,8 +63,8 @@ def texture_colorspace_role(input_name: str) -> str:
 def material_profile_runtime_warnings(surface_profile: str) -> tuple[str, ...]:
     """Return user-facing compatibility warnings for an explicit profile."""
     requested = (surface_profile or _PROFILE_PORTABLE).strip().lower()
-    if requested == _PROFILE_RCP3:
-        return (PBR2_EXPERIMENTAL_RUNTIME_WARNING,)
+    if requested == _PROFILE_OPENPBR:
+        return (OPENPBR_SUBSET_RUNTIME_WARNING,)
     return ()
 
 

@@ -107,11 +107,12 @@ export until explicit support is added. When export succeeds, validate the
 result in Reality Composer Pro or with the repository validation scripts
 before relying on it in production.
 
-The shipping material profile is `realitykit_portable`, which authors the
-established RealityKit PBR v1 surface and is the mandatory CI path.
-`realitykit_pbr2` and `openpbr_1_1` are explicit experimental profiles for
-OS 27 investigation; they are not production compatibility claims or release
-gates.
+The default material profile is `realitykit_portable`, which authors the
+RealityKit PBR v1 surface and is the mandatory CI path. `realitykit_pbr2`
+authors the 30-input PBR Surface 2, verified by import into Reality Composer
+Pro 3, and carries every Principled control the portable profile refuses.
+`openpbr_1_1` is expanded by Reality Composer Pro into PBR Surface 2 and
+loses inputs on the way; the export says which.
 
 ### How releases are validated
 

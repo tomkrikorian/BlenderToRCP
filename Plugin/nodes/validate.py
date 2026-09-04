@@ -208,44 +208,33 @@ UNSUPPORTED_TYPES = {
 # captured from the live node RNA.  Keeping the contract here, beside material
 # validation, prevents the graph builder's intentionally small portable subset
 # from becoming a silent appearance downgrade.
+#
+# The remedy column names the one profile that delivers the control. It used
+# to offer "PBR Surface 2 or OpenPBR 1.1", and sent Coat Tint and Sheen
+# Roughness to OpenPBR alone. Measured against Apple's shipped expansion
+# (apple_open_pbr_overrides.mtlx) and confirmed by import: OpenPBR on
+# RealityKit is funnelled into PBR Surface 2 and loses sheen, anisotropy and
+# coat colour on the way - the editor greys those inputs out. So OpenPBR never
+# delivers more than PBR Surface 2 here, and for Coat Tint and Sheen Roughness
+# it delivers nothing. A remedy that cannot work is worse than "bake".
+_PBR2 = 'RealityKit PBR Surface 2'
 _PORTABLE_OMITTED_PRINCIPLED_INPUTS = (
-    ('Diffuse Roughness', 0.0, 'RealityKit PBR Surface 2 or OpenPBR 1.1', None),
-    ('Subsurface Weight', 0.0, 'RealityKit PBR Surface 2 or OpenPBR 1.1', None),
-    (
-        'Subsurface Radius',
-        (1.0, 0.2, 0.1),
-        'RealityKit PBR Surface 2 or OpenPBR 1.1',
-        'Subsurface Weight',
-    ),
-    (
-        'Subsurface Scale',
-        0.005,
-        'RealityKit PBR Surface 2 or OpenPBR 1.1',
-        'Subsurface Weight',
-    ),
-    (
-        'Subsurface Anisotropy',
-        0.0,
-        'RealityKit PBR Surface 2 or OpenPBR 1.1',
-        'Subsurface Weight',
-    ),
-    ('IOR', 1.5, 'RealityKit PBR Surface 2 or OpenPBR 1.1', None),
-    (
-        'Specular Tint',
-        (1.0, 1.0, 1.0, 1.0),
-        None,
-        None,
-    ),
-    ('Coat IOR', 1.5, 'RealityKit PBR Surface 2 or OpenPBR 1.1', 'Coat Weight'),
-    ('Coat Tint', (1.0, 1.0, 1.0, 1.0), 'OpenPBR 1.1', 'Coat Weight'),
-    ('Sheen Weight', 0.0, 'RealityKit PBR Surface 2 or OpenPBR 1.1', None),
-    ('Sheen Roughness', 0.5, 'OpenPBR 1.1', 'Sheen Weight'),
-    (
-        'Sheen Tint',
-        (1.0, 1.0, 1.0, 1.0),
-        'RealityKit PBR Surface 2 or OpenPBR 1.1',
-        'Sheen Weight',
-    ),
+    ('Diffuse Roughness', 0.0, _PBR2, None),
+    ('Subsurface Weight', 0.0, _PBR2, None),
+    ('Subsurface Radius', (1.0, 0.2, 0.1), _PBR2, 'Subsurface Weight'),
+    ('Subsurface Scale', 0.005, _PBR2, 'Subsurface Weight'),
+    ('Subsurface Anisotropy', 0.0, _PBR2, 'Subsurface Weight'),
+    ('IOR', 1.5, _PBR2, None),
+    ('Specular Tint', (1.0, 1.0, 1.0, 1.0), None, None),
+    ('Coat IOR', 1.5, _PBR2, 'Coat Weight'),
+    # No RealityKit surface carries a coat tint; OpenPBR declares one and RCP
+    # discards it. Bake.
+    ('Coat Tint', (1.0, 1.0, 1.0, 1.0), None, 'Coat Weight'),
+    ('Sheen Weight', 0.0, _PBR2, None),
+    # PBR Surface 2 has sheenColor but no sheen roughness; OpenPBR's fuzz
+    # roughness is dropped by RCP. Bake.
+    ('Sheen Roughness', 0.5, None, 'Sheen Weight'),
+    ('Sheen Tint', (1.0, 1.0, 1.0, 1.0), _PBR2, 'Sheen Weight'),
 )
 
 # These Blender 5.2 controls currently have no faithful graph path in any
@@ -420,8 +409,9 @@ def _unsupported_principled_inputs(
         and _active('Coat Tint', (1.0, 1.0, 1.0, 1.0))
     ):
         issues.append(
-            "Principled 'Coat Tint' has no RealityKit PBR Surface 2 input; "
-            "select OpenPBR 1.1 or bake the material."
+            "Principled 'Coat Tint' has no RealityKit PBR Surface 2 input, and no "
+            "other RealityKit surface carries one - OpenPBR declares a coat colour "
+            "that Reality Composer Pro discards; bake the material."
         )
 
     if (
@@ -459,8 +449,9 @@ def _unsupported_principled_inputs(
                     pass
         if roughness_is_custom:
             issues.append(
-                "Principled 'Sheen Roughness' has no RealityKit PBR Surface 2 input; "
-                "bake it or select OpenPBR 1.1."
+                "Principled 'Sheen Roughness' has no RealityKit PBR Surface 2 input, "
+                "and OpenPBR's fuzz roughness is discarded by Reality Composer Pro; "
+                "bake the material."
             )
     return issues
 

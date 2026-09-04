@@ -240,8 +240,10 @@ class BlenderToRCPExportSettings(PropertyGroup):
             ),
             (
                 'realitykit_pbr2',
-                "RealityKit PBR Surface 2 (Experimental)",
-                "Experimental RealityKit PBR Surface 2 profile",
+                "RealityKit PBR Surface 2",
+                "The 30-input RealityKit surface. Carries every Principled control the "
+                "portable profile refuses - IOR, specular tint, subsurface, sheen, "
+                "anisotropy, coat IOR. Verified by import into Reality Composer Pro 3",
             ),
             (
                 'openpbr_1_1',

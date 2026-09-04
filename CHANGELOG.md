@@ -56,8 +56,10 @@ Requires Blender 5.2 LTS.
 **Materials**
 
 - **Surface Model** setting, choosing which MaterialX surface your materials
-  terminate in: RealityKit PBR (recommended), RealityKit PBR Surface 2
-  (experimental), or OpenPBR 1.1 (experimental).
+  terminate in: RealityKit PBR (recommended), RealityKit PBR Surface 2 —
+  verified by import, and the one to pick for IOR, specular tint, subsurface,
+  sheen, anisotropy or coat IOR — or OpenPBR 1.1, which Reality Composer Pro
+  expands into PBR Surface 2 and warns about what it drops.
 - **Normalize Unsupported Values**, an export-only clamp for an unlinked,
   achromatic Principled **Specular Tint** brighter than 1. The Blender node and
   the `.blend` are left untouched.

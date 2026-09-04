@@ -20,7 +20,7 @@ from Plugin.export.materials import rewrite as material_rewrite
 from Plugin.export.materials.graph import (
     MaterialXGraphBuilder,
     OPENPBR_1_1_NODEDEF,
-    PBR2_EXPERIMENTAL_RUNTIME_WARNING,
+    OPENPBR_SUBSET_RUNTIME_WARNING,
     RCP3_PBR2_NODEDEF,
     material_profile_runtime_warnings,
 )
@@ -89,30 +89,42 @@ def test_shipping_profile_stays_on_verified_realitykit_pbr():
     assert "sheenColor" not in graph["nodes"][0]["inputs"]
 
 
-def test_pbr2_runtime_diagnostic_keeps_strict_usdz_gate_explicit():
+def test_pbr2_carries_no_standing_warning_and_openpbr_names_what_it_drops():
+    """PBR Surface 2 was verified by import; OpenPBR is the lossy one.
+
+    Reality Composer Pro expands OpenPBR into PBR Surface 2 and discards
+    sheen, anisotropy, coat colour, transmission and thin film. The warning
+    must name those, so an artist choosing OpenPBR for one of them learns it
+    will not arrive - and must not call PBR Surface 2 experimental.
+    """
     assert material_profile_runtime_warnings("realitykit_portable") == ()
-    assert material_profile_runtime_warnings("openpbr_1_1") == ()
-    assert material_profile_runtime_warnings("REALITYKIT_PBR2") == (
-        PBR2_EXPERIMENTAL_RUNTIME_WARNING,
+    assert material_profile_runtime_warnings("REALITYKIT_PBR2") == ()
+    assert material_profile_runtime_warnings("openpbr_1_1") == (
+        OPENPBR_SUBSET_RUNTIME_WARNING,
     )
-    assert "experimental" in PBR2_EXPERIMENTAL_RUNTIME_WARNING
-    assert "strict USD/USDZ validation remains enabled" in (
-        PBR2_EXPERIMENTAL_RUNTIME_WARNING
-    )
-    assert "USDKit" not in PBR2_EXPERIMENTAL_RUNTIME_WARNING
-    assert "Quick Look" not in PBR2_EXPERIMENTAL_RUNTIME_WARNING
+    for dropped in ("sheen", "anisotropy", "coat colour", "transmission", "thin film"):
+        assert dropped in OPENPBR_SUBSET_RUNTIME_WARNING, dropped
+    assert "PBR Surface 2" in OPENPBR_SUBSET_RUNTIME_WARNING
+    assert "experimental" not in OPENPBR_SUBSET_RUNTIME_WARNING.lower()
 
 
-def test_material_rewrite_records_pbr2_runtime_diagnostic_before_traversal():
+def _rewrite_warnings(profile: str) -> list:
     warnings = []
     diagnostics = SimpleNamespace(add_warning=warnings.append)
     stage = SimpleNamespace(Traverse=lambda: [])
-    settings = SimpleNamespace(materialx_surface_profile="realitykit_pbr2")
+    settings = SimpleNamespace(materialx_surface_profile=profile)
     context = SimpleNamespace(blend_data=SimpleNamespace(materials=[]))
-
     material_rewrite.rewrite_materials(stage, settings, context, diagnostics)
+    return warnings
 
-    assert warnings == [PBR2_EXPERIMENTAL_RUNTIME_WARNING]
+
+def test_material_rewrite_records_the_openpbr_diagnostic_before_traversal():
+    assert _rewrite_warnings("openpbr_1_1") == [OPENPBR_SUBSET_RUNTIME_WARNING]
+
+
+def test_material_rewrite_records_nothing_for_pbr2():
+    """The old standing warning called a verified surface experimental."""
+    assert _rewrite_warnings("realitykit_pbr2") == []
 
 
 def test_explicit_pbr2_maps_blender_52_sheen_subsurface_and_specular_fields():

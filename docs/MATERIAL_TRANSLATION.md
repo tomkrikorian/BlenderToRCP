@@ -219,8 +219,8 @@ therefore which Blender controls can survive at all.
 | Profile | Nodedef | MaterialX | Status |
 |---------|---------|-----------|--------|
 | `realitykit_portable` | `ND_realitykit_pbr_surfaceshader` | 1.38 | **Shipping default** |
-| `realitykit_pbr2` | `ND_realitykit_pbr_surfaceshader_2_0` | 1.38 | Experimental |
-| `openpbr_1_1` | `ND_open_pbr_surface_surfaceshader` | 1.39 | Experimental |
+| `realitykit_pbr2` | `ND_realitykit_pbr_surfaceshader_2_0` | 1.38 | **Verified** — imports as native PBR Surface 2, builds, renders |
+| `openpbr_1_1` | `ND_open_pbr_surface_surfaceshader` | 1.39 | Subset of PBR Surface 2 on RealityKit — see the warning below |
 | *(unlit)* | `realitykit_unlit_surfaceshader` | 1.38 | Not selectable directly — see [When a material exports as unlit](#when-a-material-exports-as-unlit) |
 
 Constants live at `Plugin/export/materials/graph.py:12-18`; selection at
@@ -233,7 +233,7 @@ The profile is the scene property `materialx_surface_profile`
 (`Plugin/api/commands/_settings_common.py:26`).
 
 - **Blender UI**: the *Surface Profile* enum, labeled "RealityKit PBR
-  (Recommended)", "RealityKit PBR Surface 2 (Experimental)", and
+  (Recommended)", "RealityKit PBR Surface 2", and
   "OpenPBR 1.1 / MaterialX 1.39 (Experimental)".
 - **CLI**: `--materialx-surface-profile` (`Plugin/cli/__main__.py:427`) or a
   setting override. The accepted values are exactly those three
@@ -244,14 +244,35 @@ Selection is strict. An unknown value raises
 missing from the bundled manifest raises rather than falling back — the code
 refuses to switch shading models silently (`:283-286`).
 
-Choosing `realitykit_pbr2` adds a standing diagnostics warning
-(`Plugin/export/materials/graph.py:20-23`, emitted at
-`Plugin/export/materials/rewrite.py:28-30`):
+Choosing `openpbr_1_1` adds a standing diagnostics warning
+(`OPENPBR_SUBSET_RUNTIME_WARNING` in `Plugin/export/materials/graph.py`,
+emitted from `Plugin/export/materials/rewrite.py`):
 
-> RealityKit PBR Surface 2 is experimental. Mandatory strict USD/USDZ
-> validation remains enabled for this profile.
+> OpenPBR 1.1 on RealityKit is a subset of RealityKit PBR Surface 2: Reality
+> Composer Pro expands it into that surface and drops sheen, specular and coat
+> anisotropy, coat colour, transmission and thin film on the way. Select
+> RealityKit PBR Surface 2 unless the material is hand-authored OpenPBR.
 
-`openpbr_1_1` gets no such standing warning.
+That is measured, not cautious. Apple's `realitykit`-target expansion of
+`ND_open_pbr_surface_surfaceshader` terminates in
+`ND_realitykit_pbr_surfaceshader_2_0` and connects 22 of its 30 inputs; the
+rest are converted and discarded. Reality Composer Pro shows this on the node
+by greying out *Fuzz Color*, *Fuzz Roughness*, *Fuzz Weight* and *Specular
+Anisotropy*, and hiding the transmission and thin-film inputs entirely. There
+is no surface on RealityKit that expresses more than PBR Surface 2's 30
+inputs.
+
+`realitykit_pbr2` carries no standing warning. It once did — it was labelled
+experimental because this repository's own shader checker reported it as
+unbuildable, a false verdict from the checker matching the nodedef name
+against a Metal symbol spelled `_v2`. The surface imports into Reality
+Composer Pro 3 as native "PBR Surface 2 (RealityKit)", builds, and renders.
+
+*Verification: `t08_opacity` exported under both profiles and imported into
+Reality Composer Pro 3.0 (build 80.0.1.500.1), 2026-08; the built
+`.tm_material` records `ND_realitykit_pbr_surfaceshader_2_0` and
+`ND_open_pbr_surface_surfaceshader` respectively. Expansion measured in
+`Apple/apple_nodedefs_overrides/apple_open_pbr_overrides.mtlx`.*
 
 ### When a material exports as unlit
 
@@ -297,14 +318,14 @@ than a hard-coded list (`:963-994`), with a warning naming what was dropped.
 | Specular IOR Level | `specular` | `specular` | `specular_weight` (×2) |
 | Coat Weight / Roughness / Normal | `clearcoat*` | `clearcoat*` | `coat_weight`, `coat_roughness`, `geometry_coat_normal` |
 | Coat IOR | `clearcoatIOR` | **dropped** | `coat_ior` |
-| Coat Tint | — | **dropped** | `coat_color` |
+| Coat Tint | — | **dropped** | `coat_color` — authored, then **discarded by RCP** |
 | IOR | `specularIOR` | **dropped** | `specular_ior` |
 | Specular Tint | `specularColor` | **dropped** | `specular_color` |
 | Diffuse Roughness | `baseDiffuseRoughness` | **dropped** | `base_diffuse_roughness` |
 | Subsurface Weight / Radius / Scale / Anisotropy | `subsurface*` | **dropped** | `subsurface_*` |
-| Sheen Weight / Tint | `sheenColor` (combined) | **dropped** | `fuzz_weight`, `fuzz_color` |
-| Sheen Roughness | **warns, dropped** | **dropped** | `fuzz_roughness` |
-| Anisotropic / Rotation | `specularAnisotropy*` | **dropped** | `specular_roughness_anisotropy` only |
+| Sheen Weight / Tint | `sheenColor` (combined) | **dropped** | `fuzz_weight`, `fuzz_color` — authored, then **discarded by RCP** |
+| Sheen Roughness | **warns, dropped** | **dropped** | `fuzz_roughness` — authored, then **discarded by RCP** |
+| Anisotropic / Rotation | `specularAnisotropy*` | **dropped** | `specular_roughness_anisotropy` — authored, then **discarded by RCP** |
 | Premultiplied alpha | `hasPremultipliedAlpha` | `hasPremultipliedAlpha` | — |
 
 Portable's allowlist is the 13 names at
@@ -439,7 +460,7 @@ readers `Image`, `Image_1`, and so on
 | OpenPBR, input the surface does not declare | dropped | **Warning**, naming each | bake |
 | OpenPBR, `opacityThreshold` present | **export fails** | **Error** | clear `blender_to_rcp_alpha_cutout_threshold`, or use a RealityKit profile |
 | OpenPBR, non-tangent normal map | **export fails** | **Error** | bake a tangent-space normal map |
-| PBR2, Sheen Roughness linked | dropped | **Warning** | select OpenPBR 1.1, or bake |
+| PBR2, Sheen Roughness linked | dropped | **Warning** | bake — OpenPBR's fuzz roughness is discarded by RCP |
 | Unlit surface, any PBR input | dropped | **Warning**, naming each | — |
 
 Note the asymmetry in the first row. The portable input filter

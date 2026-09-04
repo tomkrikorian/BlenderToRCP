@@ -59,9 +59,9 @@ editor's behavior, and nothing the exporter writes changes it.
 | Opacity clip threshold | Yes | Written on the surface. |
 | Unlit surface profile | Yes | Selectable per material. |
 | Vertex-color materials | Yes | Read from the mesh's first color attribute. |
-| RealityKit PBR Surface 2 profile | Yes | Experimental; strict validation stays on. |
-| OpenPBR 1.1 profile | Yes | Experimental fallback profile. |
-| Coat, sheen, subsurface, IOR, anisotropy | Partial | The Portable profile refuses these when active; the experimental profiles carry some of them. |
+| RealityKit PBR Surface 2 profile | Yes | Verified by import; the richest surface RealityKit has. |
+| OpenPBR 1.1 profile | Yes | A subset of PBR Surface 2 on RealityKit; the export warns which inputs are dropped. |
+| Coat, sheen, subsurface, IOR, anisotropy | Partial | The Portable profile refuses these when active; PBR Surface 2 carries them. |
 | Transmission, thin wall, thin film | Refused | Export stops and names the Principled input to bake or clear. |
 | Mix Shader and other shader-level mixes | Refused | Use **Bake Textures & Export** instead; the message says so. |
 | Noise and Voronoi textures | Partial | Exported as a MaterialX procedural sampled in object space, with a warning. It will not match Blender pixel for pixel. |
