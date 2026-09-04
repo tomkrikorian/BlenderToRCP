@@ -9,10 +9,19 @@ Reality Composer Pro reports these as
 with no indication of *which* material. This finds them.
 
 A nodedef can resolve in RealityKit's nodedef store and still have no compiled
-Metal function behind it - every `ND_swizzle_*` is exactly that. The graph then
-builds and has no shader. Neither `realitytool compile` nor
-`usdchecker --arkit --strict` notices, because RCP compiles through
-ShaderGraph.framework and realitytool does not link libtm-* at all.
+Metal function behind it. The graph then builds and has no shader. Neither
+`realitytool compile` nor `usdchecker --arkit --strict` notices, because RCP
+compiles through ShaderGraph.framework and realitytool does not link libtm-*
+at all.
+
+Two traps, both measured. A symbol is not always spelled like its nodedef:
+every `ND_swizzle_*` compiles to a renamed `ND_appleinternal_swizzle_*`, and
+`ND_realitykit_pbr_surfaceshader_2_0` is implemented by
+`ND_realitykit_pbr_surfaceshader_v2` - matching names alone called both
+unimplemented, and Reality Composer Pro built the second without complaint.
+And an `<implementation function="...">` element is a claim, not proof: the
+function it names may be absent from the library. So the element is read, and
+the function it names is verified against the shipped symbols before it counts.
 
 Usage:
 
@@ -75,11 +84,16 @@ _NODE_ID = re.compile(r'info:id\s*=\s*"(ND_[A-Za-z0-9_]+)"')
 
 
 def implemented_symbols(version: str) -> tuple[str, ...]:
-    """Every ND_ symbol in the libraries this version binds.
+    """Every function symbol in the libraries this version binds.
 
     Returned sorted, and matched by *prefix*: Apple's symbols carry codegen
     suffixes (ND_geomcolor_color4_<hash>), so an exact-name test reports every
     node as missing.
+
+    Not only ``ND_*``. The function an ``<implementation>`` names need not
+    carry the nodedef prefix - the ``InternalRealityKit*`` texture families are
+    bound as bare ``InternalRealityKit...`` symbols - and harvesting ``ND_``
+    alone left every one of them looking unimplemented.
     """
     symbols: set[str] = set()
     for library in (METAL_LIBRARIES[version], COMMON_LIBRARY):
@@ -88,7 +102,7 @@ def implemented_symbols(version: str) -> tuple[str, ...]:
         out = subprocess.run(
             ["strings", "-a", library], capture_output=True, text=True, check=False
         ).stdout
-        symbols.update(re.findall(r"^(ND_[A-Za-z0-9_]+)", out, re.M))
+        symbols.update(re.findall(r"^([A-Za-z_][A-Za-z0-9_]+)", out, re.M))
     return tuple(sorted(symbols))
 
 
@@ -100,9 +114,9 @@ def xml_implemented(version: str) -> frozenset[str]:
     and ``ND_separate4_color4`` are two. Judging on the metallib alone reports
     every one of them as broken.
 
-    Deliberately only ``<nodegraph>``, not ``<implementation>``: an
-    implementation element names a Metal function that may not be in the
-    shipped library, which is precisely the failure this script exists to find.
+    Only ``<nodegraph>`` here. ``<implementation function="...">`` elements are
+    read by ``xml_implementation_functions`` and honoured only once the function
+    they name is found in the shipped library - see ``_is_implemented``.
     """
     found: set[str] = set()
     pattern = re.compile(r'<nodegraph\b[^>]*\bnodedef="(ND_[A-Za-z0-9_]+)"')
@@ -113,6 +127,72 @@ def xml_implemented(version: str) -> frozenset[str]:
         for path in base.rglob("*.mtlx"):
             found.update(pattern.findall(path.read_text(encoding="utf-8", errors="replace")))
     return frozenset(found)
+
+
+#: ``<implementation target="...">`` values whose ``function`` is a Metal
+#: function RealityKit binds. No target means every backend. ``genosl`` and
+#: ``genglsl`` name functions for other renderers' shading languages; honouring
+#: one would pass a node RealityKit cannot build.
+_REALITYKIT_IMPLEMENTATION_TARGETS = frozenset(
+    {
+        None,
+        "genmsl",
+        "realitykit",
+        "realitykit_surface_shader",
+        "realitykit_geometry_modifier",
+        "realitykit_post_lighting_shader",
+    }
+)
+
+_IMPLEMENTATION = re.compile(r"<implementation\b[^>]*>")
+_ATTRIBUTE = {
+    name: re.compile(rf'\b{name}="([^"]*)"') for name in ("nodedef", "function", "target")
+}
+
+
+def _implementation_function(element: str) -> tuple[str, str] | None:
+    """(nodedef, function) claimed by one ``<implementation>`` element.
+
+    ``None`` for an element that makes no such claim: no ``function`` (it is
+    backed by ``sourcecode`` or a ``nodegraph`` instead, which this script does
+    not yet verify), or a target RealityKit does not bind.
+    """
+    values = {name: (m.group(1) if (m := rx.search(element)) else None) for name, rx in _ATTRIBUTE.items()}
+    if not values["nodedef"] or not values["function"]:
+        return None
+    if values["target"] not in _REALITYKIT_IMPLEMENTATION_TARGETS:
+        return None
+    return values["nodedef"], values["function"]
+
+
+def xml_implementation_functions(version: str) -> dict[str, str]:
+    """Nodedef -> Metal function, from ``<implementation function="...">``.
+
+    An implementation element is a claim: it names the function ShaderGraph
+    should bind, and that function may not be in the shipped library - which is
+    the failure this script exists to find, and why the element used to be
+    ignored outright. Ignoring it has its own cost. The symbol is not always
+    spelled like the nodedef: ``ND_realitykit_pbr_surfaceshader_2_0`` is
+    implemented by ``ND_realitykit_pbr_surfaceshader_v2``, and matching the
+    nodedef name alone reported PBR Surface 2 as unbuildable while Reality
+    Composer Pro built it without complaint.
+
+    So the claim is read, and ``_is_implemented`` then checks the named
+    function against the symbol table. A claim that checks out is honoured; one
+    that does not still fails, exactly as before.
+    """
+    found: dict[str, str] = {}
+    for root in XML_TREES.get(version, ()):
+        base = Path(root)
+        if not base.is_dir():
+            continue
+        for path in base.rglob("*.mtlx"):
+            text = path.read_text(encoding="utf-8", errors="replace")
+            for element in _IMPLEMENTATION.findall(text):
+                claim = _implementation_function(element)
+                if claim is not None:
+                    found.setdefault(*claim)
+    return found
 
 
 #: MaterialX type names as they appear inside a rewritten Metal symbol.
@@ -148,13 +228,17 @@ def _has_symbol(symbols, name: str) -> bool:
 
 
 def _is_implemented(nodedef: str, implemented) -> bool:
-    symbols, xml = implemented
-    if nodedef in xml:
+    symbols, nodegraphs, functions = implemented
+    if nodedef in nodegraphs:
         return True
     if _has_symbol(symbols, nodedef):
         return True
     rewritten = _rewritten_symbol(nodedef)
-    return rewritten is not None and _has_symbol(symbols, rewritten)
+    if rewritten is not None and _has_symbol(symbols, rewritten):
+        return True
+    # A declared implementation function counts only if it is really shipped.
+    function = functions.get(nodedef)
+    return function is not None and _has_symbol(symbols, function)
 
 
 def layer_text(path: Path) -> str:
@@ -224,7 +308,12 @@ def main() -> int:
         print("Reality Composer Pro is not installed here.", file=sys.stderr)
         return 2
     symbols_by_version = {
-        v: (implemented_symbols(v), xml_implemented(v)) for v in METAL_LIBRARIES
+        v: (
+            implemented_symbols(v),
+            xml_implemented(v),
+            xml_implementation_functions(v),
+        )
+        for v in METAL_LIBRARIES
     }
 
     targets: list[Path] = []

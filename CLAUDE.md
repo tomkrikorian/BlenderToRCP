@@ -105,6 +105,13 @@ class above. Two traps it exists to handle:
   reported all 61 declared swizzle nodedefs as unimplemented; every one of them
   has a symbol. The checker now applies the rewrite. Assume other families may
   hide behind renames too: a missing symbol is a hypothesis, not a verdict.
+  **Second measured instance:** `ND_realitykit_pbr_surfaceshader_2_0` is
+  implemented by `ND_realitykit_pbr_surfaceshader_v2`, declared in an
+  `<implementation function="...">` element the checker used to ignore on
+  principle. It reported PBR Surface 2 as unbuildable while Reality Composer
+  Pro built, rendered, and recorded it. The checker now reads the element and
+  honours it only when the named function is actually in the metallib - a
+  claim is verified, not trusted, and not discarded.
 - The converse trap: ~470 nodedefs are expanded from a `<nodegraph>` at compile
   time and never get a Metal symbol — `ND_normal_map_decode` and
   `ND_separate4_color4` among them. Judging on the metallib alone calls every one
