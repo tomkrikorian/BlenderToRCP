@@ -29,9 +29,12 @@ Requires Blender 5.2 LTS.
   fails with `INVALID_SETTING_OVERRIDE`.
 - Validation is always strict. `validate --strict` no longer exists, and scenes
   that passed in 1.3.0 can now be refused.
-- Under the default RealityKit PBR surface, an active **IOR**, **Specular
-  Tint**, **Diffuse Roughness**, coat, sheen, subsurface, or anisotropy control
-  fails the export. Switch the Surface Model or bake.
+- The default surface is now **RealityKit PBR Surface 2**, the 30-input
+  surface verified by import into Reality Composer Pro 3. A fresh scene
+  exports IOR, Specular Tint, Diffuse Roughness, subsurface, sheen and coat IOR
+  on the surface instead of refusing them. A `.blend` that saved a Surface
+  Model keeps it: a scene already on the older portable surface still refuses
+  those controls until you switch it.
 - **Alpha cutout is never inferred.** A material that relied on Blender's Clip
   or Hashed blend method now exports as alpha blending. To keep a cutout, set
   the custom property `blender_to_rcp_alpha_cutout_threshold` (float, 0–1) on
@@ -56,10 +59,10 @@ Requires Blender 5.2 LTS.
 **Materials**
 
 - **Surface Model** setting, choosing which MaterialX surface your materials
-  terminate in: RealityKit PBR (recommended), RealityKit PBR Surface 2 —
-  verified by import, and the one to pick for IOR, specular tint, subsurface,
-  sheen, anisotropy or coat IOR — or OpenPBR 1.1, which Reality Composer Pro
-  expands into PBR Surface 2 and warns about what it drops.
+  terminate in: RealityKit PBR Surface 2 (the default, verified by import),
+  the original RealityKit PBR (portable, for pinned pipelines), or OpenPBR
+  1.1, which Reality Composer Pro expands into PBR Surface 2 and warns about
+  what it drops.
 - **Normalize Unsupported Values**, an export-only clamp for an unlinked,
   achromatic Principled **Specular Tint** brighter than 1. The Blender node and
   the `.blend` are left untouched.

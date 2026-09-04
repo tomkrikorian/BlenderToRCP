@@ -63,15 +63,20 @@ def test_profile_reports_strict_defaults_active():
     assert profile["deviations"] == {}
 
 
-def test_experimental_material_profile_is_reported_as_a_deviation():
+def test_a_non_default_material_profile_is_reported_as_a_deviation():
+    """PBR Surface 2 is the default now; the portable surface is the deviation.
+
+    This test used to name PBR2 as the "experimental" deviation. The surface
+    was verified by import and became the default, so the roles swapped.
+    """
     profile = _collect_export_profile(
-        _settings(materialx_surface_profile="realitykit_pbr2")
+        _settings(materialx_surface_profile="realitykit_portable")
     )
 
     assert profile["strict_defaults_active"] is False
     assert profile["deviations"]["materialx_surface_profile"] == {
-        "expected": "realitykit_portable",
-        "actual": "realitykit_pbr2",
+        "expected": "realitykit_pbr2",
+        "actual": "realitykit_portable",
     }
 
 

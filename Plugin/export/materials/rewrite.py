@@ -5,6 +5,7 @@ Material rewrite orchestration for USD stages.
 from ..usd_utils import Usd, UsdShade, Sdf, UsdGeom
 from ..usd_hook import consume_captured_material_map
 from ..usd_textures import require_safe_texture_alpha_staging_policy
+from ...apple_contract import MATERIALX_SURFACE_PROFILE_DEFAULT
 from ...material_policies import (
     normalize_extracted_specular_tint,
     specular_tint_normalization_message,
@@ -23,7 +24,7 @@ def rewrite_materials(stage, settings, context, diagnostics=None) -> None:
     surface_profile = getattr(
         settings,
         "materialx_surface_profile",
-        "realitykit_portable",
+        MATERIALX_SURFACE_PROFILE_DEFAULT,
     )
     if diagnostics:
         for warning in material_profile_runtime_warnings(surface_profile):

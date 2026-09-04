@@ -129,10 +129,10 @@ for format_name, environment_key in (
         raise RuntimeError(f"{{format_name}} stage has no mesh prim")
     if not materials:
         raise RuntimeError(f"{{format_name}} stage has no material prim")
-    if "ND_realitykit_pbr_surfaceshader" not in shader_ids:
+    if "ND_realitykit_pbr_surfaceshader_2_0" not in shader_ids:
         raise RuntimeError(
-            f"{{format_name}} stage did not author the default realitykit_portable "
-            f"ShaderGraph contract: {{shader_ids}}"
+            f"{{format_name}} stage did not author the default realitykit_pbr2 "
+            f"ShaderGraph contract (ND_realitykit_pbr_surfaceshader_2_0): {{shader_ids}}"
         )
 
     materialx_surface_outputs = 0

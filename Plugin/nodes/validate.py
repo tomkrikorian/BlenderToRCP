@@ -6,6 +6,7 @@ from __future__ import annotations
 
 from typing import Dict, List, Optional, Set
 
+from ..apple_contract import MATERIALX_SURFACE_PROFILE_DEFAULT
 from ..material_policies import (
     SPECULAR_TINT_NORMALIZATION_SETTING,
     format_color,
@@ -272,7 +273,7 @@ def _values_differ(value, neutral, epsilon: float = 1e-6) -> bool:
 
 def _unsupported_principled_inputs(
     node,
-    surface_profile: str = "realitykit_portable",
+    surface_profile: str = MATERIALX_SURFACE_PROFILE_DEFAULT,
     normalize_unsupported_values: bool = False,
 ) -> List[str]:
     """Report Principled BSDF inputs that RealityKit PBR cannot represent.
@@ -314,7 +315,7 @@ def _unsupported_principled_inputs(
     if transmission_active:
         issues.append("Principled 'Transmission Weight' is not exportable; the material will be opaque.")
 
-    profile = (surface_profile or 'realitykit_portable').strip().lower()
+    profile = (surface_profile or MATERIALX_SURFACE_PROFILE_DEFAULT).strip().lower()
     specular_tint_socket = _socket('Specular Tint')
     specular_tint_policy = safe_overbright_achromatic_specular_tint(
         getattr(specular_tint_socket, 'default_value', None),
@@ -569,7 +570,7 @@ def validate_material(
     material,
     only_connected: bool = True,
     strict: bool = False,
-    surface_profile: str = "realitykit_portable",
+    surface_profile: str = MATERIALX_SURFACE_PROFILE_DEFAULT,
     normalize_unsupported_values: bool = False,
 ) -> Dict[str, object]:
     """Validate a Blender material against RealityKit compatibility rules."""
@@ -777,7 +778,7 @@ def validate_material(
                         force_error=strict,
                         removable=False,
                     )
-                profile = (surface_profile or 'realitykit_portable').strip().lower()
+                profile = (surface_profile or MATERIALX_SURFACE_PROFILE_DEFAULT).strip().lower()
                 if (
                     profile == 'realitykit_pbr2'
                     and strength_socket is not None

@@ -440,7 +440,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--only-errors", action="store_true", help="Suppress warnings")
     p.add_argument(
         "--materialx-surface-profile",
-        choices=["realitykit_portable", "realitykit_pbr2", "openpbr_1_1"],
+        choices=["realitykit_pbr2", "realitykit_portable", "openpbr_1_1"],
         help=(
             "Validate against a MaterialX surface profile for this run "
             "(default: active scene setting)"

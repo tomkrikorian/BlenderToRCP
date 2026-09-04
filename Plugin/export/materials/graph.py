@@ -13,7 +13,10 @@ RCP3_PBR2_NODEDEF = "ND_realitykit_pbr_surfaceshader_2_0"
 OPENPBR_1_1_NODEDEF = "ND_open_pbr_surface_surfaceshader"
 PORTABLE_REALITYKIT_PBR_NODEDEF = "ND_realitykit_pbr_surfaceshader"
 
+from ...apple_contract import MATERIALX_SURFACE_PROFILE_DEFAULT
+
 _PROFILE_PORTABLE = "realitykit_portable"
+_PROFILE_DEFAULT = MATERIALX_SURFACE_PROFILE_DEFAULT
 _PROFILE_RCP3 = "realitykit_pbr2"
 _PROFILE_OPENPBR = "openpbr_1_1"
 
@@ -62,7 +65,7 @@ def texture_colorspace_role(input_name: str) -> str:
 
 def material_profile_runtime_warnings(surface_profile: str) -> tuple[str, ...]:
     """Return user-facing compatibility warnings for an explicit profile."""
-    requested = (surface_profile or _PROFILE_PORTABLE).strip().lower()
+    requested = (surface_profile or _PROFILE_DEFAULT).strip().lower()
     if requested == _PROFILE_OPENPBR:
         return (OPENPBR_SUBSET_RUNTIME_WARNING,)
     return ()
@@ -75,7 +78,7 @@ class MaterialXGraphBuilder:
         self,
         manifest: Dict[str, Any],
         diagnostics=None,
-        surface_profile: str = _PROFILE_PORTABLE,
+        surface_profile: str = _PROFILE_DEFAULT,
     ):
         """Initialize the graph builder.
 
@@ -271,7 +274,7 @@ class MaterialXGraphBuilder:
         PBR2 and OpenPBR are explicit, capability-gated enrichments until
         their complete export and runtime contracts are validated.
         """
-        requested = (self.surface_profile or _PROFILE_PORTABLE).strip().lower()
+        requested = (self.surface_profile or _PROFILE_DEFAULT).strip().lower()
         has_portable = bool(
             self.manifest.get("nodes", {}).get(PORTABLE_REALITYKIT_PBR_NODEDEF)
         )

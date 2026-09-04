@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from ...apple_contract import (
+    MATERIALX_SURFACE_PROFILE_DEFAULT,
     REALITYKIT_FORWARD_AXIS,
     REALITYKIT_METERS_PER_UNIT,
     REALITYKIT_SCENE_UNITS,
@@ -23,10 +24,9 @@ from ...apple_contract import (
 # RealityKit's cross-platform renderer profile cannot consume those ordinary
 # USD schemas, so accepting an opt-in would only produce a nonportable asset.
 REALITYKIT_OS27_PROFILE_NAME = "REALITYKIT_OS27"
-MATERIALX_SURFACE_PROFILE_DEFAULT = "realitykit_portable"
 MATERIALX_SURFACE_PROFILES = (
     MATERIALX_SURFACE_PROFILE_DEFAULT,
-    "realitykit_pbr2",
+    "realitykit_portable",
     "openpbr_1_1",
 )
 REALITYKIT_OS27_DEFAULTS: dict[str, Any] = {

@@ -33,7 +33,7 @@ class TestValidate:
     def test_reports_active_materialx_surface_profile(self, run_cli, blend_file):
         result = run_cli("validate", str(blend_file))
         assert result.ok, result.stderr
-        assert result.json["materialx_surface_profile"] == "realitykit_portable"
+        assert result.json["materialx_surface_profile"] == "realitykit_pbr2"
         assert result.json["normalize_unsupported_values"] is False
 
     def test_material_filter(self, run_cli, blend_file):

@@ -131,6 +131,14 @@ def _bake_materials_for_objects_impl(
     output_dir.mkdir(parents=True, exist_ok=True)
 
     bake_mode = str(getattr(settings, "bake_mode", "LIT_IBL") or "LIT_IBL")
+    # The rebuilt bake material exports through the scene's surface profile,
+    # so the bake-lane validation must judge it against the same one.
+    from ..apple_contract import MATERIALX_SURFACE_PROFILE_DEFAULT
+
+    surface_profile = str(
+        getattr(settings, "materialx_surface_profile", MATERIALX_SURFACE_PROFILE_DEFAULT)
+        or MATERIALX_SURFACE_PROFILE_DEFAULT
+    )
     if bake_mode not in {"UNLIT_ALBEDO", "LIT_ALBEDO", "LIT_IBL"}:
         bake_mode = "LIT_IBL"
 
@@ -198,6 +206,7 @@ def _bake_materials_for_objects_impl(
                 mat,
                 bake_mode=bake_mode,
                 diagnostics=diagnostics,
+                surface_profile=surface_profile,
             )
             info = {
                 # Flat short-circuiting only applies in the material-color-only
@@ -1666,6 +1675,7 @@ def _validate_bake_material_contract(
     *,
     bake_mode: str,
     diagnostics=None,
+    surface_profile: Optional[str] = None,
 ) -> Dict[str, Optional[Dict[str, object]]]:
     """Validate semantics the rebuilt bake material must preserve exactly.
 
@@ -1711,7 +1721,9 @@ def _validate_bake_material_contract(
 
     if bake_mode == "LIT_ALBEDO":
         try:
-            _validate_lit_albedo_principled_inputs(material, surface_node)
+            _validate_lit_albedo_principled_inputs(
+                material, surface_node, surface_profile=surface_profile
+            )
             result["normal"] = _source_normal_passthrough(material, principled=surface_node)
             result["metallic"] = _source_metallic_passthrough(material, principled=surface_node)
             # The ROUGHNESS pass is unusable on an alpha-blended surface: it
@@ -1728,14 +1740,20 @@ def _validate_bake_material_contract(
     return result
 
 
-def _validate_lit_albedo_principled_inputs(material, principled) -> None:
+def _validate_lit_albedo_principled_inputs(
+    material, principled, *, surface_profile: Optional[str] = None
+) -> None:
     """Reject active controls the Material Color Only rebuild would discard."""
-    # Reuse the portable graph capability policy first: the rebuilt material is
-    # itself exported through that profile, so accepting a value which portable
-    # export rejects would merely move the same silent loss into the bake path.
+    # Reuse the graph capability policy of the profile the rebuilt material
+    # will export through, so the bake refuses exactly what the export would
+    # and nothing the export would carry. This was a frozen "realitykit_portable"
+    # while portable was the default; once PBR Surface 2 became the default it
+    # would have refused an IOR or a sheen that the export then authored fine.
+    from ..apple_contract import MATERIALX_SURFACE_PROFILE_DEFAULT
     from ..nodes.validate import _unsupported_principled_inputs, _values_differ
 
-    issues = list(_unsupported_principled_inputs(principled, "realitykit_portable"))
+    profile = surface_profile or MATERIALX_SURFACE_PROFILE_DEFAULT
+    issues = list(_unsupported_principled_inputs(principled, profile))
 
     def _active(name: str, neutral) -> bool:
         socket = principled.inputs.get(name)

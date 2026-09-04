@@ -524,10 +524,10 @@ Bake padding in pixels, in the bake pipeline only (`Plugin/export/bake_textures.
 |---|---|
 | Type | enum |
 | Values | `realitykit_portable`, `realitykit_pbr2`, `openpbr_1_1` |
-| Default | `realitykit_portable` |
+| Default | `realitykit_pbr2` |
 | Declared | `Plugin/ui/panel.py:244` |
 | UI | Material Settings, labeled "Surface Model" — **only in PBR ▸ Translate** (`Plugin/ui/panel.py:737`) |
-| Status | `realitykit_portable` production; other two **experimental** |
+| Status | `realitykit_pbr2` default, verified by import; `realitykit_portable` the original 13-input surface for pinned pipelines; `openpbr_1_1` a subset of PBR Surface 2 on RealityKit |
 
 The MaterialX surface contract used when rewriting Blender materials. Read by:
 

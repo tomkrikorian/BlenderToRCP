@@ -119,18 +119,22 @@ do
 done
 
 # ---------------------------------------------------------------------------
-step "The shipping profile is portable, with no experimental surface"
+step "The shipping profile is PBR Surface 2, and OpenPBR stays out of it"
 # ---------------------------------------------------------------------------
+# PBR Surface 2 is the default and is verified by import. OpenPBR is not a
+# separate shading model on RealityKit - the editor funnels it into PBR
+# Surface 2 and discards sheen, anisotropy, coat colour, transmission and thin
+# film - so a default export must never author it.
 if [ -e "$OUT/exports/t22_red_cube/t22_red_cube.usdc" ]; then
   profile="$OUT/t22_red_cube-material-profile.usda"
   xcrun usdcat "$OUT/exports/t22_red_cube/t22_red_cube.usdc" --out "$profile"
-  check grep -Fq 'realitykit_portable' "$profile"
-  check grep -Fq 'ND_realitykit_pbr_surfaceshader"' "$profile"
-  if grep -Eq 'ND_realitykit_pbr_surfaceshader_2_0|ND_open_pbr_surface_surfaceshader' "$profile"; then
-    echo "  FAIL  an experimental PBR2/OpenPBR surface escaped into the shipping profile"
+  check grep -Fq 'realitykit_pbr2' "$profile"
+  check grep -Fq 'ND_realitykit_pbr_surfaceshader_2_0"' "$profile"
+  if grep -Fq 'ND_open_pbr_surface_surfaceshader' "$profile"; then
+    echo "  FAIL  OpenPBR escaped into the default export"
     failures=$((failures + 1))
   else
-    echo "  ok    no experimental surface in the shipping profile"
+    echo "  ok    the default export authors PBR Surface 2 and no OpenPBR"
   fi
 fi
 

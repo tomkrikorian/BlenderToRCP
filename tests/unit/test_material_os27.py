@@ -80,11 +80,25 @@ def test_manifest_generation_is_deterministic(tmp_path):
     assert json.dumps(first, sort_keys=True) == json.dumps(second, sort_keys=True)
 
 
-def test_shipping_profile_stays_on_verified_realitykit_pbr():
+def test_the_default_profile_is_pbr_surface_2_and_carries_sheen():
+    """Build with no profile named: what a fresh scene gets.
+
+    The default used to be the portable surface, which dropped this sheen on
+    the floor. PBR Surface 2 carries it, and is verified by import.
+    """
     graph = MaterialXGraphBuilder(_manifest()).build_pbr_material(
-        {"base_color": [0.2, 0.3, 0.4], "sheen_weight": 0.7}
+        {"base_color": [0.2, 0.3, 0.4], "sheen_color": [0.4, 0.2, 0.1]}
     )
-    assert graph["surface_profile"] == "realitykit_portable"
+    assert graph["surface_profile"] == "realitykit_pbr2"
+    assert graph["nodes"][0]["node_id"] == "ND_realitykit_pbr_surfaceshader_2_0"
+    assert "sheenColor" in graph["nodes"][0]["inputs"]
+
+
+def test_the_portable_profile_is_still_selectable_and_still_drops_sheen():
+    """Pinned pipelines keep the old surface; its behaviour must not drift."""
+    graph = MaterialXGraphBuilder(
+        _manifest(), surface_profile="realitykit_portable"
+    ).build_pbr_material({"base_color": [0.2, 0.3, 0.4], "sheen_color": [0.4, 0.2, 0.1]})
     assert graph["nodes"][0]["node_id"] == "ND_realitykit_pbr_surfaceshader"
     assert "sheenColor" not in graph["nodes"][0]["inputs"]
 

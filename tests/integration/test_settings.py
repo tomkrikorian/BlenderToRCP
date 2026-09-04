@@ -43,7 +43,7 @@ class TestSettingsGet:
         result = run_cli("settings", "get", str(blend_file), "--group", "materials")
         assert result.ok
         assert result.json == {
-            "materialx_surface_profile": "realitykit_portable",
+            "materialx_surface_profile": "realitykit_pbr2",
             "normalize_unsupported_values": False,
         }
 
@@ -158,7 +158,7 @@ class TestSettingsList:
         assert result.ok
         defaults = {entry["key"]: entry.get("default") for entry in result.json}
 
-        assert defaults["materialx_surface_profile"] == "realitykit_portable"
+        assert defaults["materialx_surface_profile"] == "realitykit_pbr2"
         assert defaults["normalize_unsupported_values"] is False
         for key in (
             "convert_orientation",

@@ -235,12 +235,14 @@ class BlenderToRCPExportSettings(PropertyGroup):
         items=[
             (
                 'realitykit_portable',
-                "RealityKit PBR (Recommended)",
-                "Verified portable RealityKit PBR profile (recommended)",
+                "RealityKit PBR (Portable)",
+                "The original 13-input RealityKit PBR surface. Refuses IOR, specular "
+                "tint, subsurface, sheen, anisotropy and coat IOR when they are active; "
+                "select it only for a pipeline pinned to it",
             ),
             (
                 'realitykit_pbr2',
-                "RealityKit PBR Surface 2",
+                "RealityKit PBR Surface 2 (Recommended)",
                 "The 30-input RealityKit surface. Carries every Principled control the "
                 "portable profile refuses - IOR, specular tint, subsurface, sheen, "
                 "anisotropy, coat IOR. Verified by import into Reality Composer Pro 3",

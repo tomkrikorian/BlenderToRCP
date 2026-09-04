@@ -358,7 +358,7 @@ Preview the normalization policy:
 blendertorcp validate scene.blend --normalize-unsupported-values
 ```
 
-`realitykit_portable` is the production default. `realitykit_pbr2` is verified against Reality Composer Pro 3 and carries every Principled control the portable profile refuses. `openpbr_1_1` is a subset of PBR Surface 2 on RealityKit; the export warns which inputs are dropped.
+`realitykit_pbr2` is the default, verified against Reality Composer Pro 3, and carries every Principled control the portable surface refuses. `realitykit_portable` is the original 13-input surface, for pipelines pinned to it. `openpbr_1_1` is a subset of PBR Surface 2 on RealityKit; the export warns which inputs are dropped.
 
 **Output:**
 
@@ -1278,7 +1278,7 @@ The `--bake-mode` / `bake_mode` identifiers map to these Blender UI labels:
 
 ### Materials profiles
 
-`realitykit_portable` is the default. `realitykit_pbr2` (PBR Surface 2) is verified by import into Reality Composer Pro 3 and is the surface to select for IOR, specular tint, subsurface, sheen, anisotropy or coat IOR. `openpbr_1_1` (OpenPBR 1.1 / MaterialX 1.39) is expanded by Reality Composer Pro into PBR Surface 2 and loses sheen, anisotropy, coat colour, transmission and thin film on the way; select it only for hand-authored OpenPBR. USDZ validation is the same for every profile.
+`realitykit_pbr2` (PBR Surface 2) is the default: verified by import into Reality Composer Pro 3, and the surface that carries IOR, specular tint, subsurface, sheen, anisotropy and coat IOR. `realitykit_portable` is the original 13-input surface, for pipelines pinned to it; it refuses those controls when active. `openpbr_1_1` (OpenPBR 1.1 / MaterialX 1.39) is expanded by Reality Composer Pro into PBR Surface 2 and loses sheen, anisotropy, coat colour, transmission and thin film on the way; select it only for hand-authored OpenPBR. USDZ validation is the same for every profile.
 
 `normalize_unsupported_values=false` preserves the fail-closed default. When enabled, the exporter may clamp only an unlinked constant achromatic Principled `Specular Tint` above `1` to `[1, 1, 1]` in temporary export data. It emits a prominent warning and does not assign to the Blender node or save the `.blend`. Colored, linked, negative, non-finite, and other unsupported values remain errors.
 

@@ -107,12 +107,12 @@ export until explicit support is added. When export succeeds, validate the
 result in Reality Composer Pro or with the repository validation scripts
 before relying on it in production.
 
-The default material profile is `realitykit_portable`, which authors the
-RealityKit PBR v1 surface and is the mandatory CI path. `realitykit_pbr2`
-authors the 30-input PBR Surface 2, verified by import into Reality Composer
-Pro 3, and carries every Principled control the portable profile refuses.
-`openpbr_1_1` is expanded by Reality Composer Pro into PBR Surface 2 and
-loses inputs on the way; the export says which.
+The default material profile is `realitykit_pbr2`: the 30-input RealityKit
+PBR Surface 2, verified by import into Reality Composer Pro 3, carrying every
+Principled control the older surface refuses. `realitykit_portable` is that
+older 13-input surface, selectable for pipelines pinned to it. `openpbr_1_1`
+is expanded by Reality Composer Pro into PBR Surface 2 and loses inputs on
+the way; the export says which.
 
 ### How releases are validated
 
@@ -434,7 +434,7 @@ Notes:
 - `scripts/check_release.sh` is the local release gate. It uses only Python 3.9+ standard-library modules plus the shell entry point, and does not create tags or GitHub releases.
 - A successful check writes `dist/BlenderToRCP-<version>.zip` and `dist/BlenderToRCP-<version>.zip.sha256`, where `<version>` comes from `Plugin/blender_manifest.toml`.
 - For a tag build, `bash scripts/check_release.sh --expected-tag 2.0.0` additionally requires the exact bare-semver tag to match the manifest version.
-- `scripts/smoke_extension_archive.py` installs the built ZIP into isolated Blender user resources and tests the installed extension rather than the checkout. It requires the canonical `bl_ext.user_default.blender_to_rcp` module, registered scene settings, no duplicate `Plugin.*` modules, the packaged Blender 5.2 node-group interfaces and clean on-demand asset loading, bundled license/notices, and working installed `version` and `settings list` commands. It also exports a tiny default-material scene to USDC and USDZ through the installed CLI, opens both with Blender's USD runtime to verify geometry, binding, and the portable RealityKit ShaderGraph, enforces the packaged USDZ contract, runs strict `usdchecker` when available, conditionally compiles both assets with Xcode 27 `realitytool`, and exercises the background bake runner's controlled empty-scene preflight.
+- `scripts/smoke_extension_archive.py` installs the built ZIP into isolated Blender user resources and tests the installed extension rather than the checkout. It requires the canonical `bl_ext.user_default.blender_to_rcp` module, registered scene settings, no duplicate `Plugin.*` modules, the packaged Blender 5.2 node-group interfaces and clean on-demand asset loading, bundled license/notices, and working installed `version` and `settings list` commands. It also exports a tiny default-material scene to USDC and USDZ through the installed CLI, opens both with Blender's USD runtime to verify geometry, binding, and the default PBR Surface 2 ShaderGraph, enforces the packaged USDZ contract, runs strict `usdchecker` when available, conditionally compiles both assets with Xcode 27 `realitytool`, and exercises the background bake runner's controlled empty-scene preflight.
 - `scripts/build_materialx_manifest.py` rebuilds `Plugin/manifest/rk_nodes_manifest.json` from `References/MaterialX-definitions`.
 - `scripts/build_nodegroups.py` regenerates `Plugin/assets/nodegroups.blend`; `scripts/check_nodegroup_parity.py` independently rebuilds the library with Blender 5.2 and fails if its semantic signature differs from the shipped binary.
 - `scripts/validate_nodes.py` writes generated bundles and reports under `tests/node_validation` by default and can compile each fixture with `realitytool`.

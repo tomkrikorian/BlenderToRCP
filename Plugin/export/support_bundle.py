@@ -757,7 +757,9 @@ def _get_surface_profile(context) -> str:
             MATERIALX_SURFACE_PROFILE_DEFAULT,
         )
     except Exception:
-        return "realitykit_portable"
+        from ..apple_contract import MATERIALX_SURFACE_PROFILE_DEFAULT
+
+        return MATERIALX_SURFACE_PROFILE_DEFAULT
 
 
 def _collect_blender_gpu_info(bpy, context) -> dict:

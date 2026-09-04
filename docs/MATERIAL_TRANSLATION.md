@@ -218,8 +218,8 @@ therefore which Blender controls can survive at all.
 
 | Profile | Nodedef | MaterialX | Status |
 |---------|---------|-----------|--------|
-| `realitykit_portable` | `ND_realitykit_pbr_surfaceshader` | 1.38 | **Shipping default** |
-| `realitykit_pbr2` | `ND_realitykit_pbr_surfaceshader_2_0` | 1.38 | **Verified** — imports as native PBR Surface 2, builds, renders |
+| `realitykit_portable` | `ND_realitykit_pbr_surfaceshader` | 1.38 | The original 13-input surface; selectable for pinned pipelines |
+| `realitykit_pbr2` | `ND_realitykit_pbr_surfaceshader_2_0` | 1.38 | **Default.** Verified — imports as native PBR Surface 2, builds, renders |
 | `openpbr_1_1` | `ND_open_pbr_surface_surfaceshader` | 1.39 | Subset of PBR Surface 2 on RealityKit — see the warning below |
 | *(unlit)* | `realitykit_unlit_surfaceshader` | 1.38 | Not selectable directly — see [When a material exports as unlit](#when-a-material-exports-as-unlit) |
 
@@ -229,11 +229,12 @@ Constants live at `Plugin/export/materials/graph.py:12-18`; selection at
 ### How you select a profile
 
 The profile is the scene property `materialx_surface_profile`
-(`Plugin/ui/panel.py:244-265`), default `realitykit_portable`
+(`Plugin/ui/panel.py:244-265`), default `realitykit_pbr2` — the one name in
+`Plugin/apple_contract.py` that every fallback reads
 (`Plugin/api/commands/_settings_common.py:26`).
 
-- **Blender UI**: the *Surface Profile* enum, labeled "RealityKit PBR
-  (Recommended)", "RealityKit PBR Surface 2", and
+- **Blender UI**: the *Surface Profile* enum, labeled "RealityKit PBR Surface
+  2 (Recommended)", "RealityKit PBR (Portable)", and
   "OpenPBR 1.1 / MaterialX 1.39 (Experimental)".
 - **CLI**: `--materialx-surface-profile` (`Plugin/cli/__main__.py:427`) or a
   setting override. The accepted values are exactly those three
@@ -332,17 +333,20 @@ Portable's allowlist is the 13 names at
 `Plugin/export/materials/graph.py:599-613`. OpenPBR's rename table is at
 `:620-642` and `:818-839`.
 
-In practice, under the default portable profile most of the "dropped" column
-never reaches the graph builder at all: the strict validator rejects the
-export first with an actionable message. A cube whose Principled has
-`IOR = 1.45` and `Sheen Weight = 0.3` fails validation with:
+In practice, under the portable profile most of the "dropped" column never
+reaches the graph builder at all: the strict validator rejects the export
+first with an actionable message. A cube whose Principled has `IOR = 1.45`
+and `Sheen Weight = 0.3` fails validation with:
 
 ```
 Principled 'IOR' is active, but the RealityKit Portable profile does not export it;
-  select RealityKit PBR Surface 2 or OpenPBR 1.1 or bake the material.
+  select RealityKit PBR Surface 2 or bake the material.
 Principled 'Sheen Weight' is active, but the RealityKit Portable profile does not export it;
-  select RealityKit PBR Surface 2 or OpenPBR 1.1 or bake the material.
+  select RealityKit PBR Surface 2 or bake the material.
 ```
+
+Under the default PBR Surface 2 the same cube exports, with both controls on
+the surface.
 
 An input only counts as "active" when it differs from its neutral value. The
 neutral values are listed in `_PORTABLE_OMITTED_PRINCIPLED_INPUTS`
