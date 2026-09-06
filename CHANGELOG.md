@@ -29,12 +29,13 @@ Requires Blender 5.2 LTS.
   fails with `INVALID_SETTING_OVERRIDE`.
 - Validation is always strict. `validate --strict` no longer exists, and scenes
   that passed in 1.3.0 can now be refused.
-- The default surface is now **RealityKit PBR Surface 2**, the 30-input
-  surface verified by import into Reality Composer Pro 3. A fresh scene
-  exports IOR, Specular Tint, Diffuse Roughness, subsurface, sheen and coat IOR
-  on the surface instead of refusing them. A `.blend` that saved a Surface
-  Model keeps it: a scene already on the older portable surface still refuses
-  those controls until you switch it.
+- Every translated material now terminates in **RealityKit PBR Surface 2**,
+  the 30-input surface verified by import into Reality Composer Pro 3, instead
+  of the original 13-input RealityKit PBR surface. IOR, Specular Tint, Diffuse
+  Roughness, subsurface, sheen and Coat IOR now reach the surface instead of
+  being dropped or refused. Coat Tint and Sheen Roughness are still refused,
+  because no RealityKit surface carries them; the remedy is a bake. There is
+  no surface to choose.
 - **Alpha cutout is never inferred.** A material that relied on Blender's Clip
   or Hashed blend method now exports as alpha blending. To keep a cutout, set
   the custom property `blender_to_rcp_alpha_cutout_threshold` (float, 0–1) on
@@ -58,11 +59,6 @@ Requires Blender 5.2 LTS.
 
 **Materials**
 
-- **Surface Model** setting, choosing which MaterialX surface your materials
-  terminate in: RealityKit PBR Surface 2 (the default, verified by import),
-  the original RealityKit PBR (portable, for pinned pipelines), or OpenPBR
-  1.1, which Reality Composer Pro expands into PBR Surface 2 and warns about
-  what it drops.
 - **Normalize Unsupported Values**, an export-only clamp for an unlinked,
   achromatic Principled **Specular Tint** brighter than 1. The Blender node and
   the `.blend` are left untouched.
@@ -79,8 +75,8 @@ Requires Blender 5.2 LTS.
 - Mix and Mix Color nodes accept a linked **Factor**.
 - The Shader Editor's **RealityKit Authoring** panel and the **Add ▸ RealityKit
   Nodes** menu now appear in Blender. They were documented but never registered.
-- The **RealityKit Compatibility** panel judges your material against the
-  selected Surface Model, so it agrees with what the export will do.
+- The **RealityKit Compatibility** panel judges your material against
+  RealityKit PBR Surface 2, so it agrees with what the export will do.
 
 **Export and packaging**
 
@@ -121,9 +117,8 @@ Requires Blender 5.2 LTS.
   seconds and accepting `0` for no limit.
 - Per-step timeout enforcement in `bake-export`: a stalled step is stopped and
   reported as `BAKE_STEP_TIMEOUT`, naming the step that hung.
-- `validate --materialx-surface-profile` and `validate
-  --normalize-unsupported-values`, checking a scene against a profile for one
-  run without changing it.
+- `validate --normalize-unsupported-values`, checking a scene with the clamp
+  applied for one run without changing it.
 - A `warnings` array on successful `export` and `bake-export` results, also
   printed to stderr, so a bake that produced black textures says so instead of
   reporting only `Done`. `--quiet` does not hide these.

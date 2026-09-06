@@ -641,7 +641,7 @@ def scene_bake_mask_mix() -> None:
 
 
 def scene_specular_tint_refusal() -> None:
-    """An active Specular Tint is refused by the Portable profile.
+    """A coloured, overbright Specular Tint is refused as a value policy.
 
     This replaces a 16 MB rigged character whose only job was to trip this
     refusal. The exporter clamps an overbright *achromatic* tint only when

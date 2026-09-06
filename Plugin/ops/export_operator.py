@@ -13,7 +13,6 @@ from bpy.types import Operator
 from bpy_extras.io_utils import ExportHelper
 
 from .. import prefs as addon_prefs
-from ..api.commands._settings_common import MATERIALX_SURFACE_PROFILE_DEFAULT
 
 def _active_background_job_message(settings) -> str:
     """Return an error message when a background bake job is still running.
@@ -117,11 +116,6 @@ class BLENDERTORCP_OT_export(Operator, ExportHelper):
             self.report({'ERROR'}, "Set Output Path before exporting.")
             return {'CANCELLED'}
         settings.filepath = self.filepath
-        surface_profile = getattr(
-            settings,
-            "materialx_surface_profile",
-            MATERIALX_SURFACE_PROFILE_DEFAULT,
-        )
         normalize_unsupported_values = bool(
             getattr(settings, "normalize_unsupported_values", False)
         )
@@ -143,7 +137,6 @@ class BLENDERTORCP_OT_export(Operator, ExportHelper):
             resolved_output_path=self.filepath,
             export_format=export_format,
             selected_only=bool(getattr(settings, "selected_objects_only", False)),
-            materialx_surface_profile=surface_profile,
             normalize_unsupported_values=normalize_unsupported_values,
             blend_file=context.blend_data.filepath or None,
         )
@@ -191,7 +184,6 @@ class BLENDERTORCP_OT_export(Operator, ExportHelper):
             result = rk_validate.validate_material(
                 material,
                 strict=True,
-                surface_profile=surface_profile,
                 normalize_unsupported_values=normalize_unsupported_values,
             )
             for issue in result["warnings"]:

@@ -107,12 +107,11 @@ export until explicit support is added. When export succeeds, validate the
 result in Reality Composer Pro or with the repository validation scripts
 before relying on it in production.
 
-The default material profile is `realitykit_pbr2`: the 30-input RealityKit
-PBR Surface 2, verified by import into Reality Composer Pro 3, carrying every
-Principled control the older surface refuses. `realitykit_portable` is that
-older 13-input surface, selectable for pipelines pinned to it. `openpbr_1_1`
-is expanded by Reality Composer Pro into PBR Surface 2 and loses inputs on
-the way; the export says which.
+Every translated material terminates in RealityKit PBR Surface 2 — the
+30-input surface, verified by import into Reality Composer Pro 3. There is no
+surface to choose: the older 13-input surface is a strict subset of this one,
+and OpenPBR is expanded by Reality Composer Pro into this one while losing
+inputs on the way, so neither is offered.
 
 ### How releases are validated
 
@@ -222,7 +221,7 @@ The Blender panel has one Export button. Choose `RealityKit PBR` or `RealityKit 
 - Material validation fails closed by default. `Normalize Unsupported Values` is an explicit export-only exception for one safe case: an unlinked, constant, achromatic Principled `Specular Tint` above `1` is clamped to white. Colored or linked values still stop export. The source material and `.blend` are never modified; diagnostics record the source and exported values.
 - Failed exports always write `<output>.diagnostics.json`. `Keep Success Diagnostics` retains the same report after successful exports.
 
-Release 2.x enforces a non-configurable Apple spatial contract: Blender's native orientation conversion, `-Z` forward, `Y` up, meters at scale `1.0`, relative dependencies, and mesh/UV/normal export. Raw cameras, lights, Blender World dome lights, curves, point clouds, volumes, and hair cannot be enabled. One ordinary Blender 5.2 USD camera imported as `PerspectiveCameraComponent` in a macOS 27 smoke, but ordinary `UsdGeom.Camera` has no cross-platform RealityKit renderer guarantee and is therefore rejected by the portable profile. Author cameras and lighting in Reality Composer Pro 3 or RealityKit, and convert unsupported geometry to polygon meshes before export.
+Release 2.x enforces a non-configurable Apple spatial contract: Blender's native orientation conversion, `-Z` forward, `Y` up, meters at scale `1.0`, relative dependencies, and mesh/UV/normal export. Raw cameras, lights, Blender World dome lights, curves, point clouds, volumes, and hair cannot be enabled. One ordinary Blender 5.2 USD camera imported as `PerspectiveCameraComponent` in a macOS 27 smoke, but ordinary `UsdGeom.Camera` has no cross-platform RealityKit renderer guarantee and is therefore rejected. Author cameras and lighting in Reality Composer Pro 3 or RealityKit, and convert unsupported geometry to polygon meshes before export.
 
 Every failed export writes support-oriented diagnostics as `<output>.diagnostics.json`. Successful exports retain that sidecar only when `Keep Success Diagnostics` is enabled. The Diagnostics panel exposes the latest available report and support-bundle actions.
 

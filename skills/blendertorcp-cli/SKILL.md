@@ -41,10 +41,7 @@ Check materials for RealityKit compatibility. Exit code 0 = all OK, exit code 1 
 blendertorcp validate <file.blend>
 blendertorcp validate <file.blend> --material "MyMaterial"
 blendertorcp validate <file.blend> --only-errors
-blendertorcp validate <file.blend> --materialx-surface-profile realitykit_pbr2
 ```
-
-`--materialx-surface-profile` accepts `realitykit_portable` (production default), `realitykit_pbr2`, or `openpbr_1_1`. The latter two profiles are experimental OS 27 targets.
 
 A failing validation is not a failing command: the report is still the ordinary
 result payload on stdout, with its own top-level `ok: false` and no `error`
@@ -375,7 +372,7 @@ they appear in job `status.json` and support bundles, never as CLI envelopes.
 
 **Texture:** `export_texture_settings_enabled`, `bake_resolution` (ORIGINAL/512/1024/2048/4096/CUSTOM), `bake_image_format` (ORIGINAL/AVIF/PNG), `bake_margin`
 
-**Materials:** `materialx_surface_profile` (`realitykit_portable` default; `realitykit_pbr2` and `openpbr_1_1` experimental OS 27 profiles)
+**Materials:** `normalize_unsupported_values`
 
 **Bake:** `bake_mode` (`UNLIT_ALBEDO` = Material Color Only - Unlit, `LIT_ALBEDO` = Material Color Only - Lit PBR, `LIT_IBL` = Lighting & Shadows), `bake_roughness_mode` (`TEXTURE`/`AVERAGE`, `LIT_ALBEDO` only), `bake_ibl_source`, `bake_ibl_filepath`, `bake_ibl_strength`, `bake_ibl_rotation`, `bake_isolate_meshes_lit`, `bake_base_color`, `bake_opacity`, `bake_keep_materials`, `bake_step_timeout_seconds`
 

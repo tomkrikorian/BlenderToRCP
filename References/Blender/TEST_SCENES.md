@@ -108,7 +108,7 @@ colour check.
 |---|---|
 | `t18_refused_mix_shader` | Export **stops**. The message names the Mix Shader and points at **Bake Textures & Export**. Judge whether it tells you enough to act |
 | `t19_cm_scale_refusal` | Export **stops** with `Scene unit scale is 0.01, but the RealityKit export contract fixes metersPerUnit at 1.0…`. This guard is why working in centimetres does not ship an asset 100× too large. Judge whether the message tells you how to fix it |
-| `t21_specular_tint_refusal` | Export **stops** with `UNSUPPORTED_MATERIAL_NODES`, naming Principled *Specular Tint* and the RealityKit Portable profile. Nothing is written. This is the fixture the Apple validation job uses as its expected rejection, so a change here changes CI |
+| `t21_specular_tint_refusal` | Export **stops** with `UNSUPPORTED_MATERIAL_NODES`, naming Principled *Specular Tint*: its colour is tinted and brighter than 1, which is refused as a value-policy rather than a surface limitation. Nothing is written. This is the fixture `scripts/verify_apple_platform.sh` uses as its expected rejection, so a change here changes that script |
 
 ## The lifecycle check
 
@@ -128,10 +128,10 @@ what the suite exports, so edit them only deliberately.
 |---|---|---|---|
 | `t22_red_cube` | A single red cube with one material | Any other colour, or more than one material — the suite's simplest fixture is no longer simple | Grey cube |
 | `t23_cube_with_4_animations` | Four takes on one cube, each a distinct motion | Fewer than four takes, or two playing the same motion | — |
-| `t24_bake_test` | Direct export **refuses** with `UNSUPPORTED_MATERIAL_NODES`, naming Principled *IOR*; `bake-export` succeeds and the model keeps its texturing | Baked textures flat, black, or misaligned to the UVs | Placeholder stripes |
+| `t24_bake_test` | Direct export succeeds, its IOR carried on the surface, and the model keeps its texturing; `bake-export` succeeds with the same texturing baked down | Textures flat, black, or misaligned to the UVs on either path | Placeholder stripes |
 
-`t24_bake_test` is a bake-lane scene like `t20`, so `export_test_scenes.sh`
-reports it refused — that is the expected result. Bake it instead:
+`t24_bake_test` exports directly, and it is also the bake lane's real-world
+fixture, so bake it as well and compare the two:
 
 ```bash
 blendertorcp bake-export References/Blender/t24_bake_test.blend \
@@ -143,8 +143,7 @@ blendertorcp bake-export References/Blender/t24_bake_test.blend \
 
 ## What is not covered
 
-Surface profiles, root prim naming and selection-only are settings,
-not scenes — point any scene at them rather than storing a variant. USDZ image
+Root prim naming and selection-only are settings, not scenes — point any scene at them rather than storing a variant. USDZ image
 formats, custom properties and the diagnostics sidecar are checked by the
 automated suite, not by eye.
 

@@ -19,10 +19,7 @@ from Plugin.export.materials.extract import core
 from Plugin.export.materials import rewrite as material_rewrite
 from Plugin.export.materials.graph import (
     MaterialXGraphBuilder,
-    OPENPBR_1_1_NODEDEF,
-    OPENPBR_SUBSET_RUNTIME_WARNING,
     RCP3_PBR2_NODEDEF,
-    material_profile_runtime_warnings,
 )
 from Plugin.export.materials.textures import _create_texture_connection
 from Plugin.export.usd_utils import PXR_AVAILABLE, Sdf, Usd, UsdShade
@@ -94,57 +91,8 @@ def test_the_default_profile_is_pbr_surface_2_and_carries_sheen():
     assert "sheenColor" in graph["nodes"][0]["inputs"]
 
 
-def test_the_portable_profile_is_still_selectable_and_still_drops_sheen():
-    """Pinned pipelines keep the old surface; its behaviour must not drift."""
-    graph = MaterialXGraphBuilder(
-        _manifest(), surface_profile="realitykit_portable"
-    ).build_pbr_material({"base_color": [0.2, 0.3, 0.4], "sheen_color": [0.4, 0.2, 0.1]})
-    assert graph["nodes"][0]["node_id"] == "ND_realitykit_pbr_surfaceshader"
-    assert "sheenColor" not in graph["nodes"][0]["inputs"]
-
-
-def test_pbr2_carries_no_standing_warning_and_openpbr_names_what_it_drops():
-    """PBR Surface 2 was verified by import; OpenPBR is the lossy one.
-
-    Reality Composer Pro expands OpenPBR into PBR Surface 2 and discards
-    sheen, anisotropy, coat colour, transmission and thin film. The warning
-    must name those, so an artist choosing OpenPBR for one of them learns it
-    will not arrive - and must not call PBR Surface 2 experimental.
-    """
-    assert material_profile_runtime_warnings("realitykit_portable") == ()
-    assert material_profile_runtime_warnings("REALITYKIT_PBR2") == ()
-    assert material_profile_runtime_warnings("openpbr_1_1") == (
-        OPENPBR_SUBSET_RUNTIME_WARNING,
-    )
-    for dropped in ("sheen", "anisotropy", "coat colour", "transmission", "thin film"):
-        assert dropped in OPENPBR_SUBSET_RUNTIME_WARNING, dropped
-    assert "PBR Surface 2" in OPENPBR_SUBSET_RUNTIME_WARNING
-    assert "experimental" not in OPENPBR_SUBSET_RUNTIME_WARNING.lower()
-
-
-def _rewrite_warnings(profile: str) -> list:
-    warnings = []
-    diagnostics = SimpleNamespace(add_warning=warnings.append)
-    stage = SimpleNamespace(Traverse=lambda: [])
-    settings = SimpleNamespace(materialx_surface_profile=profile)
-    context = SimpleNamespace(blend_data=SimpleNamespace(materials=[]))
-    material_rewrite.rewrite_materials(stage, settings, context, diagnostics)
-    return warnings
-
-
-def test_material_rewrite_records_the_openpbr_diagnostic_before_traversal():
-    assert _rewrite_warnings("openpbr_1_1") == [OPENPBR_SUBSET_RUNTIME_WARNING]
-
-
-def test_material_rewrite_records_nothing_for_pbr2():
-    """The old standing warning called a verified surface experimental."""
-    assert _rewrite_warnings("realitykit_pbr2") == []
-
-
 def test_explicit_pbr2_maps_blender_52_sheen_subsurface_and_specular_fields():
-    graph = MaterialXGraphBuilder(
-        _manifest(), surface_profile="realitykit_pbr2"
-    ).build_pbr_material(
+    graph = MaterialXGraphBuilder(_manifest()).build_pbr_material(
         {
             "base_color": [0.2, 0.3, 0.4],
             "diffuse_roughness": 0.15,
@@ -173,21 +121,10 @@ def test_explicit_pbr2_maps_blender_52_sheen_subsurface_and_specular_fields():
     assert inputs["specularWeight"] == 0.75
 
 
-def test_openpbr_is_an_explicit_materialx_139_fallback():
-    graph = MaterialXGraphBuilder(
-        _manifest(), surface_profile="openpbr_1_1"
-    ).build_pbr_material({"base_color": [0.2, 0.3, 0.4], "roughness": 0.25})
-    assert graph["nodes"][0]["node_id"] == OPENPBR_1_1_NODEDEF
-    assert graph["materialx_version"] == "1.39"
-    assert graph["nodes"][0]["inputs"]["base_color"] == [0.2, 0.3, 0.4]
-
-
 @pytest.mark.skipif(not PXR_AVAILABLE, reason="OpenUSD bindings required")
 def test_pbr2_authors_real_half_types_and_materialx_profile_metadata():
     manifest = _manifest()
-    graph = MaterialXGraphBuilder(
-        manifest, surface_profile="realitykit_pbr2"
-    ).build_pbr_material(
+    graph = MaterialXGraphBuilder(manifest).build_pbr_material(
         {
             "base_color": [0.2, 0.3, 0.4],
             "diffuse_roughness": 0.2,
@@ -236,7 +173,6 @@ def test_pbr2_direct_texture_and_linked_float_inputs_get_real_half_conversions()
     manifest = _manifest()
     graph = MaterialXGraphBuilder(
         manifest,
-        surface_profile="realitykit_pbr2",
     ).build_pbr_material(
         {
             "base_color": [0.2, 0.3, 0.4],
@@ -265,67 +201,6 @@ def test_pbr2_direct_texture_and_linked_float_inputs_get_real_half_conversions()
     assert text.count('info:id = "ND_convert_float_half"') >= 2
     assert "half inputs:baseDiffuseRoughness.connect" in text
     assert "half inputs:specularWeight.connect" in text
-
-
-def test_openpbr_keeps_linked_sheen_controls_separate_and_mirrors_sss_color():
-    graph = MaterialXGraphBuilder(
-        _manifest(),
-        surface_profile="openpbr_1_1",
-    ).build_pbr_material(
-        {
-            "base_color": [0.2, 0.3, 0.4],
-            "input_graphs": {
-                "_sheenWeight": _float_node(0.35),
-                "_sheenTint": _color_node([0.7, 0.6, 0.5]),
-                "_sheenRoughness": _float_node(0.45),
-                "_specularLevel": _float_node(0.4),
-                "subsurfaceWeight": _float_node(0.25),
-            },
-        }
-    )
-    pbr = graph["nodes"][0]
-    assert pbr["node_id"] == OPENPBR_1_1_NODEDEF
-    assert pbr["inputs"]["subsurface_color"] == [0.2, 0.3, 0.4]
-    target_inputs = {connection["to_input"] for connection in graph["connections"]}
-    assert {
-        "fuzz_weight",
-        "fuzz_color",
-        "fuzz_roughness",
-        "specular_weight",
-        "subsurface_weight",
-    }.issubset(target_inputs)
-    assert "specular" not in target_inputs
-
-
-@pytest.mark.skipif(not PXR_AVAILABLE, reason="OpenUSD bindings required")
-def test_openpbr_tangent_normal_uses_world_space_materialx_normalmap():
-    graph = MaterialXGraphBuilder(
-        _manifest(),
-        surface_profile="openpbr_1_1",
-    ).build_pbr_material(
-        {
-            "normal_texture": "textures/normal.png",
-            "normal_texture_colorspace": "raw",
-            "normal_texture_space": "tangent",
-        }
-    )
-    stage = Usd.Stage.CreateInMemory()
-    create_materialx_material(stage, "/Material", "Material", graph, _manifest())
-    text = stage.GetRootLayer().ExportToString()
-    assert 'info:id = "ND_normalmap"' in text
-    assert 'info:id = "ND_normal_map_decode"' not in text
-
-    with pytest.raises(ValueError, match="object-space normals"):
-        MaterialXGraphBuilder(
-            _manifest(),
-            surface_profile="openpbr_1_1",
-        ).build_pbr_material(
-            {
-                "normal_texture": "textures/normal.png",
-                "normal_texture_colorspace": "raw",
-                "normal_texture_space": "object",
-            }
-        )
 
 
 @pytest.mark.skipif(not PXR_AVAILABLE, reason="OpenUSD bindings required")
@@ -669,7 +544,6 @@ def test_rk_graph_ignores_premul_metadata_outside_surface_base_color():
 
 def _validate_principled_inputs(
     inputs,
-    profile="realitykit_portable",
     *,
     normalize_unsupported_values=False,
 ):
@@ -686,7 +560,6 @@ def _validate_principled_inputs(
         material,
         only_connected=False,
         strict=True,
-        surface_profile=profile,
         normalize_unsupported_values=normalize_unsupported_values,
     )
 
@@ -735,7 +608,8 @@ def test_blender_52_function_constant_nodes_are_validated_as_supported():
     assert result["errors"] == []
 
 
-def test_profile_aware_validator_allows_mapped_sheen_sss_but_not_transmission():
+def test_validator_allows_mapped_sheen_and_sss_but_not_transmission():
+    """PBR Surface 2 carries sheen and subsurface; nothing carries transmission."""
     principled = _Node()
     principled.type = "BSDF_PRINCIPLED"
     principled.name = "Principled"
@@ -750,69 +624,23 @@ def test_profile_aware_validator_allows_mapped_sheen_sss_but_not_transmission():
         use_nodes=True,
         node_tree=SimpleNamespace(nodes=[principled]),
     )
-    portable = node_validate.validate_material(
+    allowed = node_validate.validate_material(
         material,
         only_connected=False,
         strict=True,
-        surface_profile="realitykit_portable",
     )
-    assert len(portable["errors"]) == 2
-    for profile in ("realitykit_pbr2", "openpbr_1_1"):
-        extended = node_validate.validate_material(
-            material,
-            only_connected=False,
-            strict=True,
-            surface_profile=profile,
-        )
-        assert extended["ok"] is True
+    assert allowed["ok"] is True
 
     principled.inputs["Transmission Weight"].default_value = 0.1
     blocked = node_validate.validate_material(
         material,
         only_connected=False,
         strict=True,
-        surface_profile="realitykit_pbr2",
     )
     assert any("Transmission Weight" in issue["message"] for issue in blocked["errors"])
 
 
-@pytest.mark.parametrize(
-    ("socket_name", "active_value", "controller_name", "controller_value"),
-    [
-        ("Diffuse Roughness", 0.25, None, None),
-        ("Subsurface Weight", 0.2, None, None),
-        ("Subsurface Radius", (0.8, 0.3, 0.15), "Subsurface Weight", 0.2),
-        ("Subsurface Scale", 0.02, "Subsurface Weight", 0.2),
-        ("Subsurface Anisotropy", 0.25, "Subsurface Weight", 0.2),
-        ("IOR", 1.33, None, None),
-        ("Specular Tint", (0.8, 0.9, 1.0, 1.0), None, None),
-        ("Coat IOR", 1.6, "Coat Weight", 0.2),
-        ("Coat Tint", (0.8, 0.7, 0.6, 1.0), "Coat Weight", 0.2),
-        ("Sheen Weight", 0.3, None, None),
-        ("Sheen Roughness", 0.25, "Sheen Weight", 0.3),
-        ("Sheen Tint", (0.8, 0.7, 0.6, 1.0), "Sheen Weight", 0.3),
-    ],
-)
-def test_portable_profile_rejects_every_active_omitted_principled_input(
-    socket_name,
-    active_value,
-    controller_name,
-    controller_value,
-):
-    inputs = {socket_name: _Socket(active_value)}
-    if controller_name is not None:
-        inputs[controller_name] = _Socket(controller_value)
-    result = _validate_principled_inputs(inputs)
-
-    assert result["ok"] is False
-    assert any(socket_name in issue["message"] for issue in result["errors"])
-
-
-@pytest.mark.parametrize(
-    "profile",
-    ["realitykit_portable", "realitykit_pbr2", "openpbr_1_1"],
-)
-def test_all_profiles_allow_stock_blender_52_principled_defaults(profile):
+def test_stock_blender_52_principled_defaults_raise_nothing():
     inputs = {
         "Diffuse Roughness": _Socket(0.0),
         "Subsurface Weight": _Socket(0.0),
@@ -838,37 +666,6 @@ def test_all_profiles_allow_stock_blender_52_principled_defaults(profile):
         "Thin Wall": _Socket(False),
     }
 
-    result = _validate_principled_inputs(inputs, profile)
-
-    assert result["ok"] is True
-    assert result["errors"] == []
-
-
-def test_inactive_lobe_parameters_do_not_block_portable_export():
-    inputs = {
-        "Subsurface Weight": _Socket(0.0),
-        "Subsurface Radius": _Socket((0.8, 0.3, 0.15)),
-        # RedCube carries 0.05 here even though Blender 5.2's fresh-node
-        # default is 0.005.  It remains dormant while SSS Weight is zero.
-        "Subsurface Scale": _Socket(0.05),
-        "Subsurface IOR": _Socket(1.5),
-        "Subsurface Anisotropy": _Socket(0.25),
-        "Coat Weight": _Socket(0.0),
-        "Coat Roughness": _Socket(0.2, linked=True),
-        "Coat IOR": _Socket(1.6),
-        "Coat Tint": _Socket((0.8, 0.7, 0.6, 1.0), linked=True),
-        "Sheen Weight": _Socket(0.0),
-        "Sheen Roughness": _Socket(0.25),
-        "Sheen Tint": _Socket((0.8, 0.7, 0.6, 1.0)),
-        "Thin Film Thickness": _Socket(0.0),
-        "Thin Film IOR": _Socket(1.5),
-        "Anisotropic": _Socket(0.0),
-        "Anisotropic Rotation": _Socket(0.25),
-        "Tangent": _Socket((1.0, 0.0, 0.0), linked=True),
-        "Transmission Weight": _Socket(0.0),
-        "Thin Wall": _Socket(True),
-    }
-
     result = _validate_principled_inputs(inputs)
 
     assert result["ok"] is True
@@ -876,17 +673,12 @@ def test_inactive_lobe_parameters_do_not_block_portable_export():
 
 
 @pytest.mark.parametrize("socket_name", ["Coat Weight", "Coat Roughness", "Coat Tint"])
-@pytest.mark.parametrize(
-    "profile",
-    ["realitykit_portable", "realitykit_pbr2", "openpbr_1_1"],
-)
-def test_linked_coat_controls_fail_closed_for_every_profile(socket_name, profile):
+def test_linked_coat_controls_fail_closed(socket_name):
     inputs = {socket_name: _Socket(0.5, linked=True)}
     if socket_name != "Coat Weight":
         inputs["Coat Weight"] = _Socket(0.5)
     result = _validate_principled_inputs(
         inputs,
-        profile,
     )
 
     assert result["ok"] is False
@@ -902,18 +694,15 @@ def test_pbr2_active_constant_coat_tint_fails_closed():
             "Coat Weight": _Socket(0.5),
             "Coat Tint": _Socket((0.8, 0.7, 0.6, 1.0)),
         },
-        "realitykit_pbr2",
     )
 
     assert result["ok"] is False
     assert any("Coat Tint" in issue["message"] for issue in result["errors"])
 
 
-@pytest.mark.parametrize("profile", ["realitykit_pbr2", "openpbr_1_1"])
-def test_extended_profiles_reject_unverified_active_specular_tint(profile):
+def test_unverified_active_specular_tint_is_rejected():
     result = _validate_principled_inputs(
         {"Specular Tint": _Socket((2.0, 2.0, 2.0, 1.0))},
-        profile,
     )
 
     assert result["ok"] is False
@@ -923,14 +712,9 @@ def test_extended_profiles_reject_unverified_active_specular_tint(profile):
     )
 
 
-@pytest.mark.parametrize(
-    "profile",
-    ["realitykit_portable", "realitykit_pbr2", "openpbr_1_1"],
-)
-def test_safe_achromatic_specular_tint_normalization_is_explicit_opt_in(profile):
+def test_safe_achromatic_specular_tint_normalization_is_explicit_opt_in():
     result = _validate_principled_inputs(
         {"Specular Tint": _Socket((2.0, 2.0, 2.0, 1.0))},
-        profile,
         normalize_unsupported_values=True,
     )
 
@@ -953,7 +737,6 @@ def test_safe_achromatic_specular_tint_normalization_is_explicit_opt_in(profile)
 def test_colored_or_linked_specular_tint_cannot_be_auto_normalized(socket):
     result = _validate_principled_inputs(
         {"Specular Tint": socket},
-        "realitykit_pbr2",
         normalize_unsupported_values=True,
     )
 
@@ -972,7 +755,7 @@ def test_colored_or_linked_specular_tint_cannot_be_auto_normalized(socket):
         ("Thin Film IOR", 1.5, "Thin Film Thickness", 0.1),
     ],
 )
-def test_openpbr_unmapped_principled_controls_fail_closed(
+def test_unmapped_principled_controls_fail_closed(
     socket_name,
     active_value,
     controller_name,
@@ -983,7 +766,6 @@ def test_openpbr_unmapped_principled_controls_fail_closed(
         inputs[controller_name] = _Socket(controller_value)
     result = _validate_principled_inputs(
         inputs,
-        "openpbr_1_1",
     )
 
     assert result["ok"] is False
@@ -998,59 +780,62 @@ def test_openpbr_unmapped_principled_controls_fail_closed(
         ("Tangent", (1.0, 0.0, 0.0), "Anisotropic", 0.4),
     ],
 )
-@pytest.mark.parametrize("profile", ["realitykit_pbr2", "openpbr_1_1"])
 def test_unverified_anisotropy_mapping_fails_closed(
     socket_name,
     active_value,
     controller_name,
     controller_value,
-    profile,
 ):
     inputs = {socket_name: _Socket(active_value)}
     if controller_name is not None:
         inputs[controller_name] = _Socket(controller_value)
     result = _validate_principled_inputs(
         inputs,
-        profile,
     )
 
     assert result["ok"] is False
     assert any(socket_name in issue["message"] for issue in result["errors"])
 
 
-@pytest.mark.parametrize(
-    ("strength", "space", "message_fragment"),
-    [
-        (0.5, "TANGENT", "Strength"),
-        (1.0, "OBJECT", "OBJECT"),
-    ],
-)
-def test_pbr2_nondefault_normal_decode_fails_closed(
-    strength,
-    space,
-    message_fragment,
-):
+def _normal_map_material(strength, space):
     normal_map = _Node()
     normal_map.type = "NORMAL_MAP"
     normal_map.name = "Normal Map"
     normal_map.inputs = {"Strength": _Socket(strength)}
     normal_map.convention = "OPENGL"
     normal_map.space = space
-    material = SimpleNamespace(
+    return SimpleNamespace(
         name="PBR2Normal",
         use_nodes=True,
         node_tree=SimpleNamespace(nodes=[normal_map]),
     )
 
+
+def test_non_tangent_normal_space_fails_closed():
     result = node_validate.validate_material(
-        material,
+        _normal_map_material(1.0, "OBJECT"),
         only_connected=False,
         strict=True,
-        surface_profile="realitykit_pbr2",
     )
 
     assert result["ok"] is False
-    assert any(message_fragment in issue["message"] for issue in result["errors"])
+    assert any("OBJECT" in issue["message"] for issue in result["errors"])
+
+
+def test_constant_tangent_normal_strength_is_not_refused():
+    """A constant Strength is authored as a tangent-space mix after the decode.
+
+    The refusal used to be gated to PBR Surface 2 while the shipping surface
+    applied the mix; with one surface the mix applies everywhere, so a routine
+    Strength dial must not stop the export.
+    """
+    result = node_validate.validate_material(
+        _normal_map_material(0.5, "TANGENT"),
+        only_connected=False,
+        strict=True,
+    )
+
+    assert not [issue for issue in result["errors"] if "Strength" in issue["message"]]
 
 
 def test_blender_52_mapping_reads_location_rotation_and_scale_sockets():
@@ -1623,7 +1408,7 @@ def test_disconnected_emission_never_replaces_an_unsupported_active_shader(monke
     assert core.extract_blender_material_data(material)["type"] == "unknown"
 
 
-def test_principled_linked_emission_color_and_strength_are_multiplied_per_profile():
+def test_principled_linked_emission_color_and_strength_are_multiplied():
     payload = {
         "base_color": [0.2, 0.3, 0.4],
         "emission_color": [0.1, 0.2, 0.3],
@@ -1632,23 +1417,13 @@ def test_principled_linked_emission_color_and_strength_are_multiplied_per_profil
             "_emissionStrength": _float_node(3.0),
         },
     }
-    portable = MaterialXGraphBuilder(_manifest()).build_pbr_material(payload)
+    graph = MaterialXGraphBuilder(_manifest()).build_pbr_material(payload)
     emission_connections = [
         connection
-        for connection in portable["connections"]
+        for connection in graph["connections"]
         if connection["to_input"] == "emissiveColor"
     ]
     assert len(emission_connections) == 1
-
-    openpbr = MaterialXGraphBuilder(
-        _manifest(),
-        surface_profile="openpbr_1_1",
-    ).build_pbr_material(payload)
-    assert openpbr["nodes"][0]["inputs"]["emission_luminance"] == 1.0
-    assert any(
-        connection["to_input"] == "emission_color"
-        for connection in openpbr["connections"]
-    )
 
 
 @pytest.mark.skipif(not PXR_AVAILABLE, reason="OpenUSD bindings required")
@@ -1748,142 +1523,6 @@ class _CollectingDiagnostics:
 
     def add_warning(self, message):
         self.warnings.append(message)
-
-
-def _openpbr_declared_inputs(manifest):
-    return {entry["name"] for entry in manifest["nodes"][OPENPBR_1_1_NODEDEF]["inputs"]}
-
-
-def test_openpbr_refuses_an_explicit_alpha_cutout_threshold():
-    """OpenPBR 1.1 has no clip, so a cutout must not degrade into a blend.
-
-    alpha_threshold only ever exists because the scene set
-    blender_to_rcp_alpha_cutout_threshold - the exporter deliberately refuses
-    to infer one from Blender 5.2's render methods. Dropping it silently
-    swapped the rendering model the author explicitly asked for.
-    """
-    data = {
-        "base_color": [0.8, 0.2, 0.1],
-        "alpha": 0.5,
-        "is_transparent": True,
-        "alpha_threshold": 0.35,
-    }
-
-    with pytest.raises(ValueError, match="no alpha-cutout input"):
-        MaterialXGraphBuilder(
-            _manifest(),
-            surface_profile="openpbr_1_1",
-        ).build_pbr_material(dict(data))
-
-    # The RealityKit surfaces declare opacityThreshold and must keep honouring it.
-    for profile in ("realitykit_portable", "realitykit_pbr2"):
-        graph = MaterialXGraphBuilder(
-            _manifest(),
-            surface_profile=profile,
-        ).build_pbr_material(dict(data))
-        assert graph["nodes"][0]["inputs"]["opacityThreshold"] == 0.35
-
-
-def test_openpbr_reports_inputs_the_surface_cannot_express():
-    """Nothing OpenPBR 1.1 lacks may vanish without a diagnostic.
-
-    hasPremultipliedAlpha is the costly one: rewrite.py lets a premultiplied
-    base color through on the strength of the material carrying that flag, so
-    dropping it renders the texture with dark fringes and no warning.
-    """
-    manifest = _manifest()
-    diagnostics = _CollectingDiagnostics()
-
-    graph = MaterialXGraphBuilder(
-        manifest,
-        diagnostics=diagnostics,
-        surface_profile="openpbr_1_1",
-    ).build_pbr_material(
-        {
-            "base_color": [0.8, 0.2, 0.1],
-            "alpha": 0.5,
-            "is_transparent": True,
-            "has_premultiplied_alpha": True,
-            "ao_texture": "textures/ao.png",
-            "anisotropic_rotation": 0.25,
-        }
-    )
-
-    assert not set(graph["nodes"][0]["inputs"]) - _openpbr_declared_inputs(manifest)
-    reported = " ".join(diagnostics.warnings)
-    for lost in ("hasPremultipliedAlpha", "ambientOcclusion", "specularAnisotropyAngle"):
-        assert lost in reported, f"{lost} was dropped without a diagnostic"
-
-
-def test_openpbr_carries_specular_and_sheen_without_claiming_a_loss():
-    """The substitutes must be confirmed, not assumed.
-
-    specular and sheenColor are missing from the rename table yet reach the
-    surface as specular_weight and the fuzz_* trio, so reporting them would be
-    noise - but only while the substitute is actually authored.
-    """
-    manifest = _manifest()
-    diagnostics = _CollectingDiagnostics()
-
-    MaterialXGraphBuilder(
-        manifest,
-        diagnostics=diagnostics,
-        surface_profile="openpbr_1_1",
-    ).build_pbr_material(
-        {
-            "base_color": [0.2, 0.3, 0.4],
-            "specular": 0.5,
-            "specular_weight": 1.0,
-            "sheen_color": [0.4, 0.4, 0.4],
-            "sheen_weight": 0.4,
-            "sheen_tint": [1.0, 1.0, 1.0],
-        }
-    )
-
-    assert diagnostics.warnings == []
-
-    # Without its substitute the same input is a real loss and must be reported.
-    orphaned = _CollectingDiagnostics()
-    MaterialXGraphBuilder(
-        manifest,
-        diagnostics=orphaned,
-        surface_profile="openpbr_1_1",
-    ).build_pbr_material({"base_color": [0.2, 0.3, 0.4], "specular": 0.5})
-
-    assert any("specular" in message for message in orphaned.warnings)
-
-
-def test_openpbr_surface_never_receives_undeclared_linked_inputs():
-    """The graph-input rename table passes unknown keys through verbatim.
-
-    A linked Anisotropic Rotation resolves to specularAnisotropyAngle, which
-    OpenPBR 1.1 does not declare at all. Authoring it anyway reproduced the
-    undeclared-input failure the unlit surface used to hit.
-    """
-    manifest = _manifest()
-    diagnostics = _CollectingDiagnostics()
-
-    graph = MaterialXGraphBuilder(
-        manifest,
-        diagnostics=diagnostics,
-        surface_profile="openpbr_1_1",
-    ).build_pbr_material(
-        {
-            "base_color": [0.2, 0.3, 0.4],
-            "input_graphs": {
-                "baseColor": _color_node([0.7, 0.6, 0.5]),
-                "specularAnisotropyAngle": _float_node(0.25),
-            },
-        }
-    )
-
-    authored = set(graph["nodes"][0]["inputs"])
-    connected = {connection["to_input"] for connection in graph["connections"]}
-    unknown = (authored | connected) - _openpbr_declared_inputs(manifest)
-    assert not unknown, (
-        f"OpenPBR surface authored inputs its nodedef does not declare: {sorted(unknown)}"
-    )
-    assert any("specularAnisotropyAngle" in message for message in diagnostics.warnings)
 
 
 # ---------------------------------------------------------------------------

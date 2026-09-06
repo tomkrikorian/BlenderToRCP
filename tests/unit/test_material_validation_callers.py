@@ -38,55 +38,11 @@ def _settings(**overrides):
         "diagnostics_enabled": False,
         "export_format": "USDZ",
         "filepath": "",
-        "materialx_surface_profile": "openpbr_1_1",
         "normalize_unsupported_values": False,
         "selected_objects_only": False,
     }
     values.update(overrides)
     return SimpleNamespace(**values)
-
-
-def test_validate_command_uses_active_scene_surface_profile(monkeypatch):
-    material = SimpleNamespace(name="Coat")
-    settings = _settings(materialx_surface_profile="openpbr_1_1")
-    context = SimpleNamespace(scene=SimpleNamespace())
-    captured = []
-
-    validate_module = SimpleNamespace(
-        collect_scene_materials=lambda _context: [material],
-        validate_material=lambda mat, *, strict, surface_profile, normalize_unsupported_values: (
-            captured.append((mat, strict, surface_profile, normalize_unsupported_values))
-            or {
-                "material": mat.name,
-                "ok": True,
-                "errors": [],
-                "warnings": [],
-            }
-        ),
-    )
-    monkeypatch.setattr(validate_command, "get_settings", lambda: settings)
-    monkeypatch.setitem(sys.modules, "bpy", _bpy_module(context=context))
-    monkeypatch.setitem(sys.modules, "Plugin.nodes", _nodes_package(validate_module))
-
-    result = validate_command.handle({})
-
-    assert captured == [(material, True, "openpbr_1_1", False)]
-    assert result["materialx_surface_profile"] == "openpbr_1_1"
-
-
-def test_validate_command_accepts_canonicalized_override_and_rejects_unknown():
-    settings = _settings(materialx_surface_profile="realitykit_portable")
-
-    assert validate_command._resolve_surface_profile(
-        {"materialx_surface_profile": "REALITYKIT_PBR2"},
-        settings,
-    ) == "realitykit_pbr2"
-
-    with pytest.raises(ValueError, match="Invalid materialx_surface_profile"):
-        validate_command._resolve_surface_profile(
-            {"materialx_surface_profile": "future_profile"},
-            settings,
-        )
 
 
 def test_validate_command_normalization_policy_is_fail_closed():
@@ -106,34 +62,6 @@ def test_validate_command_normalization_policy_is_fail_closed():
             {"normalize_unsupported_values": "maybe"},
             settings,
         )
-
-
-def test_support_snapshot_records_and_uses_active_surface_profile(monkeypatch):
-    material = SimpleNamespace(name="Skin")
-    settings = _settings(materialx_surface_profile="realitykit_pbr2")
-    context = SimpleNamespace(
-        scene=SimpleNamespace(blender_to_rcp_export_settings=settings)
-    )
-    captured = []
-    validate_module = SimpleNamespace(
-        collect_scene_materials=lambda _context: [material],
-        validate_material=lambda mat, *, strict, surface_profile, normalize_unsupported_values: (
-            captured.append((mat, strict, surface_profile, normalize_unsupported_values))
-            or {
-                "material": mat.name,
-                "ok": True,
-                "errors": [],
-                "warnings": [],
-            }
-        ),
-    )
-    monkeypatch.setitem(sys.modules, "bpy", _bpy_module(context=context))
-    monkeypatch.setitem(sys.modules, "Plugin.nodes", _nodes_package(validate_module))
-
-    result = support_bundle.collect_validation_snapshot(context)
-
-    assert captured == [(material, True, "realitykit_pbr2", False)]
-    assert result["materialx_surface_profile"] == "realitykit_pbr2"
 
 
 class _FakeDiagnostics:
@@ -273,43 +201,12 @@ def test_api_export_fails_selected_only_empty_before_material_validation(
     assert caught.value.artifacts["diagnostics_path"] == str(diagnostics_path)
 
 
-def test_api_export_validates_with_selected_material_profile(monkeypatch, tmp_path):
-    material = SimpleNamespace(name="Coat")
-    settings = _settings(materialx_surface_profile="openpbr_1_1")
-    captured = []
-    validate_module = SimpleNamespace(
-        collect_scene_materials=lambda _context: [material],
-        validate_material=lambda mat, *, strict, surface_profile, normalize_unsupported_values: (
-            captured.append((mat, strict, surface_profile, normalize_unsupported_values))
-            or {
-                "material": mat.name,
-                "ok": False,
-                "errors": [{"message": "stop after validation"}],
-                "warnings": [],
-            }
-        ),
-    )
-    _install_export_dependencies(
-        monkeypatch,
-        settings=settings,
-        export_objects=[SimpleNamespace(name="Cube")],
-        validate_module=validate_module,
-    )
-
-    with pytest.raises(CommandError) as caught:
-        export_command.handle({"filepath": str(tmp_path / "scene.usdz")})
-
-    assert caught.value.code == "UNSUPPORTED_MATERIAL_NODES"
-    assert captured == [(material, True, "openpbr_1_1", False)]
-
-
 def test_api_premultiplied_avif_postprocess_failure_never_publishes_final(
     monkeypatch,
     tmp_path,
 ):
     settings = _settings(
         export_format="USDA",
-        materialx_surface_profile="realitykit_portable",
     )
     validate_module = SimpleNamespace(
         collect_scene_materials=lambda _context: [],
@@ -389,10 +286,10 @@ def test_api_selected_export_ignores_unselected_unsupported_material(
         raise AssertionError("selected export must not collect every scene material")
 
     def validate_material(
-        material, *, strict, surface_profile, normalize_unsupported_values
+        material, *, strict, normalize_unsupported_values
     ):
         validated.append(
-            (material.name, strict, surface_profile, normalize_unsupported_values)
+            (material.name, strict, normalize_unsupported_values)
         )
         return {
             "material": material.name,
@@ -422,7 +319,7 @@ def test_api_selected_export_ignores_unselected_unsupported_material(
     result = export_command.handle({"filepath": str(tmp_path / "selected.usda")})
 
     assert result["ok"] is True
-    assert validated == [("SelectedPrincipled", True, "openpbr_1_1", False)]
+    assert validated == [("SelectedPrincipled", True, False)]
 
 
 def test_api_full_scene_export_still_rejects_unselected_unsupported_material(
@@ -434,7 +331,7 @@ def test_api_full_scene_export_still_rejects_unselected_unsupported_material(
     validated = []
 
     def validate_material(
-        material, *, strict, surface_profile, normalize_unsupported_values
+        material, *, strict, normalize_unsupported_values
     ):
         validated.append(material.name)
         return {
@@ -511,38 +408,6 @@ def test_api_selected_export_validates_collection_prototype_material(
 
     assert caught.value.code == "UNSUPPORTED_MATERIAL_NODES"
     assert caught.value.context["material"] == "PrototypeGlass"
-
-
-@pytest.mark.parametrize(
-    ("relative_path", "expected_calls"),
-    [
-        ("Plugin/api/commands/export.py", 1),
-        ("Plugin/api/commands/validate.py", 1),
-        ("Plugin/ops/export_operator.py", 1),
-        ("Plugin/ops/validation_operators.py", 3),
-        ("Plugin/ui/shader_panel.py", 1),
-        ("Plugin/export/support_bundle.py", 1),
-    ],
-)
-def test_every_material_validation_caller_passes_surface_profile(
-    relative_path,
-    expected_calls,
-):
-    source_path = _REPO_ROOT / relative_path
-    tree = ast.parse(source_path.read_text(), filename=str(source_path))
-    calls = [
-        node
-        for node in ast.walk(tree)
-        if isinstance(node, ast.Call)
-        and isinstance(node.func, ast.Attribute)
-        and node.func.attr == "validate_material"
-    ]
-
-    assert len(calls) == expected_calls
-    for call in calls:
-        assert any(
-            keyword.arg == "surface_profile" for keyword in call.keywords
-        ), f"{relative_path} must pass surface_profile explicitly"
 
 
 def _load_export_operator_with_blender_stubs(monkeypatch):
@@ -727,10 +592,10 @@ def test_ui_selected_export_ignores_unselected_unsupported_material(
         raise AssertionError("selected export must not collect every scene material")
 
     def validate_material(
-        material, *, strict, surface_profile, normalize_unsupported_values
+        material, *, strict, normalize_unsupported_values
     ):
         validated.append(
-            (material.name, strict, surface_profile, normalize_unsupported_values)
+            (material.name, strict, normalize_unsupported_values)
         )
         return {
             "material": material.name,
@@ -761,7 +626,7 @@ def test_ui_selected_export_ignores_unselected_unsupported_material(
     )
 
     assert operator.execute(context) == {'FINISHED'}
-    assert validated == [("SelectedPrincipled", True, "openpbr_1_1", False)]
+    assert validated == [("SelectedPrincipled", True, False)]
 
 
 def test_ui_full_scene_export_still_rejects_unselected_unsupported_material(
@@ -773,7 +638,7 @@ def test_ui_full_scene_export_still_rejects_unselected_unsupported_material(
     validated = []
 
     def validate_material(
-        material, *, strict, surface_profile, normalize_unsupported_values
+        material, *, strict, normalize_unsupported_values
     ):
         validated.append(material.name)
         return {

@@ -30,7 +30,6 @@ def _context(*materials):
 
 def _settings():
     return SimpleNamespace(
-        materialx_surface_profile="realitykit_portable",
         force_unlit_materials=False,
     )
 

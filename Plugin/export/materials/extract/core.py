@@ -275,7 +275,7 @@ def extract_blender_material_data(material) -> Dict[str, Any]:
             'Diffuse Roughness': ('diffuse_roughness', 'float'),
             'Subsurface Weight': ('subsurface_weight', 'float'),
             # Blender's scalar Scale is the physical radius; its RGB Radius is
-            # the per-channel multiplier used by PBR2/OpenPBR.
+            # the per-channel multiplier PBR Surface 2 takes.
             'Subsurface Scale': ('subsurface_radius', 'float'),
             'Subsurface Radius': ('subsurface_radius_scale', 'color'),
             'Subsurface Anisotropy': ('subsurface_anisotropy', 'float'),
@@ -470,9 +470,8 @@ def extract_blender_material_data(material) -> Dict[str, Any]:
         if '_specularLevel' not in input_graphs and 'specular' in data:
             data['specular_weight'] = max(0.0, float(data['specular']) * 2.0)
         if '_sheenWeight' in input_graphs or '_sheenTint' in input_graphs:
-            # Preserve the independent Blender controls until graph-profile
-            # selection. PBR2 combines them into sheenColor, while OpenPBR has
-            # distinct fuzz_weight/fuzz_color inputs.
+            # Preserve the independent Blender controls; the graph builder
+            # combines them into sheenColor once linked expressions resolve.
             data.pop('sheen_color', None)
         if input_graphs:
             if any(_expression_has_current_pixel_snapshot(expr) for expr in input_graphs.values()):

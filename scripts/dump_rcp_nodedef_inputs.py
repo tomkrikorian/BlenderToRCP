@@ -36,8 +36,8 @@ OUTPUT = REPO_ROOT / "Plugin" / "manifest" / "rcp_nodedef_input_gaps.json"
 RCP_APP = Path("/Applications/RealityComposerPro.app")
 SHADERGRAPH = "/System/Library/SubFrameworks/ShaderGraph.framework/ShaderGraph"
 
-#: Versions RealityKit can be asked for. Every profile we author declares one
-#: of these; see `_materialx_version` in Plugin/export/materials/graph.py.
+#: Versions RealityKit can be asked for. Every export declares 1.38; 1.39 is
+#: measured too so the gap table can say what a version bump would change.
 VERSIONS = ("1.38", "1.39")
 
 PROBE_SOURCE = r"""

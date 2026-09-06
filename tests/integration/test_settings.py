@@ -42,10 +42,7 @@ class TestSettingsGet:
     def test_group_filter_materials(self, run_cli, blend_file):
         result = run_cli("settings", "get", str(blend_file), "--group", "materials")
         assert result.ok
-        assert result.json == {
-            "materialx_surface_profile": "realitykit_pbr2",
-            "normalize_unsupported_values": False,
-        }
+        assert result.json == {"normalize_unsupported_values": False}
 
     def test_group_filter_general(self, run_cli, blend_file):
         result = run_cli("settings", "get", str(blend_file), "--group", "general")
@@ -76,20 +73,6 @@ class TestSettingsSet:
         """Malformed key=value pairs should fail."""
         result = run_cli("settings", "set", str(blend_file), "no_equals_sign")
         assert not result.ok
-
-    def test_experimental_material_profile_dry_run(self, run_cli, blend_file):
-        result = run_cli(
-            "settings",
-            "set",
-            str(blend_file),
-            "materialx_surface_profile=openpbr_1_1",
-            "--dry-run",
-        )
-        assert result.ok
-        assert result.json == {
-            "valid": True,
-            "would_update": ["materialx_surface_profile"],
-        }
 
     @pytest.mark.parametrize(
         "key",
@@ -158,9 +141,10 @@ class TestSettingsList:
         assert result.ok
         defaults = {entry["key"]: entry.get("default") for entry in result.json}
 
-        assert defaults["materialx_surface_profile"] == "realitykit_pbr2"
         assert defaults["normalize_unsupported_values"] is False
         for key in (
+            # One surface, no selector: the profile setting is gone too.
+            "materialx_surface_profile",
             "convert_orientation",
             "forward_axis",
             "up_axis",

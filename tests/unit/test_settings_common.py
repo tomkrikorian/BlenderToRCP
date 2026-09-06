@@ -14,8 +14,6 @@ from Plugin.api.commands._settings_common import (  # noqa: E402
     BOOLEAN_FALSE_TOKENS,
     BOOLEAN_TRUE_TOKENS,
     INTERNAL_KEYS,
-    MATERIALX_SURFACE_PROFILE_DEFAULT,
-    MATERIALX_SURFACE_PROFILES,
     SETTING_GROUPS,
     coerce_value,
     suspend_setting_persistence,
@@ -107,11 +105,9 @@ class TestSettingGroups:
     def test_texture_contains_override_toggle(self):
         assert "export_texture_settings_enabled" in SETTING_GROUPS["texture"]
 
-    def test_materials_contains_surface_profile(self):
-        assert SETTING_GROUPS["materials"] == {
-            "materialx_surface_profile",
-            "normalize_unsupported_values",
-        }
+    def test_materials_contains_only_the_normalization_policy(self):
+        """The surface-profile enum is gone; one surface needs no selector."""
+        assert SETTING_GROUPS["materials"] == {"normalize_unsupported_values"}
 
     def test_geometry_contains_triangulate(self):
         assert "triangulate_meshes" in SETTING_GROUPS["geometry"]
@@ -443,17 +439,16 @@ class TestCoerceValueEnum:
         with pytest.raises(ValueError):
             coerce_value(prop, "")
 
-    def test_lowercase_enum_identifiers_preserve_canonical_value(self):
+    def test_mixed_case_enum_identifiers_preserve_canonical_value(self):
+        """Canonical spelling is the declared identifier, whatever the caller typed."""
         prop = _mock_prop(
             "ENUM",
-            enum_items=MATERIALX_SURFACE_PROFILES,
-            identifier="materialx_surface_profile",
+            enum_items=("UNLIT_ALBEDO", "LIT_IBL", "LIT_ALBEDO"),
+            identifier="bake_mode",
         )
-        assert coerce_value(prop, "REALITYKIT_PBR2") == "realitykit_pbr2"
-        assert coerce_value(prop, "OpenPBR_1_1") == "openpbr_1_1"
-        assert coerce_value(prop, MATERIALX_SURFACE_PROFILE_DEFAULT) == (
-            MATERIALX_SURFACE_PROFILE_DEFAULT
-        )
+        assert coerce_value(prop, "lit_ibl") == "LIT_IBL"
+        assert coerce_value(prop, "Lit_Albedo") == "LIT_ALBEDO"
+        assert coerce_value(prop, "UNLIT_ALBEDO") == "UNLIT_ALBEDO"
 
 
 class TestCoerceValueString:

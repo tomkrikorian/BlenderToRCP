@@ -89,7 +89,6 @@ Two further derived values are never user-editable:
 | `bake_resolution_custom` | int ≥32 | `2048` | texture | Optimization *(needs `bake_resolution=CUSTOM`)* | both |
 | `bake_image_format` | enum | `AVIF` | texture | Optimization | both |
 | `bake_margin` | int ≥0 | `8` | texture | Optimization *(bake route only)* | bake |
-| `materialx_surface_profile` | enum | `realitykit_portable` | materials | Material Settings *(PBR ▸ Translate only)* | both |
 | `normalize_unsupported_values` | bool | `false` | materials | Material Settings *(PBR ▸ Translate only)* | direct/validate |
 | `bake_mode` | enum | `LIT_IBL` | bake | **none — derived, see above** | bake |
 | `bake_ibl_source` | enum | `SCENE_WORLD` | bake | Material Settings *(Unlit ▸ Lighting & Shadows)* | bake (`LIT_IBL`) |
@@ -116,7 +115,7 @@ Two further derived values are never user-editable:
    ├─ Export box: filepath · export_format · Profile (ui_material_type) · [Export]
    ├─ Material Settings                      (bl_order 1, open)
    │  ├─ PBR      ▸ Processing (ui_pbr_processing)
-   │  │  ├─ Translate ▸ materialx_surface_profile · normalize_unsupported_values
+   │  │  ├─ Translate ▸ normalize_unsupported_values
    │  │  └─ Bake      ▸ bake_roughness_mode · Advanced ▸ bake_base_color · bake_opacity · bake_keep_materials
    │  └─ Unlit    ▸ Appearance (ui_unlit_appearance)
    │     ├─ Material Color Only  ▸ Advanced ▸ (as above)
@@ -136,7 +135,7 @@ Two further derived values are never user-editable:
 
 Shader Editor ▸ N-panel ▸ "RCP Exporter"
 └─ RealityKit Compatibility                  (BLENDERTORCP_PT_shader_validation)
-   reads materialx_surface_profile and normalize_unsupported_values; writes nothing
+   reads normalize_unsupported_values; writes nothing
 ```
 
 Every panel below the job monitor grays out while a background bake job runs (`Plugin/ui/panel.py:728`, `:805`, `:872`, `:944`).
@@ -517,30 +516,6 @@ Bake padding in pixels, in the bake pipeline only (`Plugin/export/bake_textures.
 ---
 
 ## `materials`
-
-### `materialx_surface_profile`
-
-| | |
-|---|---|
-| Type | enum |
-| Values | `realitykit_portable`, `realitykit_pbr2`, `openpbr_1_1` |
-| Default | `realitykit_pbr2` |
-| Declared | `Plugin/ui/panel.py:244` |
-| UI | Material Settings, labeled "Surface Model" — **only in PBR ▸ Translate** (`Plugin/ui/panel.py:737`) |
-| Status | `realitykit_pbr2` default, verified by import; `realitykit_portable` the original 13-input surface for pinned pipelines; `openpbr_1_1` a subset of PBR Surface 2 on RealityKit |
-
-The MaterialX surface contract used when rewriting Blender materials. Read by:
-
-- the material rewrite pass, which builds the graph against the selected profile and emits profile-specific runtime warnings (`Plugin/export/materials/rewrite.py:23-34`);
-- strict material validation on `export` and `validate` (`Plugin/api/commands/export.py:147`, `Plugin/api/commands/validate.py:16`);
-- the Shader Editor compatibility panel (`Plugin/ui/shader_panel.py:33`) and the interactive validation operators (`Plugin/ops/validation_operators.py:32`);
-- diagnostics and support bundles (`Plugin/export/support_bundle.py:235`).
-
-> **The UI hides this in the bake routes, but the exporter still reads it.** `rewrite_materials` runs in `postprocess_usd.process_usd_stage()` for both pipelines (`Plugin/export/postprocess_usd.py:68`). A non-default profile left over from a Translate session therefore continues to apply to baked exports, even though no control is shown.
-
-Only `realitykit_portable` is verified for current RealityKit/RCP. USDZ validation is not weakened for the experimental profiles.
-
-`validate` accepts a per-run override with `--materialx-surface-profile` (`Plugin/api/commands/validate.py:20`) that does not touch the scene setting.
 
 ### `normalize_unsupported_values`
 

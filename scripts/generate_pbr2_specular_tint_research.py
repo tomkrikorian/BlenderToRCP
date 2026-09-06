@@ -66,7 +66,6 @@ def generate(output: Path) -> Path:
     manifest = load_manifest()
     builder = MaterialXGraphBuilder(
         manifest,
-        surface_profile="realitykit_pbr2",
     )
 
     for index, variant in enumerate(research_variants()):

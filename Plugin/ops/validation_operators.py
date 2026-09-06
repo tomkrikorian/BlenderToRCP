@@ -5,7 +5,6 @@ Operators for RealityKit material validation and cleanup.
 import bpy
 from bpy.types import Operator
 
-from ..api.commands._settings_common import MATERIALX_SURFACE_PROFILE_DEFAULT
 from ..nodes import validate as rk_validate
 
 
@@ -22,16 +21,6 @@ def _get_active_material(context):
         return obj.active_material
     return None
 
-
-def _get_surface_profile(context) -> str:
-    """Return the active export profile that defines validation capability."""
-    scene = getattr(context, "scene", None)
-    settings = getattr(scene, "blender_to_rcp_export_settings", None)
-    return getattr(
-        settings,
-        "materialx_surface_profile",
-        MATERIALX_SURFACE_PROFILE_DEFAULT,
-    )
 
 
 def _normalize_unsupported_values(context) -> bool:
@@ -55,7 +44,6 @@ class BLENDERTORCP_OT_validate_material(Operator):
         result = rk_validate.validate_material(
             material,
             strict=True,
-            surface_profile=_get_surface_profile(context),
             normalize_unsupported_values=_normalize_unsupported_values(context),
         )
         if result["errors"]:
@@ -84,7 +72,6 @@ class BLENDERTORCP_OT_select_offenders(Operator):
         result = rk_validate.validate_material(
             material,
             strict=True,
-            surface_profile=_get_surface_profile(context),
             normalize_unsupported_values=_normalize_unsupported_values(context),
         )
         if not result["offending_nodes"]:
@@ -111,7 +98,6 @@ class BLENDERTORCP_OT_remove_offenders(Operator):
         result = rk_validate.validate_material(
             material,
             strict=True,
-            surface_profile=_get_surface_profile(context),
             normalize_unsupported_values=_normalize_unsupported_values(context),
         )
         removed = rk_validate.remove_offending_nodes(material, result)

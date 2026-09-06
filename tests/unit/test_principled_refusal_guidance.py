@@ -1,22 +1,19 @@
 """A refusal's remedy must be one that works.
 
-The validator refuses Principled controls the selected surface cannot carry
-and names an alternative profile. Two of those alternatives were measured
-wrong. OpenPBR on RealityKit is not its own shading model: Reality Composer
-Pro expands it into PBR Surface 2 and discards sheen, anisotropy and coat
-colour on the way - the editor greys those inputs out on the node. So "select
-OpenPBR 1.1" for Coat Tint or Sheen Roughness sent an artist to a profile
-that drops exactly the control they were trying to keep, and "PBR Surface 2
-or OpenPBR 1.1" offered a strictly worse second option for everything else.
+Every translated PBR material terminates in RealityKit PBR Surface 2, so the
+validator refuses only what that surface cannot carry, and the only honest
+remedy for those is to bake. This file pins the messages for the two Principled
+controls PBR Surface 2 lacks - coat tint and sheen roughness - and the
+value-policy refusal for a coloured or overbright specular tint, and it pins
+that a stock Principled node raises nothing at all.
 
-The guidance is tested on synthetic nodes. The fact it rests on is tested
-against Apple's shipped expansion, so a platform change that starts wiring
-those inputs through fails here rather than going unnoticed.
+It once also pinned that the validator would not send artists to OpenPBR for
+controls OpenPBR dropped. OpenPBR is gone, along with the portable surface, so
+there is no longer a second profile to route anyone to.
 """
 
 from __future__ import annotations
 
-import re
 import sys
 import types
 from pathlib import Path
@@ -29,13 +26,12 @@ sys.path.insert(0, str(REPO_ROOT))
 
 # Plugin.nodes imports bpy at module level. Seed the stub the sibling tests
 # use, so this file collects on its own and not only behind one that already
-# did - which is how it first passed while being unable to run alone.
+# did.
 _bpy_stub = sys.modules.setdefault("bpy", types.ModuleType("bpy"))
 if not hasattr(_bpy_stub, "types"):
     _bpy_stub.types = types.SimpleNamespace(NodeTree=object)
 
 from Plugin.nodes import validate  # noqa: E402
-from scripts import check_shader_implementations as checker  # noqa: E402
 
 # Blender 5.2 Principled defaults, read from the live node RNA. A stub at these
 # values raises no issue at all, so every issue below is caused by one override.
@@ -83,48 +79,12 @@ def _principled(**overrides):
     return SimpleNamespace(inputs=inputs)
 
 
-def _issues(profile: str, **overrides) -> list[str]:
-    return validate._unsupported_principled_inputs(
-        _principled(**overrides), surface_profile=profile
-    )
+def _issues(**overrides) -> list[str]:
+    return validate._unsupported_principled_inputs(_principled(**overrides))
 
 
-def test_a_neutral_node_raises_nothing_under_any_profile():
-    for profile in ("realitykit_portable", "realitykit_pbr2", "openpbr_1_1"):
-        assert _issues(profile) == [], profile
-
-
-# ---------------------------------------------------------------------------
-# Controls no RealityKit surface delivers: the only honest remedy is bake
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.parametrize("profile", ["realitykit_portable", "realitykit_pbr2"])
-def test_coat_tint_is_never_sent_to_openpbr(profile):
-    """No surface carries a coat tint; OpenPBR declares one RCP discards."""
-    (issue,) = [
-        i for i in _issues(profile, **{"Coat Weight": 1.0, "Coat Tint": (1.0, 0.2, 0.2, 1.0)})
-        if "Coat Tint" in i
-    ]
-    assert "OpenPBR" not in issue or "discards" in issue
-    assert "select OpenPBR" not in issue
-    assert "bake" in issue
-
-
-@pytest.mark.parametrize("profile", ["realitykit_portable", "realitykit_pbr2"])
-def test_sheen_roughness_is_never_sent_to_openpbr(profile):
-    """PBR Surface 2 has no sheen roughness; OpenPBR's fuzz roughness is dropped."""
-    (issue,) = [
-        i for i in _issues(profile, **{"Sheen Weight": 1.0, "Sheen Roughness": 0.9})
-        if "Sheen Roughness" in i
-    ]
-    assert "select OpenPBR" not in issue
-    assert "bake" in issue
-
-
-# ---------------------------------------------------------------------------
-# Controls PBR Surface 2 delivers: name it, and only it
-# ---------------------------------------------------------------------------
+def test_a_neutral_node_raises_nothing():
+    assert _issues() == []
 
 
 @pytest.mark.parametrize(
@@ -138,73 +98,38 @@ def test_sheen_roughness_is_never_sent_to_openpbr(profile):
         {"Sheen Weight": 0.5, "Sheen Tint": (1.0, 0.5, 0.5, 1.0)},
     ],
 )
-def test_portable_refusals_recommend_pbr_surface_2_alone(overrides):
-    """OpenPBR delivers at most what PBR Surface 2 does; offering it is noise."""
-    named = next(iter(overrides)) if len(overrides) == 1 else list(overrides)[-1]
-    issues = [i for i in _issues("realitykit_portable", **overrides) if f"'{named}'" in i]
-    assert issues, f"expected a refusal naming {named!r}"
-    for issue in issues:
-        assert "RealityKit PBR Surface 2" in issue
-        assert "OpenPBR" not in issue
+def test_controls_pbr_surface_2_carries_are_not_refused(overrides):
+    """These used to be refused by the portable surface. PBR Surface 2 has them."""
+    assert _issues(**overrides) == [], overrides
 
 
-def test_specular_tint_guidance_is_unchanged():
-    """A value-policy refusal, correct before and after; pinned so it stays."""
+def test_coat_tint_says_bake():
+    """No RealityKit surface carries a coat tint."""
+    (issue,) = [
+        i for i in _issues(**{"Coat Weight": 1.0, "Coat Tint": (1.0, 0.2, 0.2, 1.0)})
+        if "Coat Tint" in i
+    ]
+    assert "bake" in issue
+    assert "select" not in issue
+
+
+def test_sheen_roughness_says_bake():
+    """PBR Surface 2 has sheenColor but no sheen roughness."""
+    (issue,) = [
+        i for i in _issues(**{"Sheen Weight": 1.0, "Sheen Roughness": 0.9})
+        if "Sheen Roughness" in i
+    ]
+    assert "bake" in issue
+    assert "select" not in issue
+
+
+def test_coloured_overbright_specular_tint_is_a_value_policy_refusal():
+    """A colour the surface's semantics are not verified for; bake or set a value."""
     issues = [
-        i for i in _issues("realitykit_portable", **{"Specular Tint": (1.8, 0.4, 0.4, 1.0)})
+        i for i in _issues(**{"Specular Tint": (1.8, 0.4, 0.4, 1.0)})
         if "Specular Tint" in i
     ]
     assert issues
     for issue in issues:
         assert "bake" in issue
-        assert "OpenPBR" not in issue
-
-
-# ---------------------------------------------------------------------------
-# The fact the guidance rests on, from Apple's shipped expansion
-# ---------------------------------------------------------------------------
-
-_OPENPBR_OVERRIDES = Path(
-    checker._MATERIALX_XML, "Apple", "apple_nodedefs_overrides", "apple_open_pbr_overrides.mtlx"
-)
-
-
-@pytest.mark.skipif(
-    not _OPENPBR_OVERRIDES.is_file(),
-    reason="Reality Composer Pro's OpenPBR expansion is not installed here",
-)
-def test_apples_openpbr_expansion_really_drops_what_the_guidance_says():
-    """Read the terminal PBR Surface 2 node of the realitykit-target nodegraph.
-
-    Everything the guidance refuses to route through OpenPBR must be absent
-    from that node's inputs, and everything it routes to PBR Surface 2 must be
-    present. Asserting against the shipped file rather than our own table is
-    the point: if Apple starts wiring fuzz through, this fails and the guidance
-    is revisited.
-    """
-    text = _OPENPBR_OVERRIDES.read_text(encoding="utf-8", errors="replace")
-    graph = re.search(
-        r'<nodegraph name="NG_open_pbr_surface_surfaceshader_apple"[^>]*>.*?</nodegraph>',
-        text,
-        re.S,
-    )
-    assert graph, "the realitykit-target expansion has moved or been renamed"
-    terminal = re.search(
-        r'<realitykit_pbr_surfaceshader name="[^"]+"[^>]*>(.*?)</realitykit_pbr_surfaceshader>',
-        graph.group(0),
-        re.S,
-    )
-    assert terminal, "the expansion no longer terminates in a RealityKit PBR surface"
-    received = set(re.findall(r'<input name="([^"]+)"', terminal.group(1)))
-    wired_interfaces = set(re.findall(r'interfacename="([^"]+)"', terminal.group(1)))
-
-    # Dropped: the guidance says bake, and here is why.
-    assert "sheenColor" not in received
-    assert "fuzz_weight" not in wired_interfaces
-    assert "fuzz_roughness" not in wired_interfaces
-    assert "coat_color" not in wired_interfaces
-    assert "specularAnisotropyLevel" not in received
-
-    # Delivered: the guidance says PBR Surface 2, and these reach it.
-    for delivered in ("specularIOR", "subsurfaceWeight", "clearcoatIOR", "baseDiffuseRoughness"):
-        assert delivered in received, delivered
+        assert "PBR Surface 2" in issue

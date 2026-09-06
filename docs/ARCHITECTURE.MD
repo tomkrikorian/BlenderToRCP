@@ -53,7 +53,7 @@ To find materials RealityKit cannot build a shader for, run `scripts/check_shade
 
 Interactive Reality Composer Pro 3 import/save/reopen, visual inspection, Quick Look/Spatial Preview, and physical Vision Pro testing are manual release gates. Compilation alone is insufficient: the automated Apple gate also requires real macOS 27 RealityKit loading. Neither automated check proves the remaining UI, visual, or device acceptance.
 
-The mandatory shipping material profile is `realitykit_portable`, based on the established RealityKit PBR v1 surface. The graph builder also contains explicit `realitykit_pbr2` and `openpbr_1_1` profiles, but they remain experimental. Passing an experimental compile does not promote either profile into the supported release contract or weaken package validation.
+Every translated material terminates in RealityKit PBR Surface 2 (`ND_realitykit_pbr_surfaceshader_2_0`), verified by import into Reality Composer Pro 3. There is no other lit surface to select: the original 13-input RealityKit PBR surface is a strict subset of it, and Reality Composer Pro expands OpenPBR into it while discarding inputs. A passing compile does not weaken package validation.
 
 ## Repository layout
 - `Plugin/`: Blender add-on package.
@@ -228,7 +228,7 @@ Material rewriting is orchestrated in `Plugin/export/materials/rewrite.py`.
 - The prim map captured by the export-time USDHook, mapping material prim paths to Blender material names exactly.
 - Blender material data resolved from `context.blend_data.materials`.
 - The prebuilt MaterialX manifest loaded through `Plugin/manifest/materialx_nodes.py`.
-- The surface profile, defaulting to the shipping `realitykit_portable` PBR v1 contract. `realitykit_pbr2` and `openpbr_1_1` are explicit experimental alternatives.
+- The surface, always RealityKit PBR Surface 2; the builder raises if the bundled manifest lacks its nodedef rather than substituting another.
 
 ### Extraction
 `Plugin/export/materials/extract/core.py`
@@ -376,13 +376,13 @@ The installed-archive gate uses isolated `BLENDER_USER_RESOURCES`; it does not i
 
 Apple 27 verification is **manual**. `scripts/verify_apple_platform.sh` runs it on a Mac with Xcode 27, Blender 5.2 and Reality Composer Pro 3 installed. It was a self-hosted GitHub workflow, but no runner with the required labels was ever registered — the job queued for 24 hours and was cancelled, while appearing in the release pipeline as a gate. A check that cannot run is worse than no check, because it still has to be maintained and its assertions rot unnoticed.
 
-The script preflights the tools and runs the Blender integration suite. It then creates these fresh portable-profile assets from source `.blend` fixtures:
+The script preflights the tools and runs the Blender integration suite. It then creates these fresh assets from source `.blend` fixtures:
 
-- `RedCube.usdc` and `RedCube.usdz`
-- `CubeWith4Animations.usdc`
-- `SkinnedLimb.usdc`, the positive skinned/skeletal portable-material fixture
+- `t22_red_cube.usdc` and `t22_red_cube.usdz`
+- `t23_cube_with_4_animations.usdc`
+- `t12_skinned_limb.usdc`, the positive skinned/skeletal fixture
 
-`t21_specular_tint_refusal.blend` is the expected-rejection fixture: its active Blender 5.2 `Specular Tint` cannot be represented by the portable PBR v1 profile, so the script requires `UNSUPPORTED_MATERIAL_NODES`, a `Specular Tint` detail, diagnostics, and no output asset.
+`t21_specular_tint_refusal.blend` is the expected-rejection fixture: its Blender 5.2 `Specular Tint` is coloured and brighter than 1, which the validator refuses as a value policy rather than a surface limitation, so the script requires `UNSUPPORTED_MATERIAL_NODES`, a `Specular Tint` detail, diagnostics, and no output asset.
 
 Each successfully exported asset receives strict and legacy-ARKit `usdchecker` checks. Xcode 27's `realitytool` then compiles the three USDC fixtures with Metal enabled at deployment target `27.0` for `xros`, `xrsimulator`, `macosx`, `iphoneos`, `iphonesimulator`, `appletvos`, and `appletvsimulator`, retaining every tested `.reality` output as evidence.
 

@@ -97,8 +97,8 @@ error = report.get("error") or {}
 assert error.get("code") == "UNSUPPORTED_MATERIAL_NODES", error.get("code")
 details = error.get("details") or []
 assert any("Specular Tint" in d.get("message", "") for d in details), details
-assert any("RealityKit Portable" in d.get("message", "") for d in details), details
-print("  ok    refused with UNSUPPORTED_MATERIAL_NODES naming Specular Tint")
+assert any("color semantics" in d.get("message", "") for d in details), details
+print("  ok    refused with UNSUPPORTED_MATERIAL_NODES: coloured overbright Specular Tint")
 PY
   [ $? -eq 0 ] || failures=$((failures + 1))
   check test ! -e "$OUT/exports/t21_specular_tint_refusal/t21_specular_tint_refusal.usdc"
@@ -119,23 +119,13 @@ do
 done
 
 # ---------------------------------------------------------------------------
-step "The shipping profile is PBR Surface 2, and OpenPBR stays out of it"
+step "Every material terminates in PBR Surface 2"
 # ---------------------------------------------------------------------------
-# PBR Surface 2 is the default and is verified by import. OpenPBR is not a
-# separate shading model on RealityKit - the editor funnels it into PBR
-# Surface 2 and discards sheen, anisotropy, coat colour, transmission and thin
-# film - so a default export must never author it.
 if [ -e "$OUT/exports/t22_red_cube/t22_red_cube.usdc" ]; then
   profile="$OUT/t22_red_cube-material-profile.usda"
   xcrun usdcat "$OUT/exports/t22_red_cube/t22_red_cube.usdc" --out "$profile"
   check grep -Fq 'realitykit_pbr2' "$profile"
   check grep -Fq 'ND_realitykit_pbr_surfaceshader_2_0"' "$profile"
-  if grep -Fq 'ND_open_pbr_surface_surfaceshader' "$profile"; then
-    echo "  FAIL  OpenPBR escaped into the default export"
-    failures=$((failures + 1))
-  else
-    echo "  ok    the default export authors PBR Surface 2 and no OpenPBR"
-  fi
 fi
 
 # ---------------------------------------------------------------------------

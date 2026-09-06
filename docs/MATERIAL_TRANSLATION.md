@@ -211,149 +211,124 @@ and skeletons; those are outside material translation.
 
 ---
 
-## Surface profiles
+## The surface
 
-The profile picks which MaterialX surface nodedef the graph terminates in, and
-therefore which Blender controls can survive at all.
+Every translated material terminates in one MaterialX surface nodedef.
 
-| Profile | Nodedef | MaterialX | Status |
+| Surface | Nodedef | MaterialX | Status |
 |---------|---------|-----------|--------|
-| `realitykit_portable` | `ND_realitykit_pbr_surfaceshader` | 1.38 | The original 13-input surface; selectable for pinned pipelines |
-| `realitykit_pbr2` | `ND_realitykit_pbr_surfaceshader_2_0` | 1.38 | **Default.** Verified — imports as native PBR Surface 2, builds, renders |
-| `openpbr_1_1` | `ND_open_pbr_surface_surfaceshader` | 1.39 | Subset of PBR Surface 2 on RealityKit — see the warning below |
-| *(unlit)* | `realitykit_unlit_surfaceshader` | 1.38 | Not selectable directly — see [When a material exports as unlit](#when-a-material-exports-as-unlit) |
+| RealityKit PBR Surface 2 | `ND_realitykit_pbr_surfaceshader_2_0` | 1.38 | Verified — imports into Reality Composer Pro 3 as native "PBR Surface 2 (RealityKit)", builds, renders |
+| *(unlit)* | `realitykit_unlit_surfaceshader` | 1.38 | Produced by material shape or by the bake pipeline — see [When a material exports as unlit](#when-a-material-exports-as-unlit) |
 
-Constants live at `Plugin/export/materials/graph.py:12-18`; selection at
-`_select_surface_profile` (`Plugin/export/materials/graph.py:257-286`).
+The nodedef name and the `surfaceProfile` label written into the USD
+(`realitykit_pbr2`) are constants at the top of
+`Plugin/export/materials/graph.py`. There is nothing to select. A build whose
+bundled manifest lacks the nodedef raises (`_require_pbr_surface_2`) rather
+than falling back: the code refuses to switch shading models silently.
 
-### How you select a profile
+### Why there is nothing else to choose
 
-The profile is the scene property `materialx_surface_profile`
-(`Plugin/ui/panel.py:244-265`), default `realitykit_pbr2` — the one name in
-`Plugin/apple_contract.py` that every fallback reads
-(`Plugin/api/commands/_settings_common.py:26`).
+RealityKit has two other lit PBR surfaces, and neither carries anything this
+one does not.
 
-- **Blender UI**: the *Surface Profile* enum, labeled "RealityKit PBR Surface
-  2 (Recommended)", "RealityKit PBR (Portable)", and
-  "OpenPBR 1.1 / MaterialX 1.39 (Experimental)".
-- **CLI**: `--materialx-surface-profile` (`Plugin/cli/__main__.py:427`) or a
-  setting override. The accepted values are exactly those three
-  (`Plugin/api/commands/_settings_common.py:28-31`).
+- The original `ND_realitykit_pbr_surfaceshader` declares 13 inputs, every one
+  of them also on PBR Surface 2 under the same name. Exporting to it could only
+  drop controls.
+- OpenPBR 1.1 (`ND_open_pbr_surface_surfaceshader`, MaterialX 1.39) has no
+  Metal implementation of its own on RealityKit. Reality Composer Pro expands
+  it through a `realitykit`-target nodegraph that terminates in PBR Surface 2
+  and connects 22 of its 30 inputs; sheen, specular and coat anisotropy, coat
+  colour, transmission and thin film are converted and then discarded. The
+  editor shows this on the node by greying out *Fuzz Color*, *Fuzz Roughness*,
+  *Fuzz Weight* and *Specular Anisotropy* and hiding the transmission and
+  thin-film inputs. An OpenPBR export is a PBR Surface 2 export with fewer
+  inputs.
 
-Selection is strict. An unknown value raises
-`Unknown MaterialX surface profile` (`:280`). A profile whose nodedef is
-missing from the bundled manifest raises rather than falling back — the code
-refuses to switch shading models silently (`:283-286`).
-
-Choosing `openpbr_1_1` adds a standing diagnostics warning
-(`OPENPBR_SUBSET_RUNTIME_WARNING` in `Plugin/export/materials/graph.py`,
-emitted from `Plugin/export/materials/rewrite.py`):
-
-> OpenPBR 1.1 on RealityKit is a subset of RealityKit PBR Surface 2: Reality
-> Composer Pro expands it into that surface and drops sheen, specular and coat
-> anisotropy, coat colour, transmission and thin film on the way. Select
-> RealityKit PBR Surface 2 unless the material is hand-authored OpenPBR.
-
-That is measured, not cautious. Apple's `realitykit`-target expansion of
-`ND_open_pbr_surface_surfaceshader` terminates in
-`ND_realitykit_pbr_surfaceshader_2_0` and connects 22 of its 30 inputs; the
-rest are converted and discarded. Reality Composer Pro shows this on the node
-by greying out *Fuzz Color*, *Fuzz Roughness*, *Fuzz Weight* and *Specular
-Anisotropy*, and hiding the transmission and thin-film inputs entirely. There
-is no surface on RealityKit that expresses more than PBR Surface 2's 30
-inputs.
-
-`realitykit_pbr2` carries no standing warning. It once did — it was labelled
-experimental because this repository's own shader checker reported it as
-unbuildable, a false verdict from the checker matching the nodedef name
-against a Metal symbol spelled `_v2`. The surface imports into Reality
-Composer Pro 3 as native "PBR Surface 2 (RealityKit)", builds, and renders.
-
-*Verification: `t08_opacity` exported under both profiles and imported into
-Reality Composer Pro 3.0 (build 80.0.1.500.1), 2026-08; the built
-`.tm_material` records `ND_realitykit_pbr_surfaceshader_2_0` and
-`ND_open_pbr_surface_surfaceshader` respectively. Expansion measured in
-`Apple/apple_nodedefs_overrides/apple_open_pbr_overrides.mtlx`.*
+*Verification: `t08_opacity` exported to each of the three surfaces and
+imported into Reality Composer Pro 3.0 (build 80.0.1.500.1), 2026-08; the
+built `.tm_material` records the nodedef each landed on. The OpenPBR expansion
+is measured in `Apple/apple_nodedefs_overrides/apple_open_pbr_overrides.mtlx`
+under Reality Composer Pro's MaterialX libraries.*
 
 ### When a material exports as unlit
 
-You never choose unlit from the profile enum. Two independent things produce
-it:
+Two independent things produce an unlit material:
 
 1. **Material shape.** A `type` of `simple` or `emission` always builds an
-   unlit graph, whatever the profile is
-   (`Plugin/export/materials/rewrite.py:273-274`). A material with `use_nodes`
-   off, or one whose active output is an Emission node, becomes an unlit
-   RealityKit material without further notice.
+   unlit graph (`Plugin/export/materials/rewrite.py`). A material with
+   `use_nodes` off, or one whose active output is an Emission node, becomes an
+   unlit RealityKit material without further notice.
 2. **`force_unlit_materials`.** A `HIDDEN` scene property
-   (`Plugin/ui/panel.py:524-530`) that no panel exposes. Only the bake
-   pipeline sets it, from `bake_mode`
-   (`Plugin/export/bake_finalize.py:10-22`): `LIT_ALBEDO` builds PBR;
-   `UNLIT_ALBEDO` and `LIT_IBL` build unlit — the latter because Blender
-   lighting is already burned into the baked texels.
+   (`Plugin/ui/panel.py`) that no panel exposes. Only the bake pipeline sets
+   it, from `bake_mode` (`Plugin/export/bake_finalize.py`): `LIT_ALBEDO`
+   builds PBR; `UNLIT_ALBEDO` and `LIT_IBL` build unlit — the latter because
+   Blender lighting is already burned into the baked texels.
 
-The artist-facing mapping lives in `Plugin/export_profile.py:33-52`:
-*Material Type* maps to RealityKit PBR (translate or bake) or RealityKit Unlit
-(material color, or lighting + shadows).
+The artist-facing mapping lives in `Plugin/export_profile.py`: *Material
+Type* maps to RealityKit PBR (translate or bake) or RealityKit Unlit (material
+color, or lighting + shadows).
 
 The unlit surface carries only `color`, `opacity`, `opacityThreshold`, and
-`hasPremultipliedAlpha` (`Plugin/export/materials/graph.py:996-1039`). Linked
+`hasPremultipliedAlpha` (`Plugin/export/materials/graph.py`). Linked
 expression graphs are filtered against the nodedef's declared inputs rather
-than a hard-coded list (`:963-994`), with a warning naming what was dropped.
+than a hard-coded list, with a warning naming what was dropped.
 
-### What each profile carries
+### What the surface carries
 
-`realitykit_pbr2` is the superset the other two are derived from
-(`_map_realitykit_pbr2_inputs`, `Plugin/export/materials/graph.py:433-594`).
+`_map_realitykit_pbr2_inputs` (`Plugin/export/materials/graph.py`) maps
+Principled inputs onto the surface's 30 declared inputs; 28 are reachable from
+Blender. `bentNormal` and `bakedIndirectIrradiance` have no Blender source.
 
-| Blender Principled input | pbr2 | portable | openpbr_1_1 |
-|---|---|---|---|
-| Base Color | `baseColor` | `baseColor` | `base_color` |
-| Metallic | `metallic` | `metallic` | `base_metalness` |
-| Roughness | `roughness` | `roughness` | `specular_roughness` |
-| Normal | `normal` | `normal` | `geometry_normal` |
-| Emission Color × Strength | `emissiveColor` | `emissiveColor` | `emission_color` |
-| Alpha | `opacity` | `opacity` | `geometry_opacity` |
-| (cutout threshold) | `opacityThreshold` | `opacityThreshold` | **raises** |
-| AO (baked) | `ambientOcclusion` | `ambientOcclusion` | — |
-| Specular IOR Level | `specular` | `specular` | `specular_weight` (×2) |
-| Coat Weight / Roughness / Normal | `clearcoat*` | `clearcoat*` | `coat_weight`, `coat_roughness`, `geometry_coat_normal` |
-| Coat IOR | `clearcoatIOR` | **dropped** | `coat_ior` |
-| Coat Tint | — | **dropped** | `coat_color` — authored, then **discarded by RCP** |
-| IOR | `specularIOR` | **dropped** | `specular_ior` |
-| Specular Tint | `specularColor` | **dropped** | `specular_color` |
-| Diffuse Roughness | `baseDiffuseRoughness` | **dropped** | `base_diffuse_roughness` |
-| Subsurface Weight / Radius / Scale / Anisotropy | `subsurface*` | **dropped** | `subsurface_*` |
-| Sheen Weight / Tint | `sheenColor` (combined) | **dropped** | `fuzz_weight`, `fuzz_color` — authored, then **discarded by RCP** |
-| Sheen Roughness | **warns, dropped** | **dropped** | `fuzz_roughness` — authored, then **discarded by RCP** |
-| Anisotropic / Rotation | `specularAnisotropy*` | **dropped** | `specular_roughness_anisotropy` — authored, then **discarded by RCP** |
-| Premultiplied alpha | `hasPremultipliedAlpha` | `hasPremultipliedAlpha` | — |
+| Blender Principled input | PBR Surface 2 input |
+|---|---|
+| Base Color | `baseColor` |
+| Metallic | `metallic` |
+| Roughness | `roughness` |
+| Normal | `normal` |
+| Emission Color × Strength | `emissiveColor` |
+| Alpha | `opacity` |
+| (cutout threshold) | `opacityThreshold` |
+| AO (baked) | `ambientOcclusion` |
+| Specular IOR Level | `specular` |
+| Coat Weight / Roughness / Normal | `clearcoat*` |
+| Coat IOR | `clearcoatIOR` |
+| IOR | `specularIOR` |
+| Specular Tint (achromatic, ≤ 1) | `specularColor` |
+| Diffuse Roughness | `baseDiffuseRoughness` |
+| Subsurface Weight / Radius / Scale / Anisotropy | `subsurface*` |
+| Sheen Weight × Tint | `sheenColor` |
+| Premultiplied alpha | `hasPremultipliedAlpha` |
 
-Portable's allowlist is the 13 names at
-`Plugin/export/materials/graph.py:599-613`. OpenPBR's rename table is at
-`:620-642` and `:818-839`.
+The strict validator refuses these before the graph builder runs:
 
-In practice, under the portable profile most of the "dropped" column never
-reaches the graph builder at all: the strict validator rejects the export
-first with an actionable message. A cube whose Principled has `IOR = 1.45`
-and `Sheen Weight = 0.3` fails validation with:
+| Blender Principled input | Why |
+|---|---|
+| Coat Tint | No RealityKit surface carries a coat tint |
+| Sheen Roughness other than `0.5` | The surface has no such input |
+| Specular Tint, coloured or linked | Colour semantics are not verified against the surface |
+| Specular Tint, achromatic and brighter than 1 | Outside the verified range; `normalize_unsupported_values` clamps it for the export instead |
+| Anisotropic, Anisotropic Rotation, Tangent | The surface has `specularAnisotropyLevel` and `specularAnisotropyAngle`, but Blender's level factor and tangent rotation are not reproduced, and a partial mapping is worse than a refusal |
+| Transmission Weight, Thin Film, Thin Wall, Subsurface IOR | No surface input |
+| Linked Coat Weight / Roughness / Tint | Linked coat controls are not preserved; constants are |
+
+Every refusal names the input and ends with a bake remedy. A cube whose
+Principled has `Coat Weight = 0.5` with a red `Coat Tint`, and
+`Sheen Weight = 0.3` with `Sheen Roughness = 0.2`, fails validation with:
 
 ```
-Principled 'IOR' is active, but the RealityKit Portable profile does not export it;
-  select RealityKit PBR Surface 2 or bake the material.
-Principled 'Sheen Weight' is active, but the RealityKit Portable profile does not export it;
-  select RealityKit PBR Surface 2 or bake the material.
+Principled 'Coat Tint' has no RealityKit PBR Surface 2 input, and no RealityKit surface carries a coat tint; bake the material.
+Principled 'Sheen Roughness' has no RealityKit PBR Surface 2 input; bake the material.
 ```
 
-Under the default PBR Surface 2 the same cube exports, with both controls on
-the surface.
+An input only counts as active when it is linked or differs from its neutral
+value — white for Coat Tint and Specular Tint, `0.5` for Sheen Roughness, `0`
+for Anisotropic. Subordinate controls are judged only while their weight is
+non-zero, so a red Coat Tint under `Coat Weight = 0` is silent. The rules are
+`_unsupported_principled_inputs` in `Plugin/nodes/validate.py`.
 
-An input only counts as "active" when it differs from its neutral value. The
-neutral values are listed in `_PORTABLE_OMITTED_PRINCIPLED_INPUTS`
-(`Plugin/nodes/validate.py:147-185`). Note that `IOR` is neutral at `1.5`,
-`Sheen Roughness` at `0.5`, and `Subsurface Scale` at `0.005`.
-
-*Verification: validator messages observed by exporting from Blender 5.2.*
+*Verification: messages transcribed from `Plugin/nodes/validate.py`; the
+input map read from `_map_realitykit_pbr2_inputs` and checked against the
+shipped nodedef's 30 declared inputs.*
 
 ---
 
@@ -454,37 +429,19 @@ readers `Image`, `Image_1`, and so on
 
 *Verification: observed on Blender 5.2 at repository commit `35354bb`.*
 
-### Profile-driven drops
+### Refused and dropped Principled inputs
 
 | Trigger | What happens | Told? | Control |
 |---|---|---|---|
-| Portable profile, PBR2-only **constant** (IOR, Specular Tint, subsurface, sheen, anisotropy, Coat IOR/Tint, Diffuse Roughness) | dropped from the surface | **Error** from the validator; **Silent** in the graph builder | switch profile, or bake |
-| Portable profile, PBR2-only **linked** input | dropped | **Warning**: `Portable RealityKit material profile omitted PBR2-only inputs: ...` | switch profile, or bake |
-| Portable profile, linked sheen | dropped | **Warning**: `Portable RealityKit material profile omitted linked sheen controls.` | switch profile |
-| OpenPBR, input the surface does not declare | dropped | **Warning**, naming each | bake |
-| OpenPBR, `opacityThreshold` present | **export fails** | **Error** | clear `blender_to_rcp_alpha_cutout_threshold`, or use a RealityKit profile |
-| OpenPBR, non-tangent normal map | **export fails** | **Error** | bake a tangent-space normal map |
-| PBR2, Sheen Roughness linked | dropped | **Warning** | bake — OpenPBR's fuzz roughness is discarded by RCP |
+| Coat Tint, Sheen Roughness, coloured or linked Specular Tint, anisotropy, transmission, thin film, thin wall, Subsurface IOR, linked coat controls | **export fails** (strict validator) | **Error**, naming the input, with a bake remedy | bake |
+| Specular Tint achromatic and brighter than 1 | **export fails**; with `normalize_unsupported_values` it is clamped to white for the export instead | **Error** naming the clamp; **Warning** naming the clamped value once applied | enable the clamp, or set it to white |
+| Sheen Roughness reaching the graph builder by another route | dropped | **Warning**: `RealityKit PBR Surface 2 has no sheen roughness input; bake this control.` | bake |
 | Unlit surface, any PBR input | dropped | **Warning**, naming each | — |
 
-Note the asymmetry in the first row. The portable input filter
-(`_map_realitykit_portable_inputs`,
-`Plugin/export/materials/graph.py:596-614`) filters with a bare dict
-comprehension and emits no diagnostic for what it removed — unlike the OpenPBR
-path (`:714-718`) and the unlit path (`:989-993`), which both warn. Your
-protection is the earlier strict validator message
-(`Plugin/nodes/validate.py:347-350`). If a graph reaches the builder by
-another route, the drop is silent.
-
-The OpenPBR omission report (`:674-718`) checks against the nodedef's declared
-inputs rather than a second hard-coded list, so the two cannot drift. It also
-verifies that `specular` and `sheenColor`, which are absent from the rename
-table, really did arrive under their substitute names `specular_weight` and
-`fuzz_weight`.
-
-The OpenPBR cutout refusal (`:690-695`) is deliberate: OpenPBR has no clip
-mode, so carrying on would ship alpha blending in place of the rendering model
-you asked for.
+The validator runs first, so the builder's own sheen-roughness warning is a
+second line of defence for a caller that skips validation. The unlit path
+filters against the nodedef's declared inputs rather than a second hard-coded
+list, so the two cannot drift.
 
 ### Opacity, transparency, and cutout
 
@@ -534,10 +491,8 @@ is still allowed, since no encoder runs.
 | Trigger | What happens | Told? |
 |---|---|---|
 | Normal Map node, tangent space, Strength 1.0 | `ND_normal_map_decode` (RealityKit's decoder) | **Silent** |
-| Tangent space, Strength ≠ 1.0 | `ND_normal_map_decode`, then a mix toward the geometric normal and a renormalize — Blender's own smooth-shaded strength, expressed in tangent space | **Silent** |
-| Object or world space, any profile | **export fails** with bake advice | **Error** |
-| OpenPBR profile | `ND_normalmap` (`normal_decode = 'materialx'`), whose socket is world space | **Silent** |
-| PBR2 + non-default Strength | **export fails** (strict validator) | **Error** |
+| Tangent space, constant Strength ≠ 1.0 | `ND_normal_map_decode`, then a mix toward the geometric normal and a renormalize — Blender's own smooth-shaded strength, expressed in tangent space | **Silent** |
+| Object or world space | **export fails** with bake advice | **Error** |
 | Normal Map node with **linked** Strength | **export fails** (strict validator) | **Error** |
 | Normal Map node set to **DirectX** convention | **export fails** (strict validator) | **Error** |
 | Bump node anywhere in the chain | **export fails** (strict validator) | **Error** |
@@ -549,13 +504,13 @@ reader is always `ND_image_vector3` with no authored color space
 flat tangent normal, so a texture that fails to resolve degrades to unbumped
 shading instead of feeding `(-1, -1, -1)` into the decoder.
 
-Both RealityKit surfaces take the same chain. `ND_image_vector3` →
-`ND_normal_map_decode` → `inputs:normal` is what the portable profile and PBR
-Surface 2 author, and it is the chain shipping RealityKit packages use.
+`ND_image_vector3` → `ND_normal_map_decode` → `inputs:normal` is the chain
+PBR Surface 2 takes, and it is the chain shipping RealityKit packages use.
 
 RealityKit expects the OpenGL green-channel convention, so the DirectX
-convention is rejected (`Plugin/nodes/validate.py:557-565`). The PBR2 strength
-and space checks (`:580-607`) both exist to prevent double-decoding.
+convention is rejected (`Plugin/nodes/validate.py`). The space check exists to
+prevent double-decoding; a linked Strength is refused because only a constant
+can be folded into the tangent-space mix.
 
 The Bump rejection deserves a note. The resolver contains a branch that walks
 a Bump node's `Height` input and returns it as if it were the normal
@@ -617,11 +572,10 @@ Control: the *Normalize Unsupported Values* setting
 | Constant strength + emission **texture** | folded into the texture's `scale` | **Silent** |
 | Constant strength + constant color | multiplied into `emissiveColor` | **Silent** |
 | Linked strength | `combine3` + `multiply` nodes inserted | **Silent** |
-| OpenPBR | `emission_luminance = 1.0` forced, since strength is already in the color | **Silent** |
 
 Implementation: `_scaled_color_expr`
 (`Plugin/export/materials/graph.py:888-914`), the constant fold at
-`:433-508`, and the OpenPBR handling at `:659-661` and `:114-119`.
+`:433-508`.
 
 ### Subsurface color
 
@@ -638,8 +592,8 @@ this is a reconstruction, not a translation.
 `:427-436`). For PBR2 with linked controls, the graph builder instead inserts
 `combine3(weight, weight, weight)` then `multiply(tint, that)`
 (`Plugin/export/materials/graph.py:746-765`). When either control is linked
-the pre-combined constant is discarded so the profile can decide (`:439-443`)
-— PBR2 combines, OpenPBR keeps `fuzz_weight` and `fuzz_color` separate.
+the pre-combined constant is discarded and the graph builder combines them
+into `sheenColor` itself.
 
 ### UVs and texture transforms
 
@@ -709,8 +663,7 @@ select_nodedef_name_for_node(m, "luminance", output_type="float")        -> ND_l
 select_nodedef_name_for_node(m, "convert", color3 -> float)              -> ND_convert_boolean_float
 ```
 
-For example, `Image Texture → RGB to BW → Roughness` under the portable
-profile exports with `"ok": true` and no diagnostics file, and the resulting
+For example, `Image Texture → RGB to BW → Roughness` exports with `"ok": true` and no diagnostics file, and the resulting
 USD contains:
 
 ```
@@ -953,9 +906,8 @@ canonical `effective_texture_mapping_contract`
 (`Plugin/export/materials/mapping.py`). `UNSUPPORTED_TYPES` and
 `PARTIAL_TYPES` are identical between the validator and the extractor's
 table, and `BAKE_TYPES` differs only by `INVERT`. The Mix/Math passthrough
-predicates are duplicated verbatim and behave identically. Profile-driven
-input drops agree because the OpenPBR and unlit paths read the nodedef
-directly instead of duplicating a list.
+predicates are duplicated verbatim and behave identically. The unlit path
+reads the nodedef's declared inputs directly instead of duplicating a list.
 
 *Verification: the `CURVE_RGB` rejection was observed by exporting from
 Blender 5.2.*
@@ -1173,12 +1125,12 @@ pins it across a real Blender export.*
 
 ### Worked example
 
-The MaterialX half of a portable-profile export with an sRGB albedo, a packed
+The MaterialX half of an export with an sRGB albedo, a packed
 Non-Color ORM, and a Non-Color tangent normal map:
 
 ```
 def Shader "pbr_surfaceshader_1" {
-    uniform token info:id = "ND_realitykit_pbr_surfaceshader"
+    uniform token info:id = "ND_realitykit_pbr_surfaceshader_2_0"
     color3f inputs:baseColor.connect  = </.../Image.outputs:out>
     float   inputs:metallic.connect   = </.../swizzle_metallic_b.outputs:out>
     float   inputs:roughness.connect  = </.../swizzle_roughness_g.outputs:out>
@@ -1198,7 +1150,7 @@ with material-prim metadata:
 
 ```
 prepend apiSchemas = ["ColorSpaceAPI", "MaterialXConfigAPI"]
-customData = { dictionary BlenderToRCP = { string surfaceProfile = "realitykit_portable" } }
+customData = { dictionary BlenderToRCP = { string surfaceProfile = "realitykit_pbr2" } }
 uniform token colorSpace:name = "lin_rec709_scene"
 string config:mtlx:version = "1.38"
 ```
@@ -1253,8 +1205,6 @@ Every one of these stops the export.
 | `MaterialX authoring failed: ...` | `rewrite.py:232-239` |
 | `Data texture '<input>' must use Blender Non-Color/raw, not '<x>'` | `textures.py:392-395` |
 | `Unsupported Blender image color space '<x>' for '<input>'` | `textures.py:377-383` |
-| `OpenPBR 1.1 has no alpha-cutout input; ...` | `graph.py:690-695` |
-| `OpenPBR geometry normals require a tangent-space normal map; ...` | `graph.py:949-953`, `:652-655` |
 | `Material '<n>' requires N distinct non-default texture mappings, ...` | `mapping.py:266-272` |
 | `Material '<n>' combines an explicit MaterialX place2d node with a Blender texture Mapping transform.` | `mapping.py:244-249` |
 | `Material '<n>' contains N explicit MaterialX place2d nodes.` | `mapping.py:250-256` |

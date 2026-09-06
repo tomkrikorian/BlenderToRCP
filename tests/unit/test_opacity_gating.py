@@ -116,7 +116,7 @@ def test_opaque_material_authors_no_opacity():
         "is_transparent": False,
     }
 
-    pbr = builder._map_pbr_inputs(material_data)
+    pbr = builder._map_realitykit_pbr2_inputs(material_data)
     unlit = builder._map_unlit_inputs(material_data)
 
     assert "opacity" not in pbr
@@ -133,7 +133,7 @@ def test_transparent_material_authors_opacity():
         "is_transparent": True,
     }
 
-    pbr = builder._map_pbr_inputs(material_data)
+    pbr = builder._map_realitykit_pbr2_inputs(material_data)
     unlit = builder._map_unlit_inputs(material_data)
 
     assert pbr["opacity"] == 0.4
@@ -150,7 +150,7 @@ def test_missing_flag_defaults_to_opaque():
         "alpha": 1.0,
     }
 
-    assert "opacity" not in builder._map_pbr_inputs(material_data)
+    assert "opacity" not in builder._map_realitykit_pbr2_inputs(material_data)
 
 
 @pytest.mark.parametrize("surface_render_method", ["DITHERED", "BLENDED"])

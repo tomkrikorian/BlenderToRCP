@@ -8,7 +8,6 @@ from pathlib import Path
 
 from ._settings_common import (
     INTERNAL_KEYS,
-    MATERIALX_SURFACE_PROFILE_DEFAULT,
     apply_setting_updates_transactionally,
     attach_early_failure_diagnostics,
     get_settings,
@@ -127,11 +126,6 @@ def _handle(args: dict, settings) -> dict:
     from ...export.support_bundle import collect_environment, collect_scene_snapshot
     from ...nodes import validate as rk_validate
 
-    surface_profile = getattr(
-        settings,
-        "materialx_surface_profile",
-        MATERIALX_SURFACE_PROFILE_DEFAULT,
-    )
     normalize_unsupported_values = bool(
         getattr(settings, "normalize_unsupported_values", False)
     )
@@ -150,7 +144,6 @@ def _handle(args: dict, settings) -> dict:
         resolved_output_path=filepath,
         export_format=requested_format,
         selected_only=bool(getattr(settings, "selected_objects_only", False)),
-        materialx_surface_profile=surface_profile,
         normalize_unsupported_values=normalize_unsupported_values,
         blend_file=bpy.data.filepath or None,
     )
@@ -200,7 +193,6 @@ def _handle(args: dict, settings) -> dict:
         result = rk_validate.validate_material(
             mat,
             strict=True,
-            surface_profile=surface_profile,
             normalize_unsupported_values=normalize_unsupported_values,
         )
         for issue in result["warnings"]:

@@ -57,11 +57,11 @@ editor's behavior, and nothing the exporter writes changes it.
 | Emission | Yes | Emissive color reaches the RealityKit surface. |
 | Normal maps | Yes | Decoded for RealityKit, including strength. |
 | Opacity clip threshold | Yes | Written on the surface. |
-| Unlit surface profile | Yes | Selectable per material. |
+| Unlit surface | Yes | Produced by an Emission-output or node-less material, or by the unlit bake modes. |
 | Vertex-color materials | Yes | Read from the mesh's first color attribute. |
-| RealityKit PBR Surface 2 profile | Yes | Verified by import; the richest surface RealityKit has. |
-| OpenPBR 1.1 profile | Yes | A subset of PBR Surface 2 on RealityKit; the export warns which inputs are dropped. |
-| Coat, sheen, subsurface, IOR, anisotropy | Partial | The Portable profile refuses these when active; PBR Surface 2 carries them. |
+| RealityKit PBR Surface 2 | Yes | The one surface every translated material terminates in. Verified by import; the richest surface RealityKit has. |
+| IOR, Specular Tint, Diffuse Roughness, subsurface, sheen, Coat IOR | Yes | Carried on the surface. A coloured or overbright Specular Tint is refused as a value policy. |
+| Coat Tint, Sheen Roughness, anisotropy | Refused | No RealityKit surface carries the first two; anisotropy waits on a verified mapping. Export stops and says bake. |
 | Transmission, thin wall, thin film | Refused | Export stops and names the Principled input to bake or clear. |
 | Mix Shader and other shader-level mixes | Refused | Use **Bake Textures & Export** instead; the message says so. |
 | Noise and Voronoi textures | Partial | Exported as a MaterialX procedural sampled in object space, with a warning. It will not match Blender pixel for pixel. |

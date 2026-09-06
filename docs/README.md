@@ -23,7 +23,7 @@ are told about it.
 
 | Document | Covers |
 |---|---|
-| [MATERIAL_TRANSLATION.md](MATERIAL_TRANSLATION.md) | Blender shader graph → RealityKit MaterialX ShaderGraph: surface profiles, node coverage, color-space handling, the texture pipeline |
+| [MATERIAL_TRANSLATION.md](MATERIAL_TRANSLATION.md) | Blender shader graph → RealityKit MaterialX ShaderGraph: the surface, node coverage, color-space handling, the texture pipeline |
 | [BAKING.md](BAKING.md) | When a bake happens at all, what each bake mode captures, what scene state is overridden and restored, resolution/format/UV choices |
 | [EXPORT_PIPELINE.md](EXPORT_PIPELINE.md) | Geometry, transforms, units, animation, staging and publication, USDZ packaging |
 

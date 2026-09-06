@@ -5,13 +5,12 @@ Material rewrite orchestration for USD stages.
 from ..usd_utils import Usd, UsdShade, Sdf, UsdGeom
 from ..usd_hook import consume_captured_material_map
 from ..usd_textures import require_safe_texture_alpha_staging_policy
-from ...apple_contract import MATERIALX_SURFACE_PROFILE_DEFAULT
 from ...material_policies import (
     normalize_extracted_specular_tint,
     specular_tint_normalization_message,
 )
 from ...manifest.materialx_nodes import load_manifest
-from .graph import MaterialXGraphBuilder, material_profile_runtime_warnings
+from .graph import MaterialXGraphBuilder
 from .extract import extract_blender_material_data, collect_material_warnings
 from .author import create_materialx_material
 from .helpers import _get_blender_data_name
@@ -21,18 +20,9 @@ from .mapping import require_realitykit_mapping_contract
 def rewrite_materials(stage, settings, context, diagnostics=None) -> None:
     """Rewrite materials to MaterialX graphs (Pass 2)."""
     manifest = load_manifest()
-    surface_profile = getattr(
-        settings,
-        "materialx_surface_profile",
-        MATERIALX_SURFACE_PROFILE_DEFAULT,
-    )
-    if diagnostics:
-        for warning in material_profile_runtime_warnings(surface_profile):
-            diagnostics.add_warning(warning)
     builder = MaterialXGraphBuilder(
         manifest,
         diagnostics,
-        surface_profile=surface_profile,
     )
     force_unlit = bool(getattr(settings, "force_unlit_materials", False))
     normalize_unsupported_values = bool(

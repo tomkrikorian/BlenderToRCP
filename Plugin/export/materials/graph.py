@@ -10,30 +10,13 @@ from ...manifest.materialx_nodes import select_node_def_for_node
 
 
 RCP3_PBR2_NODEDEF = "ND_realitykit_pbr_surfaceshader_2_0"
-OPENPBR_1_1_NODEDEF = "ND_open_pbr_surface_surfaceshader"
-PORTABLE_REALITYKIT_PBR_NODEDEF = "ND_realitykit_pbr_surfaceshader"
-
-from ...apple_contract import MATERIALX_SURFACE_PROFILE_DEFAULT
-
-_PROFILE_PORTABLE = "realitykit_portable"
-_PROFILE_DEFAULT = MATERIALX_SURFACE_PROFILE_DEFAULT
-_PROFILE_RCP3 = "realitykit_pbr2"
-_PROFILE_OPENPBR = "openpbr_1_1"
-
-# OpenPBR on RealityKit is not its own shading model. Reality Composer Pro
-# expands ND_open_pbr_surface_surfaceshader through standard_surface into
-# ND_realitykit_pbr_surfaceshader_2_0 and connects 22 of that surface's 30
-# inputs. Everything OpenPBR declares beyond those is converted and then
-# discarded at the last hop - the editor greys the survivors' siblings out on
-# the node. Measured in Apple/apple_nodedefs_overrides/apple_open_pbr_overrides
-# .mtlx and confirmed by import (t08_opacity, RCP 3, 2026-08).
-OPENPBR_SUBSET_RUNTIME_WARNING = (
-    "OpenPBR 1.1 on RealityKit is a subset of RealityKit PBR Surface 2: "
-    "Reality Composer Pro expands it into that surface and drops sheen, "
-    "specular and coat anisotropy, coat colour, transmission and thin film on "
-    "the way. Select RealityKit PBR Surface 2 unless the material is "
-    "hand-authored OpenPBR."
-)
+#: The one MaterialX surface a translated material terminates in. Reality
+#: Composer Pro builds it natively, it is implemented in Metal, and it carries
+#: every Principled control this exporter maps. Two others were removed: the
+#: 13-input portable surface, a strict subset of this one, and OpenPBR, which
+#: RealityKit expands into this one and loses inputs on the way.
+_SURFACE_PROFILE = "realitykit_pbr2"
+_MATERIALX_VERSION = "1.38"
 
 _COLOR_TEXTURE_INPUTS = {
     "color",
@@ -63,14 +46,6 @@ def texture_colorspace_role(input_name: str) -> str:
     return "color" if input_name in _COLOR_TEXTURE_INPUTS else "data"
 
 
-def material_profile_runtime_warnings(surface_profile: str) -> tuple[str, ...]:
-    """Return user-facing compatibility warnings for an explicit profile."""
-    requested = (surface_profile or _PROFILE_DEFAULT).strip().lower()
-    if requested == _PROFILE_OPENPBR:
-        return (OPENPBR_SUBSET_RUNTIME_WARNING,)
-    return ()
-
-
 class MaterialXGraphBuilder:
     """Build MaterialX graphs for RealityKit-compatible materials."""
 
@@ -78,7 +53,6 @@ class MaterialXGraphBuilder:
         self,
         manifest: Dict[str, Any],
         diagnostics=None,
-        surface_profile: str = _PROFILE_DEFAULT,
     ):
         """Initialize the graph builder.
 
@@ -89,7 +63,6 @@ class MaterialXGraphBuilder:
         self.manifest = manifest
         self.diagnostics = diagnostics
         self.node_counter = 0
-        self.surface_profile = surface_profile
 
     def build_pbr_material(self, material_data: Dict[str, Any]) -> Dict[str, Any]:
         """Build a PBR MaterialX graph.
@@ -106,43 +79,28 @@ class MaterialXGraphBuilder:
             'output': None,
         }
 
-        pbr_node_id, profile, materialx_version = self._select_surface_profile()
+        pbr_node_id = self._require_pbr_surface_2()
         pbr_node_def = self._find_node_def(pbr_node_id)
 
         if not pbr_node_def:
             raise ValueError(f"PBR node definition not found: {pbr_node_id}")
 
-        pbr_inputs = self._map_pbr_inputs(material_data, profile)
+        pbr_inputs = self._map_realitykit_pbr2_inputs(material_data)
         pbr_node = self._create_node(
             node_id=pbr_node_id,
             node_name='pbr_surfaceshader',
             inputs=pbr_inputs,
         )
         graph['nodes'].append(pbr_node)
-        profile_graphs = self._profile_input_graphs(
+        profile_graphs = self._pbr2_input_graphs(
             material_data.get('input_graphs', {}),
-            profile,
             material_data,
         )
-        if (
-            profile == _PROFILE_OPENPBR
-            and 'emission_color' in profile_graphs
-            and 'emission_luminance' not in pbr_node['inputs']
-        ):
-            pbr_node['inputs']['emission_luminance'] = 1.0
-
-        if profile == _PROFILE_OPENPBR:
-            weight_name, color_name, base_name = (
-                'subsurface_weight',
-                'subsurface_color',
-                'base_color',
-            )
-        else:
-            weight_name, color_name, base_name = (
-                'subsurfaceWeight',
-                'subsurfaceColor',
-                'baseColor',
-            )
+        weight_name, color_name, base_name = (
+            'subsurfaceWeight',
+            'subsurfaceColor',
+            'baseColor',
+        )
         has_subsurface = weight_name in pbr_inputs or weight_name in profile_graphs
         if has_subsurface and color_name not in pbr_inputs and color_name not in profile_graphs:
             if base_name in profile_graphs:
@@ -156,8 +114,8 @@ class MaterialXGraphBuilder:
             profile_graphs,
         )
         graph['output'] = pbr_node['name']
-        graph['surface_profile'] = profile
-        graph['materialx_version'] = materialx_version
+        graph['surface_profile'] = _SURFACE_PROFILE
+        graph['materialx_version'] = _MATERIALX_VERSION
 
         return graph
 
@@ -267,36 +225,18 @@ class MaterialXGraphBuilder:
             if entry.get('name')
         }
 
-    def _select_surface_profile(self):
-        """Select an explicit, versioned surface contract.
+    def _require_pbr_surface_2(self) -> str:
+        """The nodedef every PBR material terminates in, or a loud failure.
 
-        The verified RealityKit PBR graph remains the shipping default.
-        PBR2 and OpenPBR are explicit, capability-gated enrichments until
-        their complete export and runtime contracts are validated.
+        A manifest without it means the platform contract moved; refuse rather
+        than fall back to a different shading model in silence.
         """
-        requested = (self.surface_profile or _PROFILE_DEFAULT).strip().lower()
-        has_portable = bool(
-            self.manifest.get("nodes", {}).get(PORTABLE_REALITYKIT_PBR_NODEDEF)
-        )
-        has_pbr2 = bool(self.manifest.get("nodes", {}).get(RCP3_PBR2_NODEDEF))
-        has_openpbr = bool(self.manifest.get("nodes", {}).get(OPENPBR_1_1_NODEDEF))
-
-        if requested == _PROFILE_PORTABLE:
-            if not has_portable:
-                raise ValueError("Portable RealityKit PBR nodedef is not available")
-            return PORTABLE_REALITYKIT_PBR_NODEDEF, _PROFILE_PORTABLE, "1.38"
-        if requested == _PROFILE_OPENPBR:
-            if not has_openpbr:
-                raise ValueError("OpenPBR 1.1 nodedef is not available in the MaterialX manifest")
-            return OPENPBR_1_1_NODEDEF, _PROFILE_OPENPBR, "1.39"
-        if requested != _PROFILE_RCP3:
-            raise ValueError(f"Unknown MaterialX surface profile: {self.surface_profile}")
-        if has_pbr2:
-            return RCP3_PBR2_NODEDEF, _PROFILE_RCP3, "1.38"
-        raise ValueError(
-            "RealityKit PBR Surface 2 was explicitly selected but its exact OS 27 nodedef "
-            "is unavailable; refusing to switch shading models silently"
-        )
+        if not self.manifest.get("nodes", {}).get(RCP3_PBR2_NODEDEF):
+            raise ValueError(
+                f"{RCP3_PBR2_NODEDEF} is not in the MaterialX manifest; "
+                "regenerate it with scripts/build_materialx_manifest.py"
+            )
+        return RCP3_PBR2_NODEDEF
 
     def _create_node(self, node_id: str, node_name: str, inputs: Dict[str, Any]) -> Dict[str, Any]:
         """Create a new node payload with a unique name."""
@@ -443,17 +383,6 @@ class MaterialXGraphBuilder:
             source_has_alpha=expr.get("source_has_alpha"),
         )
 
-    def _map_pbr_inputs(
-        self,
-        material_data: Dict[str, Any],
-        profile: str = _PROFILE_RCP3,
-    ) -> Dict[str, Any]:
-        """Map Blender Principled BSDF inputs to RealityKit PBR inputs."""
-        if profile == _PROFILE_OPENPBR:
-            return self._map_openpbr_inputs(material_data)
-        if profile == _PROFILE_PORTABLE:
-            return self._map_realitykit_portable_inputs(material_data)
-        return self._map_realitykit_pbr2_inputs(material_data)
 
     def _map_realitykit_pbr2_inputs(self, material_data: Dict[str, Any]) -> Dict[str, Any]:
         """Map Blender Principled BSDF inputs to RealityKit PBR Surface 2."""
@@ -638,134 +567,12 @@ class MaterialXGraphBuilder:
 
         return inputs
 
-    def _map_realitykit_portable_inputs(self, material_data: Dict[str, Any]) -> Dict[str, Any]:
-        """Return the beta-safe RealityKit PBR v1 subset used for shipping."""
-        pbr2 = self._map_realitykit_pbr2_inputs(material_data)
-        supported = {
-            'baseColor',
-            'emissiveColor',
-            'normal',
-            'roughness',
-            'metallic',
-            'ambientOcclusion',
-            'specular',
-            'opacity',
-            'opacityThreshold',
-            'clearcoat',
-            'clearcoatRoughness',
-            'clearcoatNormal',
-            'hasPremultipliedAlpha',
-        }
-        return {name: value for name, value in pbr2.items() if name in supported}
 
-    def _map_openpbr_inputs(self, material_data: Dict[str, Any]) -> Dict[str, Any]:
-        """Map the same Principled payload to the explicit OpenPBR 1.1 fallback."""
-        pbr2 = self._map_realitykit_pbr2_inputs(material_data)
-        result: Dict[str, Any] = {'base_weight': 1.0}
-        rename = {
-            'baseColor': 'base_color',
-            'baseDiffuseRoughness': 'base_diffuse_roughness',
-            'metallic': 'base_metalness',
-            'roughness': 'specular_roughness',
-            'specularIOR': 'specular_ior',
-            'specularAnisotropyLevel': 'specular_roughness_anisotropy',
-            'specularColor': 'specular_color',
-            'specularWeight': 'specular_weight',
-            'normal': 'geometry_normal',
-            'opacity': 'geometry_opacity',
-            'clearcoat': 'coat_weight',
-            'clearcoatRoughness': 'coat_roughness',
-            'clearcoatNormal': 'geometry_coat_normal',
-            'clearcoatIOR': 'coat_ior',
-            'clearcoatAnisotropyLevel': 'coat_roughness_anisotropy',
-            'subsurfaceWeight': 'subsurface_weight',
-            'subsurfaceColor': 'subsurface_color',
-            'subsurfaceRadius': 'subsurface_radius',
-            'subsurfaceRadiusScale': 'subsurface_radius_scale',
-            'subsurfaceScatterAnisotropy': 'subsurface_scatter_anisotropy',
-            'emissiveColor': 'emission_color',
-        }
-        for source_name, target_name in rename.items():
-            if source_name in pbr2:
-                value = pbr2[source_name]
-                if source_name in {'normal', 'clearcoatNormal'} and isinstance(value, dict):
-                    value = dict(value)
-                    if (value.get('space') or 'tangent').strip().lower() not in {
-                        '',
-                        'tangent',
-                    }:
-                        raise ValueError(
-                            "OpenPBR geometry normals require a tangent-space normal map; "
-                            "bake object-space normals before export"
-                        )
-                    value['normal_decode'] = 'materialx'
-                result[target_name] = value
 
-        if 'emissiveColor' in pbr2:
-            # The extracted emissive color already contains Blender's strength.
-            result['emission_luminance'] = 1.0
-        if 'sheen_weight' in material_data:
-            result['fuzz_weight'] = material_data['sheen_weight']
-        if 'sheen_tint' in material_data:
-            result['fuzz_color'] = self._convert_color(material_data['sheen_tint'])
-        if 'sheen_roughness' in material_data:
-            result['fuzz_roughness'] = material_data['sheen_roughness']
-        if 'clearcoat_tint' in material_data:
-            result['coat_color'] = self._convert_color(material_data['clearcoat_tint'])
 
-        self._report_openpbr_omissions(pbr2, rename, result)
-        return result
-
-    def _report_openpbr_omissions(
-        self,
-        pbr2: Dict[str, Any],
-        rename: Dict[str, str],
-        result: Dict[str, Any],
-    ) -> None:
-        """Refuse or report every PBR2 input OpenPBR 1.1 cannot carry.
-
-        The rename table is a whitelist, so anything missing from it used to
-        disappear without a trace. What survives the surface is decided by the
-        nodedef rather than a second hard-coded list so the two cannot drift.
-        """
-        # A cutout threshold only exists because the scene set
-        # blender_to_rcp_alpha_cutout_threshold; the exporter never infers one.
-        # OpenPBR has no clip, so carrying on would quietly ship alpha blending
-        # in place of the rendering model that was explicitly asked for.
-        if 'opacityThreshold' in pbr2:
-            raise ValueError(
-                "OpenPBR 1.1 has no alpha-cutout input; clear "
-                "blender_to_rcp_alpha_cutout_threshold or export this material "
-                "with a RealityKit PBR profile"
-            )
-
-        # specular and sheenColor are absent from the rename table but are not
-        # lost: extraction always pairs them with the values this method routes
-        # to specular_weight and the fuzz_* trio. Confirm the substitute was
-        # actually authored rather than trusting that pairing.
-        carried_under_another_name = {
-            'specular': 'specular_weight',
-            'sheenColor': 'fuzz_weight',
-        }
-        declared = self._declared_input_names(
-            self._find_node_def(OPENPBR_1_1_NODEDEF)
-        )
-        omitted = sorted(
-            name
-            for name in pbr2
-            if carried_under_another_name.get(name) not in result
-            and rename.get(name, name) not in declared
-        )
-        if omitted and self.diagnostics:
-            self.diagnostics.add_warning(
-                "OpenPBR 1.1 material profile omitted inputs the OpenPBR surface "
-                "does not expose: " + ", ".join(omitted)
-            )
-
-    def _profile_input_graphs(
+    def _pbr2_input_graphs(
         self,
         graph_inputs: Dict[str, Any],
-        profile: str,
         material_data: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         material_data = material_data or {}
@@ -788,128 +595,33 @@ class MaterialXGraphBuilder:
                 strength_expr,
             )
 
-        if profile == _PROFILE_RCP3:
-            if sheen_weight is not None or sheen_tint is not None:
-                weight_expr = sheen_weight or {
-                    'kind': 'constant',
-                    'value': material_data.get('sheen_weight', 0.0),
-                }
-                tint_expr = sheen_tint or {
-                    'kind': 'constant',
-                    'value': material_data.get('sheen_tint', [1.0, 1.0, 1.0]),
-                }
-                weight_color = {
-                    'kind': 'node',
-                    'node_id': self._nodedef_for_graph('combine3', 'color3'),
-                    'inputs': {'in1': weight_expr, 'in2': weight_expr, 'in3': weight_expr},
-                }
-                graph_inputs['sheenColor'] = {
-                    'kind': 'node',
-                    'node_id': self._nodedef_for_graph('multiply', 'color3'),
-                    'inputs': {'in1': tint_expr, 'in2': weight_color},
-                }
-            if sheen_roughness is not None and self.diagnostics:
-                self.diagnostics.add_warning(
-                    "RealityKit PBR Surface 2 has no sheen roughness input; bake this control "
-                    "or select OpenPBR 1.1."
-                )
-            if specular_level is not None:
-                graph_inputs['specular'] = specular_level
-                graph_inputs['specularWeight'] = self._scaled_float_expr(specular_level, 2.0)
-            return graph_inputs
-
-        if profile == _PROFILE_OPENPBR:
-            if sheen_weight is not None:
-                graph_inputs['fuzz_weight'] = sheen_weight
-            if sheen_tint is not None:
-                graph_inputs['fuzz_color'] = sheen_tint
-            if sheen_roughness is not None:
-                graph_inputs['fuzz_roughness'] = sheen_roughness
-            if specular_level is not None:
-                graph_inputs['specular_weight'] = self._scaled_float_expr(specular_level, 2.0)
-
-        if profile == _PROFILE_PORTABLE:
-            if specular_level is not None:
-                graph_inputs['specular'] = specular_level
-            supported = {
-                'baseColor',
-                'emissiveColor',
-                'normal',
-                'roughness',
-                'metallic',
-                'specular',
-                'opacity',
-                'clearcoat',
-                'clearcoatRoughness',
-                'clearcoatNormal',
+        if sheen_weight is not None or sheen_tint is not None:
+            weight_expr = sheen_weight or {
+                'kind': 'constant',
+                'value': material_data.get('sheen_weight', 0.0),
             }
-            if (
-                sheen_weight is not None
-                or sheen_tint is not None
-                or sheen_roughness is not None
-            ) and self.diagnostics:
-                self.diagnostics.add_warning(
-                    "Portable RealityKit material profile omitted linked sheen controls."
-                )
-            omitted = sorted(set(graph_inputs) - supported)
-            if omitted and self.diagnostics:
-                self.diagnostics.add_warning(
-                    "Portable RealityKit material profile omitted PBR2-only inputs: "
-                    + ", ".join(omitted)
-                )
-            return {name: expr for name, expr in graph_inputs.items() if name in supported}
-        if profile != _PROFILE_OPENPBR:
-            return graph_inputs
-        rename = {
-            'baseColor': 'base_color',
-            'baseDiffuseRoughness': 'base_diffuse_roughness',
-            'metallic': 'base_metalness',
-            'roughness': 'specular_roughness',
-            'specularIOR': 'specular_ior',
-            'specularAnisotropyLevel': 'specular_roughness_anisotropy',
-            'specularColor': 'specular_color',
-            'specularWeight': 'specular_weight',
-            'normal': 'geometry_normal',
-            'opacity': 'geometry_opacity',
-            'clearcoat': 'coat_weight',
-            'clearcoatRoughness': 'coat_roughness',
-            'clearcoatNormal': 'geometry_coat_normal',
-            'clearcoatIOR': 'coat_ior',
-            'subsurfaceWeight': 'subsurface_weight',
-            'subsurfaceColor': 'subsurface_color',
-            'subsurfaceRadius': 'subsurface_radius',
-            'subsurfaceRadiusScale': 'subsurface_radius_scale',
-            'subsurfaceScatterAnisotropy': 'subsurface_scatter_anisotropy',
-            'emissiveColor': 'emission_color',
-        }
-        # Filter against the nodedef for the same reason the unlit surface
-        # does: a rename table that misses a key passes it through verbatim, and
-        # authoring an input OpenPBR does not declare only surfaces later as an
-        # opaque diagnostics-gate failure. A linked Anisotropic Rotation is one
-        # such key - OpenPBR 1.1 has no anisotropy angle at all.
-        declared = self._declared_input_names(
-            self._find_node_def(OPENPBR_1_1_NODEDEF)
-        )
-        mapped: Dict[str, Any] = {}
-        omitted = []
-        for name, expr in graph_inputs.items():
-            target = rename.get(name, name)
-            if target in declared:
-                mapped[target] = expr
-            else:
-                omitted.append(name)
-        if omitted and self.diagnostics:
+            tint_expr = sheen_tint or {
+                'kind': 'constant',
+                'value': material_data.get('sheen_tint', [1.0, 1.0, 1.0]),
+            }
+            weight_color = {
+                'kind': 'node',
+                'node_id': self._nodedef_for_graph('combine3', 'color3'),
+                'inputs': {'in1': weight_expr, 'in2': weight_expr, 'in3': weight_expr},
+            }
+            graph_inputs['sheenColor'] = {
+                'kind': 'node',
+                'node_id': self._nodedef_for_graph('multiply', 'color3'),
+                'inputs': {'in1': tint_expr, 'in2': weight_color},
+            }
+        if sheen_roughness is not None and self.diagnostics:
             self.diagnostics.add_warning(
-                "OpenPBR 1.1 material profile omitted linked inputs the OpenPBR "
-                "surface does not expose: " + ", ".join(sorted(omitted))
+                "RealityKit PBR Surface 2 has no sheen roughness input; bake this control."
             )
-        for normal_name in ('geometry_normal', 'geometry_coat_normal'):
-            if normal_name in mapped:
-                mapped[normal_name] = self._with_normal_decode(
-                    mapped[normal_name],
-                    "materialx",
-                )
-        return mapped
+        if specular_level is not None:
+            graph_inputs['specular'] = specular_level
+            graph_inputs['specularWeight'] = self._scaled_float_expr(specular_level, 2.0)
+        return graph_inputs
 
     def _nodedef_for_graph(self, node_name: str, output_type: str) -> str:
         from ...manifest.materialx_nodes import select_nodedef_name_for_node
@@ -994,7 +706,7 @@ class MaterialXGraphBuilder:
         if result.get('kind') == 'texture':
             if (result.get('space') or 'tangent').strip().lower() not in {'', 'tangent'}:
                 raise ValueError(
-                    "OpenPBR geometry normals require a tangent-space normal map; "
+                    "Geometry normals require a tangent-space normal map; "
                     "bake object-space normals before export"
                 )
             result['normal_decode'] = decode

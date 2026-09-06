@@ -198,7 +198,6 @@ def collect_validation_snapshot(context=None) -> dict:
         from ..nodes import validate as rk_validate
 
         context = context or bpy.context
-        surface_profile = _get_surface_profile(context)
         settings = getattr(
             getattr(context, "scene", None),
             "blender_to_rcp_export_settings",
@@ -215,7 +214,6 @@ def collect_validation_snapshot(context=None) -> dict:
             result = rk_validate.validate_material(
                 material,
                 strict=True,
-                surface_profile=surface_profile,
                 normalize_unsupported_values=normalize_unsupported_values,
             )
             total_errors += len(result.get("errors", []))
@@ -230,7 +228,6 @@ def collect_validation_snapshot(context=None) -> dict:
             "ok": total_errors == 0,
             "error_count": total_errors,
             "warning_count": total_warnings,
-            "materialx_surface_profile": surface_profile,
             "normalize_unsupported_values": normalize_unsupported_values,
             "materials": entries,
         })
@@ -743,23 +740,6 @@ def _collect_export_profile(settings) -> dict:
     except Exception as exc:
         return {"name": "REALITYKIT_OS27", "error": str(exc)}
 
-
-def _get_surface_profile(context) -> str:
-    """Return the active MaterialX profile without making bundles fragile."""
-    try:
-        from ..api.commands._settings_common import MATERIALX_SURFACE_PROFILE_DEFAULT
-
-        scene = getattr(context, "scene", None)
-        settings = getattr(scene, "blender_to_rcp_export_settings", None)
-        return getattr(
-            settings,
-            "materialx_surface_profile",
-            MATERIALX_SURFACE_PROFILE_DEFAULT,
-        )
-    except Exception:
-        from ..apple_contract import MATERIALX_SURFACE_PROFILE_DEFAULT
-
-        return MATERIALX_SURFACE_PROFILE_DEFAULT
 
 
 def _collect_blender_gpu_info(bpy, context) -> dict:

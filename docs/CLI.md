@@ -329,7 +329,6 @@ blendertorcp validate <file.blend> [options]
 |------|-------------|
 | `--material <name>` | Validate a single material by name. Validates all scene materials if omitted |
 | `--only-errors` | Suppress warnings in output |
-| `--materialx-surface-profile <PROFILE>` | Validate against `realitykit_portable`, `realitykit_pbr2`, or `openpbr_1_1` for this run. Defaults to the active scene setting |
 | `--normalize-unsupported-values` | Preview the explicit export-only safe normalization policy; currently limited to constant achromatic overbright Principled Specular Tint |
 
 **Examples:**
@@ -346,19 +345,13 @@ Validate one material:
 blendertorcp validate scene.blend --material "Wood"
 ```
 
-Validate against a different surface profile for this run:
-
-```bash
-blendertorcp validate scene.blend --materialx-surface-profile realitykit_pbr2
-```
-
 Preview the normalization policy:
 
 ```bash
 blendertorcp validate scene.blend --normalize-unsupported-values
 ```
 
-`realitykit_pbr2` is the default, verified against Reality Composer Pro 3, and carries every Principled control the portable surface refuses. `realitykit_portable` is the original 13-input surface, for pipelines pinned to it. `openpbr_1_1` is a subset of PBR Surface 2 on RealityKit; the export warns which inputs are dropped.
+Every material is validated against RealityKit PBR Surface 2, the one surface the exporter authors.
 
 **Output:**
 
@@ -366,7 +359,6 @@ blendertorcp validate scene.blend --normalize-unsupported-values
 {
   "ok": false,
   "error_count": 1,
-  "materialx_surface_profile": "realitykit_portable",
   "normalize_unsupported_values": false,
   "materials": [
     {
@@ -386,7 +378,7 @@ blendertorcp validate scene.blend --normalize-unsupported-values
 }
 ```
 
-`materialx_surface_profile` and `normalize_unsupported_values` echo the policy the run was validated under, so a captured report is self-describing. `--only-errors` drops the `warnings` arrays and the top-level `warning_count` key entirely rather than zeroing them.
+`normalize_unsupported_values` echoes the policy the run was validated under, so a captured report is self-describing. `--only-errors` drops the `warnings` arrays and the top-level `warning_count` key entirely rather than zeroing them.
 
 **Exit codes:**
 
@@ -467,7 +459,7 @@ Error: Unknown group: 'bogus'. Available: ['bake', 'diagnostics', 'general', 'ge
 | `geometry` | `merge_parent_xform`, `triangulate_meshes`, `quad_method`, `ngon_method`, `export_subdivision` |
 | `rigging` | `export_armatures`, `only_deform_bones`, `export_shapekeys` |
 | `texture` | `export_texture_settings_enabled`, `bake_resolution`, `bake_resolution_custom`, `bake_image_format`, `bake_margin` |
-| `materials` | `materialx_surface_profile`, `normalize_unsupported_values` |
+| `materials` | `normalize_unsupported_values` |
 | `bake` | `bake_mode`, `bake_ibl_source`, `bake_ibl_filepath`, `bake_ibl_strength`, `bake_ibl_rotation`, `bake_isolate_meshes_lit`, `bake_base_color`, `bake_opacity`, `bake_keep_materials`, `bake_roughness_mode`, `bake_step_timeout_seconds` |
 | `diagnostics` | `diagnostics_enabled` |
 
@@ -503,7 +495,6 @@ blendertorcp settings get scene.blend --keys export_format bake_resolution
 
 ```json
 {
-  "materialx_surface_profile": "realitykit_portable",
   "normalize_unsupported_values": false
 }
 ```
@@ -1226,7 +1217,7 @@ A rejected value is a hard failure (exit 1, `INVALID_SETTING_VALUE`) — a boole
 | `geometry` | `merge_parent_xform`, `triangulate_meshes`, `quad_method`, `ngon_method`, `export_subdivision` |
 | `rigging` | `export_armatures`, `only_deform_bones`, `export_shapekeys` |
 | `texture` | `export_texture_settings_enabled`, `bake_resolution`, `bake_resolution_custom`, `bake_image_format`, `bake_margin` |
-| `materials` | `materialx_surface_profile`, `normalize_unsupported_values` |
+| `materials` | `normalize_unsupported_values` |
 | `bake` | `bake_mode`, `bake_ibl_source`, `bake_ibl_filepath`, `bake_ibl_strength`, `bake_ibl_rotation`, `bake_isolate_meshes_lit`, `bake_step_timeout_seconds`, `bake_base_color`, `bake_opacity`, `bake_keep_materials`, `bake_roughness_mode` |
 | `diagnostics` | `diagnostics_enabled` |
 
@@ -1249,7 +1240,6 @@ Some settings have a flag on `export` or `bake-export`. The flag and the overrid
 | `--keep-materials` | `bake_keep_materials` |
 | `--roughness-mode` | `bake_roughness_mode` |
 | `--step-timeout` | `bake_step_timeout_seconds` |
-| `--materialx-surface-profile` (`validate`) | `materialx_surface_profile` |
 | `--normalize-unsupported-values` (`validate`) | `normalize_unsupported_values` |
 
 `--resolution`, `--image-format`, and `--margin` also switch `export_texture_settings_enabled` on for the run — that is why they work on a scene where texture overrides are off.
@@ -1278,7 +1268,7 @@ The `--bake-mode` / `bake_mode` identifiers map to these Blender UI labels:
 
 ### Materials profiles
 
-`realitykit_pbr2` (PBR Surface 2) is the default: verified by import into Reality Composer Pro 3, and the surface that carries IOR, specular tint, subsurface, sheen, anisotropy and coat IOR. `realitykit_portable` is the original 13-input surface, for pipelines pinned to it; it refuses those controls when active. `openpbr_1_1` (OpenPBR 1.1 / MaterialX 1.39) is expanded by Reality Composer Pro into PBR Surface 2 and loses sheen, anisotropy, coat colour, transmission and thin film on the way; select it only for hand-authored OpenPBR. USDZ validation is the same for every profile.
+Every translated material terminates in RealityKit PBR Surface 2, verified by import into Reality Composer Pro 3. It carries IOR, specular tint, diffuse roughness, subsurface, sheen and coat IOR. Coat tint, sheen roughness and anisotropy are refused with a bake remedy; no RealityKit surface carries the first two, and anisotropy waits on a verified mapping.
 
 `normalize_unsupported_values=false` preserves the fail-closed default. When enabled, the exporter may clamp only an unlinked constant achromatic Principled `Specular Tint` above `1` to `[1, 1, 1]` in temporary export data. It emits a prominent warning and does not assign to the Blender node or save the `.blend`. Colored, linked, negative, non-finite, and other unsupported values remain errors.
 

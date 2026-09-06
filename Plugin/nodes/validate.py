@@ -6,7 +6,6 @@ from __future__ import annotations
 
 from typing import Dict, List, Optional, Set
 
-from ..apple_contract import MATERIALX_SURFACE_PROFILE_DEFAULT
 from ..material_policies import (
     SPECULAR_TINT_NORMALIZATION_SETTING,
     format_color,
@@ -204,44 +203,9 @@ UNSUPPORTED_TYPES = {
 }
 
 
-# Blender 5.2 Principled controls that the portable RealityKit PBR v1 graph
-# cannot represent.  The neutral values are Blender 5.2's factory defaults,
-# captured from the live node RNA.  Keeping the contract here, beside material
-# validation, prevents the graph builder's intentionally small portable subset
-# from becoming a silent appearance downgrade.
-#
-# The remedy column names the one profile that delivers the control. It used
-# to offer "PBR Surface 2 or OpenPBR 1.1", and sent Coat Tint and Sheen
-# Roughness to OpenPBR alone. Measured against Apple's shipped expansion
-# (apple_open_pbr_overrides.mtlx) and confirmed by import: OpenPBR on
-# RealityKit is funnelled into PBR Surface 2 and loses sheen, anisotropy and
-# coat colour on the way - the editor greys those inputs out. So OpenPBR never
-# delivers more than PBR Surface 2 here, and for Coat Tint and Sheen Roughness
-# it delivers nothing. A remedy that cannot work is worse than "bake".
-_PBR2 = 'RealityKit PBR Surface 2'
-_PORTABLE_OMITTED_PRINCIPLED_INPUTS = (
-    ('Diffuse Roughness', 0.0, _PBR2, None),
-    ('Subsurface Weight', 0.0, _PBR2, None),
-    ('Subsurface Radius', (1.0, 0.2, 0.1), _PBR2, 'Subsurface Weight'),
-    ('Subsurface Scale', 0.005, _PBR2, 'Subsurface Weight'),
-    ('Subsurface Anisotropy', 0.0, _PBR2, 'Subsurface Weight'),
-    ('IOR', 1.5, _PBR2, None),
-    ('Specular Tint', (1.0, 1.0, 1.0, 1.0), None, None),
-    ('Coat IOR', 1.5, _PBR2, 'Coat Weight'),
-    # No RealityKit surface carries a coat tint; OpenPBR declares one and RCP
-    # discards it. Bake.
-    ('Coat Tint', (1.0, 1.0, 1.0, 1.0), None, 'Coat Weight'),
-    ('Sheen Weight', 0.0, _PBR2, None),
-    # PBR Surface 2 has sheenColor but no sheen roughness; OpenPBR's fuzz
-    # roughness is dropped by RCP. Bake.
-    ('Sheen Roughness', 0.5, None, 'Sheen Weight'),
-    ('Sheen Tint', (1.0, 1.0, 1.0, 1.0), _PBR2, 'Sheen Weight'),
-)
-
 # These Blender 5.2 controls currently have no faithful graph path in any
-# profile.  OpenPBR's vendored nodedef exposes thin-film inputs, but extraction
-# does not author them yet; accepting them in validation would still lose the
-# artist's values.  Subsurface IOR is likewise not mapped by either surface.
+# surface.  PBR Surface 2 has no thin-film or subsurface-IOR inputs, and no
+# RealityKit surface does; accepting them would only lose the artist's values.
 _UNMAPPED_PRINCIPLED_INPUTS = (
     ('Subsurface IOR', 1.4, 'Subsurface Weight'),
     ('Thin Film Thickness', 0.0, None),
@@ -273,7 +237,6 @@ def _values_differ(value, neutral, epsilon: float = 1e-6) -> bool:
 
 def _unsupported_principled_inputs(
     node,
-    surface_profile: str = MATERIALX_SURFACE_PROFILE_DEFAULT,
     normalize_unsupported_values: bool = False,
 ) -> List[str]:
     """Report Principled BSDF inputs that RealityKit PBR cannot represent.
@@ -315,7 +278,6 @@ def _unsupported_principled_inputs(
     if transmission_active:
         issues.append("Principled 'Transmission Weight' is not exportable; the material will be opaque.")
 
-    profile = (surface_profile or MATERIALX_SURFACE_PROFILE_DEFAULT).strip().lower()
     specular_tint_socket = _socket('Specular Tint')
     specular_tint_policy = safe_overbright_achromatic_specular_tint(
         getattr(specular_tint_socket, 'default_value', None),
@@ -326,8 +288,8 @@ def _unsupported_principled_inputs(
     )
 
     # Coat constants are mapped, but linked Coat Weight/Roughness/Tint values
-    # have no graph_input_map entry in extraction.  Reject those links in every
-    # profile until they can be preserved rather than accepting a default value.
+    # have no graph_input_map entry in extraction.  Reject those links until
+    # they can be preserved rather than accepting a default value.
     linked_coat_inputs = {
         name
         for name in ('Coat Weight', 'Coat Roughness', 'Coat Tint')
@@ -340,7 +302,7 @@ def _unsupported_principled_inputs(
         )
 
     # Blender's anisotropy level and rotation do not map one-to-one to the
-    # currently authored PBR2/OpenPBR inputs: native Blender 5.2 applies a level
+    # PBR Surface 2 inputs: native Blender 5.2 applies a level
     # factor and tangent rotation that this exporter does not reproduce.  A
     # partially mapped result is worse than an actionable failure.
     anisotropy_inputs = (
@@ -368,57 +330,21 @@ def _unsupported_principled_inputs(
             and _active(name, neutral)
         ):
             issues.append(
-                f"Principled '{name}' is not authored by the selected MaterialX profiles; "
+                f"Principled '{name}' has no RealityKit PBR Surface 2 input; "
                 "bake the material before export."
             )
 
-    if profile == 'realitykit_portable':
-        for name, neutral, alternative, controller in _PORTABLE_OMITTED_PRINCIPLED_INPUTS:
-            # A linked Coat Tint was already reported by the graph-map gate.
-            if name in linked_coat_inputs:
-                continue
-            if (
-                (controller is None or active_controllers.get(controller, False))
-                and _active(name, neutral)
-            ):
-                remediation = (
-                    f"select {alternative} or bake the material"
-                    if alternative
-                    else "bake the material"
-                )
-                if (
-                    name == 'Specular Tint'
-                    and specular_tint_policy is not None
-                ):
-                    if normalize_unsupported_values:
-                        continue
-                    remediation = (
-                        "set it to [1, 1, 1] in Blender, enable "
-                        "'Normalize Unsupported Values' "
-                        f"({SPECULAR_TINT_NORMALIZATION_SETTING}) for an export-only "
-                        "clamp, or bake the material"
-                    )
-                issues.append(
-                    f"Principled '{name}' is active, but the RealityKit Portable profile "
-                    f"does not export it; {remediation}."
-                )
-
     if (
-        profile == 'realitykit_pbr2'
-        and coat_active
+        coat_active
         and 'Coat Tint' not in linked_coat_inputs
         and _active('Coat Tint', (1.0, 1.0, 1.0, 1.0))
     ):
         issues.append(
             "Principled 'Coat Tint' has no RealityKit PBR Surface 2 input, and no "
-            "other RealityKit surface carries one - OpenPBR declares a coat colour "
-            "that Reality Composer Pro discards; bake the material."
+            "RealityKit surface carries a coat tint; bake the material."
         )
 
-    if (
-        profile in {'realitykit_pbr2', 'openpbr_1_1'}
-        and _active('Specular Tint', (1.0, 1.0, 1.0, 1.0))
-    ):
+    if _active('Specular Tint', (1.0, 1.0, 1.0, 1.0)):
         if not (normalize_unsupported_values and specular_tint_policy is not None):
             if specular_tint_policy is not None:
                 issues.append(
@@ -432,12 +358,12 @@ def _unsupported_principled_inputs(
             else:
                 issues.append(
                     "Principled 'Specular Tint' color semantics are not verified "
-                    "against the selected MaterialX surface. Linked or colored values "
+                    "against RealityKit PBR Surface 2. Linked or colored values "
                     "cannot be normalized safely; set an artist-approved value in "
                     "Blender or bake the material."
                 )
 
-    if _active('Sheen Weight') and profile == "realitykit_pbr2":
+    if _active('Sheen Weight'):
         roughness = node.inputs.get('Sheen Roughness')
         roughness_is_custom = False
         if roughness is not None:
@@ -450,8 +376,7 @@ def _unsupported_principled_inputs(
                     pass
         if roughness_is_custom:
             issues.append(
-                "Principled 'Sheen Roughness' has no RealityKit PBR Surface 2 input, "
-                "and OpenPBR's fuzz roughness is discarded by Reality Composer Pro; "
+                "Principled 'Sheen Roughness' has no RealityKit PBR Surface 2 input; "
                 "bake the material."
             )
     return issues
@@ -570,7 +495,6 @@ def validate_material(
     material,
     only_connected: bool = True,
     strict: bool = False,
-    surface_profile: str = MATERIALX_SURFACE_PROFILE_DEFAULT,
     normalize_unsupported_values: bool = False,
 ) -> Dict[str, object]:
     """Validate a Blender material against RealityKit compatibility rules."""
@@ -751,7 +675,6 @@ def validate_material(
                     )
                 for issue in _unsupported_principled_inputs(
                     node,
-                    surface_profile,
                     normalize_unsupported_values=normalize_unsupported_values,
                 ):
                     add_issue("warnings", node, issue, force_error=strict, removable=False)
@@ -778,26 +701,8 @@ def validate_material(
                         force_error=strict,
                         removable=False,
                     )
-                profile = (surface_profile or MATERIALX_SURFACE_PROFILE_DEFAULT).strip().lower()
-                if (
-                    profile == 'realitykit_pbr2'
-                    and strength_socket is not None
-                    and not strength_is_linked
-                    and _values_differ(
-                        getattr(strength_socket, 'default_value', None),
-                        1.0,
-                    )
-                ):
-                    add_issue(
-                        "warnings",
-                        node,
-                        "RealityKit PBR Surface 2 cannot safely apply non-default Normal Map "
-                        "Strength without double-decoding the normal; bake the normal map.",
-                        force_error=strict,
-                        removable=False,
-                    )
                 normal_space = str(getattr(node, 'space', 'TANGENT') or 'TANGENT').upper()
-                if profile == 'realitykit_pbr2' and normal_space != 'TANGENT':
+                if normal_space != 'TANGENT':
                     add_issue(
                         "warnings",
                         node,

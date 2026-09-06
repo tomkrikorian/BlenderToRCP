@@ -118,8 +118,8 @@ class above. Two traps it exists to handle:
   of those broken. An `<implementation>` element is *not* good enough either; it
   names a Metal function that may be missing.
 - RealityKit keeps **one nodedef store per declared MaterialX version**. A node
-  or input present at 1.39 may be absent at 1.38, which is what we declare for
-  the portable profile. `Plugin/manifest/rcp_nodedef_input_gaps.json` records
+  or input present at 1.39 may be absent at 1.38, which is what every export
+  declares. `Plugin/manifest/rcp_nodedef_input_gaps.json` records
   both gaps; regenerate it with `scripts/dump_rcp_nodedef_inputs.py`.
 
 Either mistake makes RealityKit discard the material's **entire** shader graph —

@@ -10,7 +10,6 @@ from pathlib import Path
 
 from .. import prefs as addon_prefs
 from ..api.commands._settings_common import (
-    MATERIALX_SURFACE_PROFILE_DEFAULT,
     REALITYKIT_OS27_DEFAULTS,
 )
 from ..export_profile import (
@@ -226,34 +225,6 @@ class BlenderToRCPExportSettings(PropertyGroup):
         name="Allow Unicode",
         description="Preserve UTF-8 characters in USD names (USD 24.03+)",
         default=True,
-        update=_on_settings_changed,
-    )
-
-    materialx_surface_profile: EnumProperty(
-        name="Surface Profile",
-        description="MaterialX surface contract used when rewriting Blender materials",
-        items=[
-            (
-                'realitykit_portable',
-                "RealityKit PBR (Portable)",
-                "The original 13-input RealityKit PBR surface. Refuses IOR, specular "
-                "tint, subsurface, sheen, anisotropy and coat IOR when they are active; "
-                "select it only for a pipeline pinned to it",
-            ),
-            (
-                'realitykit_pbr2',
-                "RealityKit PBR Surface 2 (Recommended)",
-                "The 30-input RealityKit surface. Carries every Principled control the "
-                "portable profile refuses - IOR, specular tint, subsurface, sheen, "
-                "anisotropy, coat IOR. Verified by import into Reality Composer Pro 3",
-            ),
-            (
-                'openpbr_1_1',
-                "OpenPBR 1.1 / MaterialX 1.39 (Experimental)",
-                "Experimental OpenPBR 1.1 profile; some MaterialX 1.39 nodes remain unsupported in current Apple betas",
-            ),
-        ],
-        default=MATERIALX_SURFACE_PROFILE_DEFAULT,
         update=_on_settings_changed,
     )
 
@@ -749,11 +720,6 @@ class BLENDERTORCP_PT_export_material_settings(Panel):
             processing_row = layout.row(align=True)
             processing_row.prop(settings, "ui_pbr_processing", expand=True)
             if settings.ui_pbr_processing == PBR_PROCESSING_TRANSLATE:
-                layout.prop(
-                    settings,
-                    "materialx_surface_profile",
-                    text="Surface Model",
-                )
                 layout.prop(settings, "normalize_unsupported_values")
                 if settings.normalize_unsupported_values:
                     policy = layout.box()

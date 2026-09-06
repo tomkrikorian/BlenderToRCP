@@ -5,7 +5,6 @@ Shader Editor panel for RealityKit compatibility status.
 import bpy
 from bpy.types import Panel
 
-from ..api.commands._settings_common import MATERIALX_SURFACE_PROFILE_DEFAULT
 from ..nodes import validate as rk_validate
 from .draw_utils import draw_issue_list
 
@@ -23,16 +22,6 @@ def _get_active_material(context):
         return obj.active_material
     return None
 
-
-def _get_surface_profile(context) -> str:
-    """Return the profile whose graph capabilities the panel validates."""
-    scene = getattr(context, "scene", None)
-    settings = getattr(scene, "blender_to_rcp_export_settings", None)
-    return getattr(
-        settings,
-        "materialx_surface_profile",
-        MATERIALX_SURFACE_PROFILE_DEFAULT,
-    )
 
 
 def _normalize_unsupported_values(context) -> bool:
@@ -61,14 +50,11 @@ class BLENDERTORCP_PT_shader_validation(Panel):
             layout.label(text="No active material", icon='INFO')
             return
 
-        surface_profile = _get_surface_profile(context)
         result = rk_validate.validate_material(
             material,
             strict=True,
-            surface_profile=surface_profile,
             normalize_unsupported_values=_normalize_unsupported_values(context),
         )
-        layout.label(text=f"Surface profile: {surface_profile}")
         if _normalize_unsupported_values(context):
             layout.label(text="Export-only safe normalization enabled", icon='INFO')
         if result["errors"]:

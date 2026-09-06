@@ -7,7 +7,6 @@ from dataclasses import dataclass
 from typing import Any
 
 from ...apple_contract import (
-    MATERIALX_SURFACE_PROFILE_DEFAULT,
     REALITYKIT_FORWARD_AXIS,
     REALITYKIT_METERS_PER_UNIT,
     REALITYKIT_SCENE_UNITS,
@@ -24,13 +23,7 @@ from ...apple_contract import (
 # RealityKit's cross-platform renderer profile cannot consume those ordinary
 # USD schemas, so accepting an opt-in would only produce a nonportable asset.
 REALITYKIT_OS27_PROFILE_NAME = "REALITYKIT_OS27"
-MATERIALX_SURFACE_PROFILES = (
-    MATERIALX_SURFACE_PROFILE_DEFAULT,
-    "realitykit_portable",
-    "openpbr_1_1",
-)
 REALITYKIT_OS27_DEFAULTS: dict[str, Any] = {
-    "materialx_surface_profile": MATERIALX_SURFACE_PROFILE_DEFAULT,
     "normalize_unsupported_values": False,
 }
 
@@ -95,7 +88,6 @@ SETTING_GROUPS: dict[str, set[str]] = {
         "bake_margin",
     },
     "materials": {
-        "materialx_surface_profile",
         "normalize_unsupported_values",
     },
     "bake": {
@@ -371,10 +363,8 @@ def coerce_value(prop, value):
         if requested in valid:
             return requested
 
-        # Preserve each property's canonical identifier casing.  Most Blender
-        # enums use uppercase identifiers, while the MaterialX surface-profile
-        # contract intentionally uses the lowercase values consumed by the
-        # material authoring layer.
+        # Preserve each property's canonical identifier casing: Blender enums
+        # mostly use uppercase identifiers, but a caller may pass any case.
         casefolded = {identifier.casefold(): identifier for identifier in valid}
         canonical = casefolded.get(requested.casefold())
         if canonical is None:

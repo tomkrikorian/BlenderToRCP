@@ -180,8 +180,6 @@ def cmd_validate(parsed: argparse.Namespace) -> int:
         args["material"] = parsed.material
     if parsed.only_errors:
         args["only_errors"] = True
-    if parsed.materialx_surface_profile:
-        args["materialx_surface_profile"] = parsed.materialx_surface_profile
     if parsed.normalize_unsupported_values:
         args["normalize_unsupported_values"] = True
     result = _run("validate", args, parsed)
@@ -438,14 +436,6 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("blend_file", help="Path to .blend file")
     p.add_argument("--material", help="Validate a single material by name")
     p.add_argument("--only-errors", action="store_true", help="Suppress warnings")
-    p.add_argument(
-        "--materialx-surface-profile",
-        choices=["realitykit_pbr2", "realitykit_portable", "openpbr_1_1"],
-        help=(
-            "Validate against a MaterialX surface profile for this run "
-            "(default: active scene setting)"
-        ),
-    )
     p.add_argument(
         "--normalize-unsupported-values",
         action="store_true",

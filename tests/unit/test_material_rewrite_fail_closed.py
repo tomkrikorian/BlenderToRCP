@@ -26,7 +26,6 @@ def _simple_material(name: str, color=(0.2, 0.3, 0.4)):
 
 def _settings():
     return SimpleNamespace(
-        materialx_surface_profile="realitykit_portable",
         force_unlit_materials=False,
     )
 

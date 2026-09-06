@@ -82,19 +82,6 @@ def test_settings_get_help_lists_materials_group(capsys):
     assert "materials" in capsys.readouterr().out
 
 
-def test_validate_forwards_one_shot_material_surface_profile(capsys):
-    call = _run_parsed(
-        [
-            "validate",
-            "scene.blend",
-            "--materialx-surface-profile",
-            "realitykit_pbr2",
-        ]
-    )
-
-    assert call["args"]["materialx_surface_profile"] == "realitykit_pbr2"
-
-
 def test_validate_forwards_one_shot_safe_normalization_policy(capsys):
     call = _run_parsed(
         [
@@ -105,18 +92,6 @@ def test_validate_forwards_one_shot_safe_normalization_policy(capsys):
     )
 
     assert call["args"]["normalize_unsupported_values"] is True
-
-
-def test_validate_rejects_unknown_material_surface_profile():
-    with pytest.raises(CLIUsageError):
-        build_parser().parse_args(
-            [
-                "validate",
-                "scene.blend",
-                "--materialx-surface-profile",
-                "future_profile",
-            ]
-        )
 
 
 def test_step_timeout_watchdog_reports_the_current_step_and_exit_code():
