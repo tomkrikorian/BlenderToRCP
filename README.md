@@ -1,5 +1,10 @@
 # BlenderToRCP
 
+> **Archived.** BlenderToRCP is no longer maintained. It is a Blender plugin that
+> targets mainly Reality Composer Pro 2: its exports and MaterialX graphs follow
+> what Reality Composer Pro 2 and the RealityKit of that generation accept. The
+> 1.3.0 release is the last one.
+
 Blender add-on to export USD/USDZ and rewrite Blender materials into Reality Composer Pro compatible MaterialX ShaderGraph graphs.
 
 ## Key features
